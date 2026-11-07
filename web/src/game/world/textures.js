@@ -293,3 +293,134 @@ export function makeLhbSideTexture({ primary, secondary = '#b9bdc1', label = 'AC
   tex.anisotropy = 8;
   return tex;
 }
+
+/**
+ * Classic ICF coach side (current blue livery), from reference photos of ICF
+ * sleeper coaches: dark-blue body, pale-blue window band, ~20 small windows with
+ * aluminium louvre shutters (some open, showing the window bars), doors with
+ * yellow grab rails at both ends, yellow end stripes, "SLEEPER / शयनयान".
+ * Spans 21.337 m × 2.52 m (1.10 → 3.62 m above rail).
+ */
+export const ICF_SIDE = { length: 21.337, bottom: 1.1, top: 3.62 };
+
+export function makeIcfSideTexture({ primary = '#24448f', band = '#a9d3e0' } = {}) {
+  const W = 4096;
+  const H = 512;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d');
+  const L = ICF_SIDE.length;
+  const sx = W / L;
+  const sy = H / (ICF_SIDE.top - ICF_SIDE.bottom);
+  const X = (m) => m * sx;
+  const Y = (m) => (ICF_SIDE.top - m) * sy;
+  const rect = (x0, y0, x1, y1) => [X(x0), Y(y1), X(x1) - X(x0), Y(y0) - Y(y1)];
+  const rrect = (x0, y0, x1, y1, r) => {
+    g.beginPath();
+    g.roundRect(X(x0), Y(y1), X(x1) - X(x0), Y(y0) - Y(y1), [r * sx]);
+  };
+  const DEV = "'Kohinoor Devanagari','Devanagari Sangam MN','Nirmala UI','Mangal','Noto Sans Devanagari',sans-serif";
+
+  g.fillStyle = primary;
+  g.fillRect(0, 0, W, H);
+  g.fillStyle = band;
+  g.fillRect(...rect(0, 2.05, L, 2.75));
+  // weathering: vertical rain streaks, dirt at the bottom, sun-faded top
+  const rand = seededRandom(31);
+  for (let i = 0; i < 260; i++) {
+    g.fillStyle = `rgba(${rand() < 0.5 ? '255,255,255' : '20,20,30'},${0.02 + rand() * 0.05})`;
+    const x = rand() * L;
+    g.fillRect(...rect(x, 1.1 + rand() * 1.2, x + 0.02 + rand() * 0.06, 2.0 + rand() * 1.6));
+  }
+  let grad = g.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, 'rgba(255,255,255,0.10)');
+  grad.addColorStop(0.5, 'rgba(255,255,255,0)');
+  grad.addColorStop(0.85, 'rgba(40,30,20,0.10)');
+  grad.addColorStop(1, 'rgba(40,30,20,0.35)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, W, H);
+  // panel seams
+  g.fillStyle = 'rgba(0,0,0,0.18)';
+  for (let x = 1.4; x < L - 1; x += 2.6) g.fillRect(...rect(x, 1.1, x + 0.012, 3.62));
+
+  const louvre = (x0, x1, y0, y1, open) => {
+    g.fillStyle = '#26292c';
+    rrect(x0 - 0.03, y0 - 0.03, x1 + 0.03, y1 + 0.03, 0.09);
+    g.fill();
+    if (open) {
+      g.fillStyle = '#121619';
+      rrect(x0, y0, x1, y1, 0.07);
+      g.fill();
+      g.fillStyle = 'rgba(80,110,130,0.35)';
+      g.fillRect(...rect(x0, y1 - 0.12, x1, y1));
+      g.fillStyle = '#b8bcbf'; // window bars
+      for (let k = 1; k <= 4; k++) {
+        const y = y0 + ((y1 - y0) * k) / 5;
+        g.fillRect(...rect(x0 + 0.01, y - 0.008, x1 - 0.01, y + 0.008));
+      }
+      return;
+    }
+    g.fillStyle = '#c4c9cc'; // aluminium louvre shutter
+    rrect(x0, y0, x1, y1, 0.07);
+    g.fill();
+    g.fillStyle = 'rgba(60,66,72,0.75)';
+    const n = 7;
+    for (let k = 1; k < n; k++) {
+      const y = y0 + ((y1 - y0) * k) / n;
+      g.fillRect(...rect(x0 + 0.04, y - 0.012, x1 - 0.04, y + 0.004));
+    }
+    g.fillStyle = 'rgba(60,66,72,0.6)';
+    g.fillRect(...rect((x0 + x1) / 2 - 0.006, y0 + 0.02, (x0 + x1) / 2 + 0.006, y1 - 0.02));
+  };
+
+  // passenger windows between the doors (some shutters raised)
+  const pitch = 0.9;
+  const n = 19;
+  const first = L / 2 - (pitch * (n - 1)) / 2;
+  for (let i = 0; i < n; i++) {
+    const cx = first + pitch * i;
+    louvre(cx - 0.31, cx + 0.31, 2.13, 2.67, rand() < 0.3);
+  }
+  // doors with yellow grab rails, toilet windows, yellow end stripes
+  for (const end of [0, 1]) {
+    const d0 = end === 0 ? 0.45 : L - 1.2;
+    g.strokeStyle = 'rgba(0,0,0,0.6)';
+    g.lineWidth = 4;
+    g.strokeRect(...rect(d0, 1.12, d0 + 0.75, 3.3));
+    louvre(d0 + 0.18, d0 + 0.57, 2.25, 2.72, false);
+    g.fillStyle = '#e8b400';
+    g.fillRect(...rect(d0 - 0.09, 1.35, d0 - 0.05, 3.05));
+    g.fillRect(...rect(d0 + 0.8, 1.35, d0 + 0.84, 3.05));
+    const ex = end === 0 ? 0 : L - 0.07;
+    g.fillStyle = '#e8b400';
+    g.fillRect(...rect(ex, 1.1, ex + 0.07, 3.62));
+  }
+  // lettering: class name in Hindi and English, emergency window, number boards
+  g.fillStyle = 'rgba(225,240,245,0.92)';
+  g.textAlign = 'left';
+  g.textBaseline = 'middle';
+  g.font = `bold ${Math.round(0.2 * sy)}px ${DEV}`;
+  g.fillText('शयनयान', X(1.55), Y(3.38));
+  g.font = `bold ${Math.round(0.22 * sy)}px Helvetica, Arial, sans-serif`;
+  g.fillText('SLEEPER', X(1.55), Y(3.03));
+  g.textAlign = 'right';
+  g.fillText('SL', X(L - 1.5), Y(3.2));
+  g.fillStyle = '#d21e1e';
+  g.textAlign = 'center';
+  g.font = `bold ${Math.round(0.07 * sy)}px Helvetica, Arial, sans-serif`;
+  g.fillText('EMERGENCY WINDOW', X(first + pitch * 5), Y(1.95));
+  for (const cx of [L / 2 - 2.6, L / 2 + 2.6]) {
+    g.fillStyle = '#2a2a2a';
+    g.fillRect(...rect(cx - 0.62, 3.2, cx + 0.62, 3.42));
+    g.fillStyle = '#f3c623';
+    g.fillRect(...rect(cx - 0.59, 3.22, cx + 0.59, 3.4));
+    g.fillStyle = '#111';
+    g.font = `bold ${Math.round(0.11 * sy)}px Helvetica, Arial, sans-serif`;
+    g.fillText('GZB ⇄ NDLS', X(cx), Y(3.31));
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}

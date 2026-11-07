@@ -2,7 +2,7 @@
 import { origin, destination } from '../game/state/gameStore.js';
 import { TRAIN } from '../game/config/gameConfig.js';
 
-const CAMERA_LABELS = { cab: 'Cab', chase: 'Chase', orbit: 'Orbit', trackside: 'Trackside' };
+const CAMERA_LABELS = { cab: 'Cab', interior: 'Coach', chase: 'Chase', orbit: 'Orbit', trackside: 'Trackside' };
 
 function formatDistance(m) {
   if (Math.abs(m) >= 1000) return `${(m / 1000).toFixed(2)} km`;
@@ -127,7 +127,7 @@ export default function HUD({ s }) {
           <strong className={s.horn ? 'on' : ''}>{s.horn ? 'Sounding' : '—'}</strong>
         </div>
         <div className="status-keys">
-          W/S TE/BE · Space/X A9 brake · E emergency · F reverser · H horn · C/1–4 camera · drag to look · Esc menu
+          W/S TE/BE · Space/X A9 brake · E emergency · F reverser · H horn · C/1–5 camera · drag to look · Esc menu
         </div>
         {s.settings.showFps && (
           <div className="fps num">

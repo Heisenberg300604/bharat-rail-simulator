@@ -5,8 +5,9 @@
 // immutable *snapshot* that we publish only when needed — ~10×/s for the HUD,
 // immediately for menu/screen changes.
 import { useSyncExternalStore } from 'react';
-import { TRAIN, JOURNEY, ROUTE_SEGMENTS, FORMATION, STATIONS, QUALITY_PRESETS, SPEED_LIMITS } from '../config/gameConfig.js';
+import { TRAIN, JOURNEY, ROUTE_SEGMENTS, FORMATION, COACH_TYPES, AI_TRAINS, STATIONS, QUALITY_PRESETS, SPEED_LIMITS } from '../config/gameConfig.js';
 import { createRoute, computeFormation } from '../simulation/routeMath.js';
+import { createAiTrains } from '../simulation/aiTraffic.js';
 import {
   createTrainState,
   cycleDirection as simCycleDirection,
@@ -31,6 +32,15 @@ export const route = createRoute(ROUTE_SEGMENTS);
 export const formation = computeFormation(FORMATION);
 export const origin = STATIONS.find((s) => s.id === JOURNEY.originId);
 export const destination = STATIONS.find((s) => s.id === JOURNEY.destinationId);
+
+function lengthOfAiTrain(def) {
+  const ct = COACH_TYPES[def.type] || COACH_TYPES.lhb;
+  return FORMATION.locomotive.length + def.coaches * (ct.length + (ct.gap ?? 0.5));
+}
+
+export function initAiTrains() {
+  return createAiTrains(AI_TRAINS, lengthOfAiTrain);
+}
 
 function newTrain() {
   return createTrainState({
@@ -66,6 +76,7 @@ export const game = {
   screen: 'loading',
   train: newTrain(),
   journey: createJourney(),
+  aiTrains: initAiTrains(),
   renderDistance: JOURNEY.startDistance, // smoothed distance used for drawing
   input: { leverUp: false, leverDown: false, brakeApply: false, brakeRelease: false, horn: false },
   cameraMode: 'cab', // 'cab' | 'chase' | 'orbit' | 'trackside'
@@ -172,6 +183,7 @@ export function sceneReady() {
 export function resetJourney() {
   game.train = newTrain();
   game.journey = createJourney();
+  game.aiTrains = initAiTrains();
   game.renderDistance = game.train.routeDistance;
   game.toast = null;
   game.resetVersion++;
@@ -209,7 +221,7 @@ export function completeJourney() {
   setScreen('completed');
 }
 
-const CAMERA_ORDER = ['cab', 'chase', 'orbit', 'trackside'];
+const CAMERA_ORDER = ['cab', 'interior', 'chase', 'orbit', 'trackside'];
 export function toggleCamera() {
   game.cameraMode = CAMERA_ORDER[(CAMERA_ORDER.indexOf(game.cameraMode) + 1) % CAMERA_ORDER.length];
   publish();

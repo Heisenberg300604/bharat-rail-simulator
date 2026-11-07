@@ -41,9 +41,11 @@ export const STATIONS = [
 
 // Station yards: extra parallel tracks beside the main line (lateral offset in
 // metres, + = left). They branch off the main line with a smooth S-curve.
-// Layout (left → right): PF1 | main | T2 | island PF2/PF3 | T3 | T4 | PF4
+// Layout (left → right): PF1 | UP main | DOWN main | island PF2/PF3 | T3 | T4 | PF4
+// The line is double track: our train runs on the UP main (offset 0); trains
+// in the opposite direction use the DOWN main, 5.3 m to the right.
+export const DOWN_LINE_OFFSET = -5.3;
 export const STATION_TRACKS = [
-  { id: 'T2', offset: -5.3 },
   { id: 'T3', offset: -17.86 },
   { id: 'T4', offset: -23.16 },
 ];
@@ -133,18 +135,38 @@ export const FORMATION = {
   couplingGap: 0.5, // LHB: 23.54 m body, 24.0 m between coupler faces → ~0.46 m
 };
 
+// Coach types. LHB: modern (Germany-designed, 2000s+). ICF: the classic
+// Integral Coach Factory design, still common in blue livery.
+export const COACH_TYPES = {
+  lhb: { length: 23.54, bogieSpacing: 14.9, wheelRadius: 0.4575, axleOffsets: [-1.28, 1.28], gap: 0.5 },
+  icf: { length: 21.337, bogieSpacing: 14.783, wheelRadius: 0.4575, axleOffsets: [-1.448, 1.448], gap: 0.7 },
+};
+
+// Trains on the DOWN main (running towards New Delhi). They depart Ghaziabad
+// out of the player's sight and stop at New Delhi platform 2, so the player
+// meets them on the way. `departAt` = seconds after the journey starts.
+export const AI_TRAINS = [
+  { id: 'icf-express', type: 'icf', livery: 'icfBlue', coaches: 10, departAt: 12, startFront: 7880, stopFront: 120, maxKmh: 100 },
+  { id: 'lhb-rajdhani', type: 'lhb', livery: 'lhb', coaches: 9, departAt: 230, startFront: 7880, stopFront: 520, maxKmh: 110 },
+];
+
+// Road beside the line (left side) and a manned level crossing over both tracks.
+export const ROAD = { lateral: 32, from: 1250, to: 6350, width: 7 };
+export const LEVEL_CROSSING = { s: 4200, farLateral: -150, closeAhead: 650, whistleBoard: 600 };
+
 // Livery colours (primary body, secondary band). Applied per vehicle instance,
 // so one coach model serves every scheme.
 export const LIVERIES = {
   wap7: { paint: '#f2f2ee', paint2: '#d8232a' }, // white body, red waist band (procedural fallback only)
   lhb: { paint: '#d8262b', paint2: '#b9bdc1' }, // standard red-grey LHB scheme
   lhbBlue: { paint: '#1f4f9a', paint2: '#b9bdc1' }, // blue-grey (Shatabdi-style)
+  icfBlue: { paint: '#24448f', paint2: '#a9d3e0' }, // classic ICF: dark blue body, pale-blue window band
 };
 
 // Stationary trains standing at other platforms (for atmosphere).
 export const PARKED_TRAINS = [
-  { line: 'ndls-T3', frontS: 430, coaches: 7, livery: 'contrast' }, // opposite of the player's coach colour
-  { line: 'gzb-T4', frontS: 7640, coaches: 8, livery: 'lhb' },
+  { line: 'ndls-T3', frontS: 430, coaches: 8, livery: 'icfBlue', type: 'icf' }, // classic blue ICF rake
+  { line: 'gzb-T4', frontS: 7640, coaches: 8, livery: 'contrast', type: 'lhb' }, // opposite of the player's coach colour
 ];
 
 // ---------------------------------------------------------------------------

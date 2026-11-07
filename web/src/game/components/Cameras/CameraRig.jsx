@@ -11,14 +11,18 @@ import { game, useGameValue, formation } from '../../state/gameStore.js';
 import { sceneRefs } from '../../state/sceneRefs.js';
 import { mainLine } from '../../world/trackLayout.js';
 import { CAB_EYE, CAB_LOOK_PITCH_DEG } from '../Train/CabInterior.jsx';
+import { COACH_EYE, COACH_LOOK_PITCH_DEG } from '../Train/CoachInterior.jsx';
+import { TRACK, FORMATION, COACH_TYPES } from '../../config/gameConfig.js';
+import { vehiclePose } from '../../simulation/routeMath.js';
 import { attachPointer, consumePointer } from '../../hooks/pointerInput.js';
 import { FRAME_PRIORITY_CAMERA, damp } from './cameraConstants.js';
 
 const DEG = Math.PI / 180;
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+const _coachMat = new THREE.Matrix4();
 
-export const CAMERA_MODES = ['cab', 'chase', 'orbit', 'trackside'];
-export const CAMERA_LABELS = { cab: 'Cab', chase: 'Chase', orbit: 'Orbit', trackside: 'Trackside' };
+export const CAMERA_MODES = ['cab', 'interior', 'chase', 'orbit', 'trackside'];
+export const CAMERA_LABELS = { cab: 'Cab', interior: 'Coach', chase: 'Chase', orbit: 'Orbit', trackside: 'Trackside' };
 
 function setFov(camera, fov) {
   if (Math.abs(camera.fov - fov) > 0.01) {
@@ -37,6 +41,7 @@ export default function CameraRig() {
   // Per-view state that survives between frames (and view switches)
   const st = useRef({
     cab: { yaw: 0, pitch: 0, zoom: 1 },
+    interior: { yaw: 28 * DEG, pitch: 0, zoom: 1 },
     orbit: { yaw: -140 * DEG, pitch: 18 * DEG, dist: 45 },
     trackside: { s: null, side: 1 },
     initialised: false,
@@ -75,6 +80,42 @@ export default function CameraRig() {
       loco.localToWorld(v.look);
       camera.position.copy(v.eye);
       camera.lookAt(v.look);
+      setFov(camera, fovSetting * c.zoom);
+      return;
+    }
+
+    if (view === 'interior') {
+      const c = s.interior;
+      if (input.reset) Object.assign(c, { yaw: 28 * DEG, pitch: 0, zoom: 1 });
+      c.yaw = clamp(c.yaw - input.dx * 0.004, -110 * DEG, 110 * DEG);
+      c.pitch = clamp(c.pitch - input.dy * 0.004, -35 * DEG, 32 * DEG);
+      c.zoom = clamp(c.zoom * (1 + input.wheel * 0.001), 0.5, 1);
+      const sway = Math.min(game.train.speedMps / 25, 1);
+      const t = state.clock.elapsedTime;
+      const [ex, ey, ez] = COACH_EYE;
+      v.eye.set(ex, ey + Math.sin(t * 8.5) * 0.008 * sway, ez + Math.sin(t * 1.5) * 0.015 * sway);
+      const pitch = COACH_LOOK_PITCH_DEG * DEG + c.pitch;
+      v.look.set(Math.cos(c.yaw) * Math.cos(pitch), Math.sin(pitch), -Math.sin(c.yaw) * Math.cos(pitch)).add(v.eye);
+
+      const coach = sceneRefs.coachInterior;
+      if (coach) {
+        coach.localToWorld(v.eye);
+        coach.localToWorld(v.look);
+        camera.position.copy(v.eye);
+        camera.lookAt(v.look);
+      } else {
+        const isIcf = game.settings.coachLivery === 'icfBlue';
+        const coachSpec = isIcf ? COACH_TYPES.icf : COACH_TYPES.lhb;
+        const coachOffset = FORMATION.locomotive.length + (coachSpec.gap ?? FORMATION.couplingGap) + coachSpec.length / 2;
+        const coachDist = game.renderDistance - coachOffset;
+        vehiclePose(mainLine, coachDist, coachSpec.bogieSpacing, v.p);
+        _coachMat.makeRotationY(v.p.yaw);
+        _coachMat.setPosition(v.p.x, TRACK.railTop, v.p.z);
+        v.eye.applyMatrix4(_coachMat);
+        v.look.applyMatrix4(_coachMat);
+        camera.position.copy(v.eye);
+        camera.lookAt(v.look);
+      }
       setFov(camera, fovSetting * c.zoom);
       return;
     }

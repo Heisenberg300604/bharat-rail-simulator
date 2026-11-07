@@ -12,7 +12,8 @@ import ChunkedInstances from '../../world/ChunkedInstances.jsx';
 import { useQuality } from '../../state/gameStore.js';
 
 const OHE_SPACING = 60;
-const MAST_LAT = -3.6; // single masts on the right of the main line
+const MAST_UP = 3.6; // masts outside the double track: left of the up line…
+const MAST_DOWN = -5.3 - 3.6; // …and right of the down line
 export const CONTACT_WIRE_HEIGHT = TRACK.railTop + 5.5;
 const MESSENGER_HEIGHT = CONTACT_WIRE_HEIGHT + 1.2;
 const half = TRACK.gauge / 2;
@@ -133,9 +134,14 @@ export default function TrackRoute() {
         items.push(at(s, farLat, 4.6, 0.45, 9.2, 0.45));
         items.push(at(s, (nearLat + farLat) / 2, MESSENGER_HEIGHT + 0.9, 0.35, 0.6, span));
       } else {
-        items.push(at(s, MAST_LAT, 4.15, 0.32, 8.3, 0.32));
-        items.push(at(s, MAST_LAT / 2, MESSENGER_HEIGHT + 0.3, 0.12, 0.12, Math.abs(MAST_LAT) + 0.6));
-        items.push(at(s, 0, (MESSENGER_HEIGHT + CONTACT_WIRE_HEIGHT) / 2, 0.05, MESSENGER_HEIGHT - CONTACT_WIRE_HEIGHT, 0.05));
+        for (const [mast, track] of [
+          [MAST_UP, 0],
+          [MAST_DOWN, -5.3],
+        ]) {
+          items.push(at(s, mast, 4.15, 0.32, 8.3, 0.32));
+          items.push(at(s, (mast + track) / 2, MESSENGER_HEIGHT + 0.3, 0.12, 0.12, Math.abs(mast - track) + 0.6));
+          items.push(at(s, track, (MESSENGER_HEIGHT + CONTACT_WIRE_HEIGHT) / 2, 0.05, MESSENGER_HEIGHT - CONTACT_WIRE_HEIGHT, 0.05));
+        }
       }
     }
     return items;

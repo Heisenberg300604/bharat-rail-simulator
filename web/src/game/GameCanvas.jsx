@@ -10,6 +10,7 @@ import TrackRoute from './components/Track/TrackRoute.jsx';
 import Train from './components/Train/Train.jsx';
 import Station from './components/Stations/Station.jsx';
 import Scenery from './components/Environment/Scenery.jsx';
+import Road from './components/Environment/Road.jsx';
 import { Sky, Ground, Lighting, EnvironmentLighting, HORIZON_COLOR } from './components/Environment/Atmosphere.jsx';
 import CameraRig from './components/Cameras/CameraRig.jsx';
 
@@ -29,8 +30,8 @@ export default function GameCanvas() {
       frameloop={frameloop}
       dpr={maxDpr}
       shadows="percentage"
-      gl={{ antialias: quality.antialias, powerPreference: 'high-performance', stencil: false }}
-      camera={{ fov: 60, near: 0.2, far: quality.cameraFar, position: [0, 20, 40] }}
+      gl={{ antialias: quality.antialias, powerPreference: 'high-performance', stencil: false, logarithmicDepthBuffer: true }}
+      camera={{ fov: 60, near: 0.25, far: quality.cameraFar, position: [0, 20, 40] }}
       onCreated={({ gl }) => (sceneRefs.gl = gl)}
     >
       <CameraFar far={quality.cameraFar} />
@@ -44,6 +45,7 @@ export default function GameCanvas() {
       <Ground />
       <TrackRoute />
       <Scenery />
+      <Road />
       {STATIONS.map((st) => (
         <Station key={st.id} station={st} isDestination={st.id === JOURNEY.destinationId} />
       ))}

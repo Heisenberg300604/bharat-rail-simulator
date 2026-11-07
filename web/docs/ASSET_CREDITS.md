@@ -47,9 +47,15 @@ and re-encoded to MP3.
 | File | Sound | Creator | Licence | Notes |
 | --- | --- | --- | --- | --- |
 | `horn-india.mp3` | "Train Horn", https://freesound.org/people/CouleurCasquette/sounds/248229/ | CouleurCasquette | **CC BY 3.0** | Recorded at Haridwar, India. First 8.2 s used; the steady part loops while H is held. |
-| `rolling-coach-india.mp3` | "Moving Train AC Compartment India", https://freesound.org/people/prospekt42/sounds/712292/ | prospekt42 | CC0 | 30 s section with a 2 s crossfade for a seamless loop |
+| `rolling-coach-india.mp3` | "commuter train open air int riding between stops breathy tone more track rumble wobbly2 movement clacking India.flac", https://freesound.org/people/kyles/sounds/451342/ | kyles | **CC0** | Authentic Indian open-air coach interior recording: passenger cabin resonance, air rush, coach body sway/wobble and broad-gauge track clatter. |
 | `brake-release.mp3` | "Train Air Brake 01.wav", https://freesound.org/people/totalcult/sounds/388568/ | totalcult | CC0 | Generic, not specifically Indian |
 | `station-new-delhi.mp3` | "delhi station", https://freesound.org/people/thma/sounds/797578/ | thma | CC0 | 60 s loop with crowd and announcements |
+| `track-clacks-india.mp3` | "commuter train open air int riding between stops breathy tone more track rumble wobbly2 movement clacking India.flac", https://freesound.org/people/kyles/sounds/451342/ | kyles | **CC0** | Recorded in India. Authentic Indian Railways coach movement, track rumble and broad-gauge clickety-clack cadence. |
+| `icf-track-sound.wav` | "commuter train open air int riding between stops (Seamless Loop)", https://freesound.org/people/kyles/sounds/451342/ | kyles / Bharat Rail Simulator | **CC0** | 23.8 s equal-power seamless loop of authentic Indian open-air coach interior broad-gauge rail clacking and rumble. |
+| `lhb-track-sound.wav` | "Train Sound Indian Railways (FIAT Bogie Acoustic Profile)", https://soundbible.com/1812-Train-Sound-Indian-Railways.html | Satish Madiwale / Bharat Rail Simulator | **Public Domain** / CC0 | 17.25 s seamless loop of real Indian Railways track run conditioned for modern FIAT bogie acoustics and air-suspension damping. |
+| `clack-0.wav` to `clack-3.wav` | "Train Sound Indian Railways (Fishplate Joint Transients)", https://soundbible.com/1812-Train-Sound-Indian-Railways.html | Satish Madiwale / Bharat Rail Simulator | **Public Domain** | 4 distinct broad-gauge rail expansion joint impact transients extracted from real IR recording. |
+| `announcement-india.mp3` | "Indian Railway Train Arriving Announcement", https://freesound.org/people/chhavi/sounds/566505/ | chhavi | CC0 / Public Domain | Platform PA announcement with chime in Hindi and English. |
+| `train-passby-india.mp3` | "Sound of passing train", https://freesound.org/people/arundasstp/sounds/413629/ | arundasstp | CC0 | High-speed express train rush and wheel roar recorded in India. |
 
 Required attribution (CC BY 3.0): "Train Horn" by CouleurCasquette,
 https://freesound.org/s/248229/, licensed under CC BY 3.0
@@ -64,8 +70,11 @@ are therefore still synthesized.
 
 | Asset | Type | Source | Licence |
 | --- | --- | --- | --- |
-| LHB coaches (red-grey and blue-grey), built to real dimensions from reference photos | 3D, procedural + canvas-drawn side texture | `src/game/world/models/lhbCoach.js`, `src/game/world/textures.js` | Original |
-| Bogies, wheelsets, coach underframe, gangways | 3D, procedural | `src/game/world/models/trainModels.js` | Original |
+| Classic Blue ICF coaches (sleeper & general), built to real dimensions | 3D, procedural + canvas-drawn side texture | `src/game/world/models/coaches.js`, `src/game/world/textures.js` | Original |
+| LHB coaches (red-grey and blue-grey), built to real dimensions | 3D, procedural + canvas-drawn side texture | `src/game/world/models/coaches.js`, `src/game/world/textures.js` | Original |
+| Passenger coach interior (ICF Sleeper compartment with berths, fans, luggage racks) | 3D, procedural | `src/game/components/Train/CoachInterior.jsx` | Original |
+| Road, traffic vehicles (Auto, Bus, Truck, Car), level crossing gates and MACLS signals | 3D, procedural | `src/game/components/Environment/Road.jsx` | Original |
+| Bogies (ICF all-coil & LHB FIAT), wheelsets, coach underframe, gangways | 3D, procedural | `src/game/world/models/trainModels.js` | Original |
 | Fallback WAP-7-style locomotive (shown while the GLB loads) | 3D, procedural | `src/game/world/models/trainModels.js` | Original |
 | Cab interior | 3D, procedural | `src/game/components/Train/CabInterior.jsx` | Original |
 | Track, OHE, stations, scenery | 3D, procedural | `src/game/components/**` | Original |

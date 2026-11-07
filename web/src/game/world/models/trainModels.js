@@ -145,9 +145,10 @@ export const COACH_BODY_LIFT = 1.05; // LHB body side bottom, measured from refe
  * couplers and the rubber gangway bellows that join coach to coach.
  * Shares the coach's transform (one instanced mesh for all coaches).
  */
-export function buildCoachExtras(gap) {
+export function buildCoachExtras(gap, length = COACH_DIM.halfLength * 2, type = 'lhb') {
   const b = new ModelBuilder();
-  const { halfLength: HL } = COACH_DIM;
+  const HL = length / 2;
+  const icf = type === 'icf';
   const L = COACH_BODY_LIFT;
   const reach = gap / 2 + 0.02; // bellows/couplers reach just past the midpoint → neighbours touch
   // underside plate + sole bars along both sides
@@ -165,12 +166,24 @@ export function buildCoachExtras(gap) {
     const x0 = end * HL;
     const span = (a, c) => (end > 0 ? [x0 + a, x0 + c] : [x0 - c, x0 - a]);
     b.box(span(-0.2, 0), [L - 0.15, L + 0.32], [-1.45, 1.45], '#232527'); // headstock
-    b.box(span(-0.1, reach), [L + 0.03, L + 0.23], [-0.16, 0.16], '#1f2022'); // CBC coupler
-    b.box(span(reach - 0.06, reach), [L - 0.02, L + 0.28], [-0.24, 0.24], '#1f2022'); // coupler head
+    if (icf) {
+      // ICF: side buffers + screw coupling + brake hoses
+      for (const z of [-0.95, 0.95]) {
+        b.cylinder({ radius: 0.09, length: reach, axis: 'x', position: [x0 + end * (reach / 2), 1.105, z], color: '#2a2a2a', segments: 10 });
+        b.cylinder({ radius: 0.2, length: 0.05, axis: 'x', position: [x0 + end * (reach - 0.025), 1.105, z], color: '#333', segments: 14 });
+      }
+      b.box(span(0, reach), [1.04, 1.12], [-0.05, 0.05], '#1f2022');
+      b.cylinder({ radius: 0.03, length: 0.5, position: [x0 + end * 0.12, 0.95, 0.35], color: '#b02020', segments: 6 });
+      b.cylinder({ radius: 0.03, length: 0.5, position: [x0 + end * 0.12, 0.95, -0.35], color: '#2d7a2d', segments: 6 });
+    } else {
+      b.box(span(-0.1, reach), [L + 0.03, L + 0.23], [-0.16, 0.16], '#1f2022'); // CBC coupler
+      b.box(span(reach - 0.06, reach), [L - 0.02, L + 0.28], [-0.24, 0.24], '#1f2022'); // coupler head
+    }
     // gangway: rubber bellows with fold ridges, meeting the neighbouring coach
-    b.box(span(-0.05, reach), [L + 0.3, L + 2.45], [-0.66, 0.66], '#151515');
-    for (const k of [0.25, 0.5, 0.75]) b.box(span(reach * k - 0.02, reach * k + 0.02), [L + 0.27, L + 2.48], [-0.69, 0.69], '#0e0e0e');
-    b.box(span(-0.04, 0.02), [L + 0.25, L + 2.52], [-0.78, 0.78], '#2a2a2a'); // gangway frame on the end wall
+    const vw = icf ? 0.55 : 0.66; // vestibule half-width
+    b.box(span(-0.05, reach), [L + 0.3, L + 2.45], [-vw, vw], '#151515');
+    for (const k of [0.25, 0.5, 0.75]) b.box(span(reach * k - 0.02, reach * k + 0.02), [L + 0.27, L + 2.48], [-vw - 0.03, vw + 0.03], '#0e0e0e');
+    b.box(span(-0.04, 0.02), [L + 0.25, L + 2.52], [-vw - 0.12, vw + 0.12], '#2a2a2a'); // gangway frame on the end wall
   }
   return b.build().body;
 }
@@ -179,6 +192,7 @@ export function buildCoachExtras(gap) {
 export function buildBogieFrame(kind) {
   const b = new ModelBuilder();
   const loco = kind === 'loco';
+  if (kind === 'icf') return buildIcfBogie();
   const len = loco ? 4.6 : 3.4;
   const r = loco ? 0.546 : 0.4575;
   for (const z of [1, -1]) {
@@ -204,6 +218,26 @@ export function buildBogieFrame(kind) {
   return b.build().body;
 }
 
+/** ICF all-coil bogie: big black dashpot springs at each axle box, bolster springs, tread brakes. */
+function buildIcfBogie() {
+  const b = new ModelBuilder();
+  const r = 0.4575;
+  const ax = 1.448;
+  for (const z of [1, -1]) {
+    const zc = z * 1.1;
+    b.box([-ax - 0.45, ax + 0.45], [r + 0.08, r + 0.36], [zc - 0.11, zc + 0.11], '#2b2d30'); // side frame
+    for (const x of [-ax, ax]) {
+      b.box([x - 0.2, x + 0.2], [r - 0.14, r + 0.12], [zc - 0.13, zc + 0.13], '#34373a'); // axle box
+      for (const dx of [-0.32, 0.32]) b.cylinder({ radius: 0.1, length: 0.32, position: [x + dx, r + 0.22, zc], color: '#1b1c1e', segments: 10 }); // dashpot springs
+      b.box([x - 0.55, x - 0.42], [r - 0.25, r + 0.15], [zc - 0.25, zc - 0.05], '#3a3c3e'); // brake block
+    }
+    for (const dx of [-0.35, 0.35]) b.cylinder({ radius: 0.15, length: 0.42, position: [dx, COACH_BODY_LIFT - 0.27, zc - z * 0.15], color: '#1b1c1e', segments: 12 }); // bolster springs
+  }
+  b.box([-0.5, 0.5], [r + 0.2, r + 0.42], [-1.25, 1.25], '#2b2d30'); // bolster
+  b.box([-ax + 0.3, ax - 0.3], [r + 0.15, r + 0.3], [-0.12, 0.12], '#2b2d30'); // transoms
+  return b.build().body;
+}
+
 export function buildWheelset(radius) {
   const b = new ModelBuilder();
   const half = TRACK.gauge / 2;
@@ -214,4 +248,33 @@ export function buildWheelset(radius) {
   }
   b.cylinder({ radius: 0.08, length: TRACK.gauge, axis: 'z', segments: 8, color: '#222' });
   return b.build().body;
+}
+
+/**
+ * Authentic Indian Railways rear-end vehicle markers:
+ * 1. Bold Yellow reflective "LV" (Last Vehicle) circular board with black rim & letters
+ * 2. Large yellow/red diagonal cross ("X") stripes across the rear wall
+ * 3. Tail lamp bracket & housing for the 1.25 Hz pulsing red LED
+ */
+export function buildRearEndIndicators() {
+  const b = new ModelBuilder();
+  // 1. Diagonal cross ("X") on rear wall
+  b.add(new THREE.BoxGeometry(0.015, 0.07, 1.3), { color: '#ffcc00', position: [-0.02, 2.25, 0], rotation: [0.65, 0, 0] });
+  b.add(new THREE.BoxGeometry(0.015, 0.07, 1.3), { color: '#ffcc00', position: [-0.02, 2.25, 0], rotation: [-0.65, 0, 0] });
+
+  // 2. Circular Yellow "LV" (Last Vehicle) plate
+  b.cylinder({ radius: 0.25, length: 0.02, axis: 'x', position: [-0.03, 1.45, 0.55], color: '#f5c316', segments: 24 });
+  b.cylinder({ radius: 0.255, length: 0.015, axis: 'x', position: [-0.025, 1.45, 0.55], color: '#111', segments: 24 });
+  // Black "LV" lettering
+  b.box([-0.045, -0.035], [1.37, 1.53], [0.47, 0.50], '#111');
+  b.box([-0.045, -0.035], [1.37, 1.40], [0.47, 0.54], '#111');
+  b.box([-0.045, -0.035], [1.37, 1.53], [0.57, 0.60], '#111');
+  b.box([-0.045, -0.035], [1.37, 1.53], [0.62, 0.65], '#111');
+  b.box([-0.045, -0.035], [1.37, 1.40], [0.57, 0.65], '#111');
+
+  // 3. Tail lamp casing mounted on right bracket
+  b.box([-0.05, 0.02], [1.9, 1.96], [-0.85, -0.75], '#1f2022');
+  b.cylinder({ radius: 0.07, length: 0.08, axis: 'x', position: [-0.04, 1.98, -0.8], color: '#1a1a1a', segments: 16 });
+
+  return b.build();
 }

@@ -66,5 +66,15 @@ export function buildCabInterior() {
   // driver's seat
   b.box([HL - 1.75, HL - 1.25], [1.2, 1.95], [-0.85, -0.35], '#33383d');
   b.box([HL - 1.8, HL - 1.7], [1.95, 2.7], [-0.85, -0.35], '#33383d');
+
+  // Indian Railways cab fan (110V DC wire-cage pilot fan near driver's window)
+  b.cylinder({ radius: 0.018, length: 0.16, axis: 'y', position: [HL - 1.1, 3.65, -1.25], color: '#2a2d30' });
+  b.cylinder({ radius: 0.14, length: 0.04, axis: 'x', position: [HL - 1.02, 3.55, -1.25], color: '#3c4045' });
+  b.box([HL - 1.04, HL - 1.0], [3.44, 3.66], [-1.26, -1.24], '#50565c');
+
+  // VCD (Vigilance Control Device) yellow push button on control desk
+  b.cylinder({ radius: 0.035, length: 0.04, axis: 'y', position: [HL - 0.72, 2.65, -0.3], color: '#e6a800' });
+  // Emergency stop red mushroom button
+  b.cylinder({ radius: 0.04, length: 0.05, axis: 'y', position: [HL - 0.72, 2.65, -0.15], color: '#cc2222' });
   return b.build();
 }

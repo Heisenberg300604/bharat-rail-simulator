@@ -31,6 +31,7 @@ export default function StartScreen({ settings }) {
           <label>
             Coaches
             <select value={settings.coachLivery} onChange={(e) => updateSettings({ coachLivery: e.target.value })}>
+              <option value="icfBlue">Classic Blue ICF (Mail/Express)</option>
               <option value="red">Red-grey LHB (standard)</option>
               <option value="blue">Blue-grey LHB</option>
             </select>

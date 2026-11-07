@@ -49,6 +49,7 @@ export default function PauseMenu({ settings }) {
           <label className="setting">
             <span>Coaches</span>
             <select value={settings.coachLivery} onChange={(e) => updateSettings({ coachLivery: e.target.value })}>
+              <option value="icfBlue">Classic Blue ICF</option>
               <option value="red">Red-grey LHB</option>
               <option value="blue">Blue-grey LHB</option>
             </select>

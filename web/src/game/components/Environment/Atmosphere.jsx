@@ -209,7 +209,7 @@ export function Lighting({ shadows, shadowMapSize }) {
         shadow-camera-bottom={-90}
         shadow-camera-near={50}
         shadow-camera-far={420}
-        shadow-bias={-0.0003}
+        shadow-bias={0.00003}
         shadow-normalBias={0.05}
       />
       <primitive object={target} />

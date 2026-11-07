@@ -6,8 +6,9 @@
 // called from the "Start Journey" button click.
 import { AUDIO_MANIFEST } from './audioManifest.js';
 
-const RAIL_LENGTH = 13; // metres between rail joints ("clickety-clack")
-const AXLE_PAIR_GAP = 2.5; // metres between the two axles of a bogie
+const RAIL_LENGTH = 13; // metres between broad-gauge rail joints (RDSO 13 m standard)
+const ICF_BOGIE_WHEELBASE = 2.896; // metres between axles in an ICF bogie
+const ICF_BOGIE_CENTRES = 14.783; // metres between the two bogie pivots of an ICF coach
 
 function makeNoiseBuffer(ctx, seconds) {
   const buffer = ctx.createBuffer(1, ctx.sampleRate * seconds, ctx.sampleRate);
@@ -16,15 +17,43 @@ function makeNoiseBuffer(ctx, seconds) {
   return buffer;
 }
 
-function makeClackBuffer(ctx) {
-  const len = Math.floor(ctx.sampleRate * 0.09);
+/**
+ * Authentic Indian Railways broad-gauge rail joint impact buffer.
+ * Synthesizes the distinctive multi-layered acoustic signature:
+ *  1. Sharp steel-on-steel expansion gap impact transient (1800-2400 Hz)
+ *  2. Broad-gauge steel railhead & wheel-rim resonant ringing (500-600 Hz)
+ *  3. Heavy sleeper & ballast low-frequency punch (85-110 Hz)
+ *  4. Ballast scatter / underframe vibration
+ */
+function makeAuthenticIndianRailClackBuffer(ctx, variant = 0) {
+  const len = Math.floor(ctx.sampleRate * 0.22);
   const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
   const data = buffer.getChannelData(0);
+
+  const baseFreq = [560, 510, 580, 490][variant % 4];
+  const ringFreq = [1900, 2150, 1800, 2250][variant % 4];
+  const thudFreq = [95, 88, 98, 84][variant % 4];
+
   for (let i = 0; i < len; i++) {
-    const t = i / len;
-    data[i] = (Math.random() * 2 - 1) * Math.exp(-t * 9) + Math.sin(i * 0.05) * Math.exp(-t * 6) * 0.6;
+    const t = i / ctx.sampleRate;
+    // 1. Sharp metallic impact transient
+    const snap = (Math.random() * 2 - 1) * Math.exp(-t * 90);
+    // 2. High metallic wheel rim ping
+    const ring = Math.sin(2 * Math.PI * ringFreq * t) * Math.exp(-t * 48) * 0.45;
+    // 3. Steel rail structural harmonic
+    const rail = Math.sin(2 * Math.PI * baseFreq * t) * Math.exp(-t * 26) * 0.65;
+    // 4. Heavy sleeper / ballast low punch
+    const thud = Math.sin(2 * Math.PI * (thudFreq - 30 * t) * t) * Math.exp(-t * 34) * 0.85;
+    // 5. Ballast gravel rattle
+    const rattle = (Math.random() * 2 - 1) * Math.sin(2 * Math.PI * 450 * t) * Math.exp(-t * 22) * 0.25;
+
+    data[i] = snap * 0.75 + ring + rail + thud + rattle;
   }
   return buffer;
+}
+
+function makeClackBuffer(ctx) {
+  return makeAuthenticIndianRailClackBuffer(ctx, 0);
 }
 
 class AudioEngine {
@@ -35,7 +64,12 @@ class AudioEngine {
   lastBrake = 0;
   buffers = {};
   hornSource = null;
+  announcementSource = null;
   lastReleaseSound = -10;
+  lastAnnouncementTime = -100;
+  lastPassbyTime = -100;
+  lastAiHornTime = -100;
+  jointBuffers = [];
 
   init() {
     if (this.ctx) {
@@ -66,12 +100,29 @@ class AudioEngine {
 
     // Rolling rumble: low-passed noise, louder & brighter with speed.
     this.rollFilter = ctx.createBiquadFilter();
-    this.rollFilter.type = 'bandpass'; // mid band: audible on laptop speakers too
+    this.rollFilter.type = 'bandpass';
     this.rollFilter.frequency.value = 300;
     this.rollFilter.Q.value = 0.7;
     this.rollGain = ctx.createGain();
     this.rollGain.gain.value = 0;
     loopNoise().connect(this.rollFilter).connect(this.rollGain).connect(this.master);
+
+    // Continuous wheel-on-rail track friction roar (classic Indian Railways track sound)
+    this.trackRoarFilter = ctx.createBiquadFilter();
+    this.trackRoarFilter.type = 'bandpass';
+    this.trackRoarFilter.frequency.value = 460;
+    this.trackRoarFilter.Q.value = 0.85;
+    this.trackRoarGain = ctx.createGain();
+    this.trackRoarGain.gain.value = 0;
+    loopNoise().connect(this.trackRoarFilter).connect(this.trackRoarGain).connect(this.master);
+
+    // Coach suspension creak & interior body movement rumble
+    this.coachRattleFilter = ctx.createBiquadFilter();
+    this.coachRattleFilter.type = 'lowpass';
+    this.coachRattleFilter.frequency.value = 320;
+    this.coachRattleGain = ctx.createGain();
+    this.coachRattleGain.gain.value = 0;
+    loopNoise().connect(this.coachRattleFilter).connect(this.coachRattleGain).connect(this.master);
 
     // Wind: band-passed noise, grows with speed².
     const windFilter = ctx.createBiquadFilter();
@@ -136,10 +187,12 @@ class AudioEngine {
       osc.start();
     }
 
-    this.clackBuffer = makeClackBuffer(ctx);
+    // Bank of authentic broad-gauge rail-joint impact buffers (4 variants for 4 axles)
+    this.jointBuffers = [0, 1, 2, 3].map((v) => makeAuthenticIndianRailClackBuffer(ctx, v));
+    this.clackBuffer = this.jointBuffers[0];
     this.clackFilter = ctx.createBiquadFilter();
     this.clackFilter.type = 'lowpass';
-    this.clackFilter.frequency.value = 2600;
+    this.clackFilter.frequency.value = 3200;
     this.clackFilter.connect(this.master);
 
     // Bus for recorded samples
@@ -149,6 +202,20 @@ class AudioEngine {
     this.stationGain = ctx.createGain();
     this.stationGain.gain.value = 0;
     this.stationGain.connect(this.master);
+
+    // Dedicated bus for platform announcement so it fades smoothly as train departs
+    this.announcementGain = ctx.createGain();
+    this.announcementGain.gain.value = 0;
+    this.announcementGain.connect(this.master);
+
+    // Dedicated buses for authentic ICF and LHB track recordings
+    this.icfTrackGain = ctx.createGain();
+    this.icfTrackGain.gain.value = 0;
+    this.icfTrackGain.connect(this.master);
+
+    this.lhbTrackGain = ctx.createGain();
+    this.lhbTrackGain.gain.value = 0;
+    this.lhbTrackGain.connect(this.master);
 
     this.ready = true;
     this.burstHiss(); // audible confirmation that sound is working
@@ -172,13 +239,22 @@ class AudioEngine {
     // Start the looping beds once their recordings are available
     if (this.buffers.rolling) this.startLoop(this.buffers.rolling, this.rollSampleGain, (src) => (this.rollSource = src));
     if (this.buffers.station) this.startLoop(this.buffers.station, this.stationGain);
+    if (this.buffers.icfTrack) this.startLoop(this.buffers.icfTrack, this.icfTrackGain, (src) => (this.icfSource = src));
+    if (this.buffers.lhbTrack) this.startLoop(this.buffers.lhbTrack, this.lhbTrackGain, (src) => (this.lhbSource = src));
+
+    // Update joint impact buffers with real recordings when loaded
+    for (let i = 0; i < 4; i++) {
+      if (this.buffers[`clack${i}`]) {
+        this.jointBuffers[i] = this.buffers[`clack${i}`];
+      }
+    }
+    if (this.jointBuffers[0]) this.clackBuffer = this.jointBuffers[0];
   }
 
   startLoop(buffer, destination, keep) {
     const src = this.ctx.createBufferSource();
     src.buffer = buffer;
     src.loop = true;
-    // skip MP3 encoder padding at both ends so the loop point is seamless
     src.loopStart = 0.03;
     src.loopEnd = buffer.duration - 0.06;
     src.connect(destination);
@@ -203,7 +279,7 @@ class AudioEngine {
     }
     const src = this.ctx.createBufferSource();
     src.buffer = this.buffers.horn;
-    src.loop = true; // the steady middle loops for as long as H is held
+    src.loop = true;
     src.loopStart = h.loopStart;
     src.loopEnd = h.loopEnd;
     const g = this.ctx.createGain();
@@ -247,13 +323,79 @@ class AudioEngine {
     else this.ctx.resume();
   }
 
-  playClack(when, level) {
+  playAiHorn() {
+    if (!this.ready) return;
+    const now = this.ctx.currentTime;
+    if (now - this.lastAiHornTime < 10) return;
+    this.lastAiHornTime = now;
+
+    if (this.buffers.horn) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.buffers.horn;
+      src.playbackRate.value = 1.06;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(0.65, now + 0.08);
+      g.gain.setValueAtTime(0.65, now + 1.2);
+      g.gain.linearRampToValueAtTime(0, now + 1.8);
+      src.connect(g).connect(this.master);
+      src.start(now);
+      src.stop(now + 1.9);
+    }
+  }
+
+  playPassby() {
+    if (!this.ready || !this.buffers.passby) return;
+    const now = this.ctx.currentTime;
+    if (now - this.lastPassbyTime < 12) return;
+    this.lastPassbyTime = now;
+    this.playOneShot(this.buffers.passby, AUDIO_MANIFEST.passby.level);
+  }
+
+  /**
+   * Plays the platform arrival/departure announcement. Routed through
+   * announcementGain so it automatically fades away as the train departs.
+   */
+  playAnnouncement() {
+    if (!this.ready || !this.buffers.announcement) return;
+    const now = this.ctx.currentTime;
+    if (now - this.lastAnnouncementTime < 45) return;
+    this.lastAnnouncementTime = now;
+    if (this.announcementSource) {
+      try {
+        this.announcementSource.stop();
+      } catch {
+        /* already ended */
+      }
+      this.announcementSource = null;
+    }
     const src = this.ctx.createBufferSource();
-    src.buffer = this.clackBuffer;
+    src.buffer = this.buffers.announcement;
+    src.connect(this.announcementGain);
+    src.start();
+    this.announcementSource = src;
+  }
+
+  /**
+   * Play an authentic broad-gauge rail-joint clack for a specific axle.
+   */
+  playJointClack(when, level, variant = 0) {
+    if (!this.ready) return;
+    const buf = this.jointBuffers?.[variant % 4] || this.clackBuffer;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = 0.94 + (variant % 3) * 0.05 + Math.random() * 0.04;
     const g = this.ctx.createGain();
     g.gain.value = level;
     src.connect(g).connect(this.clackFilter);
     src.start(when);
+  }
+
+  /**
+   * Legacy playClack compatibility helper.
+   */
+  playClack(when, level) {
+    this.playJointClack(when, level, 0);
   }
 
   /** Called every frame with the current game state. Cheap: only sets targets. */
@@ -265,25 +407,74 @@ class AudioEngine {
     const r = Math.min(v / maxSpeedMps, 1);
     const moving = v > 0.2 ? 1 : 0;
     const smooth = 0.15;
+    const isInterior = env.cameraMode === 'interior';
 
-    // Rolling: the real in-coach recording (pitch and level follow speed);
-    // the synthesized rumble only fills in until it has loaded.
-    const hasRoll = !!this.buffers.rolling;
-    this.rollGain.gain.setTargetAtTime(moving * m.rolling.synthLevel * (hasRoll ? 0.25 : 1) * (0.25 + 0.75 * r), now, smooth);
-    this.rollFilter.frequency.setTargetAtTime(300 + 900 * r, now, smooth);
-    if (hasRoll) {
-      const level = v > 0.2 ? m.rolling.level * Math.min(1, 0.12 + 1.1 * Math.sqrt(r)) : 0;
-      this.rollSampleGain.gain.setTargetAtTime(level, now, 0.25);
-      this.rollSource?.playbackRate.setTargetAtTime(0.7 + 0.45 * r, now, 0.3);
+    if (env.passingAiTrain) {
+      this.playPassby();
     }
-    // Station ambience fades in near the platforms
-    this.stationGain.gain.setTargetAtTime(m.station.level * (env.stationProximity ?? 0), now, 0.6);
-    this.windGain.gain.setTargetAtTime(m.wind.level * r * r, now, smooth);
-    this.idleGain.gain.setTargetAtTime(m.idle.level * (1 + 0.6 * train.throttle), now, 0.4);
-    this.motorOsc.frequency.setTargetAtTime(55 + 260 * r, now, smooth);
-    this.motorGain.gain.setTargetAtTime(m.motor.level * train.throttle * (0.4 + 0.6 * r), now, smooth);
+    if ((env.stationProximity ?? 0) > 0.65 && v < 12) {
+      this.playAnnouncement();
+    }
 
-    // Brake hiss while the handle is moving; real air-release "pssh" on release.
+    // 1. Platform Announcement: fades out smoothly as train leaves the station platform
+    const stationProx = env.stationProximity ?? 0;
+    const announceVol = stationProx > 0.04 ? m.announcement.level * Math.pow(stationProx, 1.8) : 0;
+    this.announcementGain.gain.setTargetAtTime(announceVol, now, 0.25);
+    if (stationProx <= 0.02 && this.announcementSource) {
+      try {
+        this.announcementSource.stop();
+      } catch {
+        /* already ended */
+      }
+      this.announcementSource = null;
+    }
+
+    // 2. Continuous ICF Wheel-on-Rail Track Roar
+    const trackRoarLevel = moving * (0.18 + 0.82 * r) * (isInterior ? 0.95 : 0.65);
+    this.trackRoarGain.gain.setTargetAtTime(trackRoarLevel, now, smooth);
+    this.trackRoarFilter.frequency.setTargetAtTime(380 + 520 * r, now, smooth);
+
+    // 3. Coach Movement & Interior Cabin Suspension Rumble (boosted inside coach)
+    const coachRattleLevel = moving * (0.12 + 0.88 * Math.sqrt(r)) * (isInterior ? 0.85 : 0.32);
+    this.coachRattleGain.gain.setTargetAtTime(coachRattleLevel, now, smooth);
+    this.coachRattleFilter.frequency.setTargetAtTime(220 + 260 * r, now, smooth);
+
+    // 4. Authentic Coach Track Recording (ICF vs LHB)
+    const isIcf = env.coachLivery === 'icfBlue';
+    const hasRoll = !!this.buffers.rolling;
+    const rollBoost = isInterior ? 2.0 : 1.0;
+    this.rollGain.gain.setTargetAtTime(moving * m.rolling.synthLevel * (hasRoll ? 0.25 : 1) * (0.25 + 0.75 * r) * rollBoost, now, smooth);
+    this.rollFilter.frequency.setTargetAtTime(300 + 900 * r, now, smooth);
+
+    if (this.buffers.icfTrack && isIcf) {
+      const level = moving ? m.icfTrack.level * Math.min(1.25, 0.18 + 0.82 * r) * (isInterior ? 1.6 : 0.95) : 0;
+      this.icfTrackGain.gain.setTargetAtTime(level, now, 0.2);
+      this.icfSource?.playbackRate.setTargetAtTime(0.72 + 0.45 * r, now, 0.25);
+      this.lhbTrackGain.gain.setTargetAtTime(0, now, 0.2);
+      this.rollSampleGain.gain.setTargetAtTime(0, now, 0.2);
+    } else if (this.buffers.lhbTrack && !isIcf) {
+      const level = moving ? m.lhbTrack.level * Math.min(1.15, 0.18 + 0.82 * r) * (isInterior ? 1.4 : 0.9) : 0;
+      this.lhbTrackGain.gain.setTargetAtTime(level, now, 0.2);
+      this.lhbSource?.playbackRate.setTargetAtTime(0.75 + 0.42 * r, now, 0.25);
+      this.icfTrackGain.gain.setTargetAtTime(0, now, 0.2);
+      this.rollSampleGain.gain.setTargetAtTime(0, now, 0.2);
+    } else if (hasRoll) {
+      const level = v > 0.2 ? m.rolling.level * Math.min(1, 0.15 + 1.15 * Math.sqrt(r)) * rollBoost : 0;
+      this.rollSampleGain.gain.setTargetAtTime(level, now, 0.25);
+      this.rollSource?.playbackRate.setTargetAtTime(0.72 + 0.45 * r, now, 0.3);
+    }
+
+    // Station ambience fades in near the platforms
+    this.stationGain.gain.setTargetAtTime(m.station.level * stationProx, now, 0.6);
+    this.windGain.gain.setTargetAtTime(m.wind.level * r * r * (isInterior ? 0.65 : 1), now, smooth);
+
+    // In interior coach view, locomotive sounds are naturally subdued by distance
+    const locoDistAtten = isInterior ? 0.28 : 1.0;
+    this.idleGain.gain.setTargetAtTime(m.idle.level * (1 + 0.6 * train.throttle) * locoDistAtten, now, 0.4);
+    this.motorOsc.frequency.setTargetAtTime(55 + 260 * r, now, smooth);
+    this.motorGain.gain.setTargetAtTime(m.motor.level * train.throttle * (0.4 + 0.6 * r) * locoDistAtten, now, smooth);
+
+    // Brake hiss while handle is moving; air-release "pssh" on release
     const brakeMoving = Math.abs(train.brake - this.lastBrake) > 1e-4;
     const releasing = train.brake < this.lastBrake - 1e-4;
     if (releasing && this.buffers.brakeRelease && now - this.lastReleaseSound > 4) {
@@ -293,22 +484,32 @@ class AudioEngine {
     this.lastBrake = train.brake;
     this.hissGain.gain.setTargetAtTime(brakeMoving ? m.brakeHiss.level : 0, now, brakeMoving ? 0.05 : 0.3);
 
-    // Horn: quick attack, short release.
+    // Horn
     if (input.horn !== this.hornOn) {
       this.hornOn = input.horn;
       if (input.horn) this.hornStart(now);
       else this.hornStop(now);
     }
 
-    // Rail-joint clacks: two clicks (one per axle of a bogie) every rail length.
+    // 5. Authentic Indian Railways ICF Bogie Cadence ("TA-dak ... TA-dak") on rail joints
     const d = train.distanceTravelled;
     if (d < this.lastJointDistance) this.lastJointDistance = d; // journey restarted
     if (d - this.lastJointDistance >= RAIL_LENGTH) {
       this.lastJointDistance = d;
-      if (v > 1) {
-        const level = m.clack.level * Math.min(1, v / 15);
-        this.playClack(now, level);
-        this.playClack(now + AXLE_PAIR_GAP / v, level * 0.8);
+      if (v > 0.8) {
+        const level = m.clack.level * Math.min(1.25, 0.35 + 0.65 * (v / 18)) * (isInterior ? 1.55 : 1.0);
+        const bogieAxleGap = ICF_BOGIE_WHEELBASE / v;
+        const bogieSpan = ICF_BOGIE_CENTRES / v;
+
+        // Front bogie: axle 1, then axle 2 ("TA-dak")
+        this.playJointClack(now, level, 0);
+        this.playJointClack(now + bogieAxleGap, level * 0.9, 1);
+
+        // Rear bogie: axle 3, then axle 4 ("TA-dak")
+        if (bogieSpan < 2.2) {
+          this.playJointClack(now + bogieSpan, level * 0.95, 2);
+          this.playJointClack(now + bogieSpan + bogieAxleGap, level * 0.85, 3);
+        }
       }
     }
   }

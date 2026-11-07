@@ -9,7 +9,8 @@ import { useMemo, useRef } from 'react';
 import { game, publish, completeJourney, sceneReady, showToast, route, currentSpeedLimit, formation } from './state/gameStore.js';
 import { stepTrain, createFixedStepper } from './simulation/trainSimulation.js';
 import { updateJourney, JOURNEY_STATE } from './simulation/journeyManager.js';
-import { TRAIN, JOURNEY, FIXED_TIMESTEP, MAX_FRAME_DELTA, STATIONS } from './config/gameConfig.js';
+import { TRAIN, JOURNEY, FIXED_TIMESTEP, MAX_FRAME_DELTA, STATIONS, SPEED_LIMITS, LEVEL_CROSSING } from './config/gameConfig.js';
+import { stepAiTrains } from './simulation/aiTraffic.js';
 import { audioEngine } from './audio/audioEngine.js';
 
 const HUD_INTERVAL = 0.1;
@@ -43,6 +44,12 @@ export default function SimulationDriver() {
         const k = Math.abs(route.curvatureAt(train.routeDistance - 100));
         stepTrain(train, game.input, dt, TRAIN, { curveRadius: k > 0 ? 1 / k : Infinity });
         updateJourney(game.journey, train, dt, JOURNEY, currentSpeedLimit(train));
+        if (game.aiTrains) {
+          stepAiTrains(game.aiTrains, dt, game.journey.elapsed, {
+            limits: SPEED_LIMITS,
+            playerFront: train.routeDistance,
+          });
+        }
         if (train.hitBufferStop && speedBefore > 0.5) showToast('End of the line — the train hit the buffer stop');
       });
       // Interpolate between the last two physics states for silky motion
@@ -53,7 +60,31 @@ export default function SimulationDriver() {
       game.renderDistance = train.routeDistance;
     }
 
-    audioEngine.update(train, game.input, MAX_SPEED_MPS, { stationProximity: stationProximity(train.routeDistance) });
+    let passingAiTrain = false;
+    if (game.aiTrains) {
+      for (const tr of game.aiTrains) {
+        if (tr.state !== 'running') continue;
+        const rel = tr.front - train.routeDistance;
+        if (rel > -tr.length - 30 && rel < 70) {
+          passingAiTrain = true;
+          if (!tr.hornSounded && rel > -10 && rel < 40) {
+            tr.hornSounded = true;
+            audioEngine.playAiHorn();
+          }
+        }
+      }
+    }
+
+    const distToCrossing = Math.abs(train.routeDistance - LEVEL_CROSSING.s);
+    const crossingProximity = distToCrossing < 450 ? 1 - distToCrossing / 450 : 0;
+
+    audioEngine.update(train, game.input, MAX_SPEED_MPS, {
+      stationProximity: stationProximity(train.routeDistance),
+      crossingProximity,
+      passingAiTrain,
+      cameraMode: game.cameraMode,
+      coachLivery: game.settings.coachLivery,
+    });
 
     // FPS counter (cheap)
     t.fpsFrames++;

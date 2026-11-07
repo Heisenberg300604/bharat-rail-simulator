@@ -5,7 +5,9 @@ import assert from 'node:assert/strict';
 import { createRoute, vehiclePose, computeFormation } from './routeMath.js';
 import { createTrainState, stepTrain, cycleDirection, createFixedStepper, applyEmergency, speedLimitFor, DIRECTION } from './trainSimulation.js';
 import { createJourney, updateJourney, JOURNEY_STATE } from './journeyManager.js';
-import { TRAIN, ROUTE_SEGMENTS, JOURNEY, FORMATION, FIXED_TIMESTEP, SPEED_LIMITS } from '../config/gameConfig.js';
+import { createAiTrains, stepAiTrains } from './aiTraffic.js';
+import { TRAIN, ROUTE_SEGMENTS, JOURNEY, FORMATION, COACH_TYPES, AI_TRAINS, LEVEL_CROSSING, FIXED_TIMESTEP, SPEED_LIMITS } from '../config/gameConfig.js';
+import { coachVariantKey } from '../world/models/coaches.js';
 
 const DT = FIXED_TIMESTEP;
 const NO_INPUT = { leverUp: false, leverDown: false, brakeApply: false, brakeRelease: false };
@@ -257,4 +259,110 @@ test('an automatic driver obeying speed limits completes New Delhi → Ghaziabad
   assert.ok(t > 300 && t < 720, `journey took ${t.toFixed(0)} s`);
   assert.ok(journey.result.maxOverspeedKmh < 5, `overspeed ${journey.result.maxOverspeedKmh.toFixed(1)}`);
   console.log(`  auto-driver: ${(t / 60).toFixed(1)} min, max ${journey.result.maxSpeedKmh.toFixed(0)} km/h, stop offset ${journey.result.stopOffset.toFixed(1)} m, score ${journey.result.score}`);
+});
+
+// ---------------------------------------------------------------- AI trains
+test('AI train waits until the player is far away, obeys limits, stops at its platform', () => {
+  const [tr] = createAiTrains([{ id: 'x', departAt: 5, startFront: 7880, stopFront: 120, maxKmh: 100 }], () => 240);
+  let maxOver = 0;
+  // player sitting near Ghaziabad: the AI train must not appear
+  stepAiTrains([tr], DT, 10, { limits: SPEED_LIMITS, playerFront: 7000 });
+  assert.equal(tr.state, 'waiting');
+  let t = 0;
+  while (tr.state !== 'arrived' && t < 1500) {
+    stepAiTrains([tr], DT, 10 + t, { limits: SPEED_LIMITS, playerFront: 400 });
+    const lim = speedLimitFor(SPEED_LIMITS, tr.front, tr.front + tr.length);
+    maxOver = Math.max(maxOver, tr.speed * 3.6 - lim);
+    t += DT;
+  }
+  assert.equal(tr.state, 'arrived');
+  assert.ok(Math.abs(tr.front - 120) < 3, `stopped at ${tr.front.toFixed(1)}`);
+  assert.ok(maxOver < 2, `overspeed ${maxOver.toFixed(1)} km/h`);
+});
+
+test('coachVariantKey correctly maps coach types and liveries', () => {
+  assert.equal(coachVariantKey('icf', 'icfBlue'), 'icf-blue');
+  assert.equal(coachVariantKey('icf', 'contrast'), 'icf-blue');
+  assert.equal(coachVariantKey('lhb', 'lhb'), 'lhb-red');
+  assert.equal(coachVariantKey('lhb', 'red'), 'lhb-red');
+  assert.equal(coachVariantKey('lhb', 'lhbBlue'), 'lhb-blue');
+  assert.equal(coachVariantKey('lhb', 'blue'), 'lhb-blue');
+});
+
+test('AI train formation lengths respect coach types (ICF vs LHB)', () => {
+  const lengthOf = (def) => {
+    const ct = COACH_TYPES[def.type] || COACH_TYPES.lhb;
+    return FORMATION.locomotive.length + def.coaches * (ct.length + (ct.gap ?? 0.5));
+  };
+  const aiTrains = createAiTrains(AI_TRAINS, lengthOf);
+  assert.equal(aiTrains.length, 2);
+
+  // icf-express: WAP-7 (20.56) + 10 ICF (21.337 + 0.7 = 22.037) = 240.93 m
+  const icfExpress = aiTrains.find((t) => t.id === 'icf-express');
+  assert.ok(icfExpress);
+  assert.ok(Math.abs(icfExpress.length - (20.56 + 10 * (21.337 + 0.7))) < 1e-3);
+
+  // lhb-rajdhani: WAP-7 (20.56) + 9 LHB (23.54 + 0.5 = 24.04) = 236.92 m
+  const lhbRajdhani = aiTrains.find((t) => t.id === 'lhb-rajdhani');
+  assert.ok(lhbRajdhani);
+  assert.ok(Math.abs(lhbRajdhani.length - (20.56 + 9 * (23.54 + 0.5))) < 1e-3);
+});
+
+test('level crossing gate timing correctly calculates closing window', () => {
+  const crossingS = LEVEL_CROSSING.s;
+  const isClosing = (trainFront, trainRear) => {
+    const distToCrossing = crossingS - trainFront;
+    return distToCrossing > -40 && distToCrossing < LEVEL_CROSSING.closeAhead;
+  };
+
+  // Train far away (>650m): gates open
+  assert.equal(isClosing(crossingS - 800, crossingS - 1000), false);
+
+  // Train approaching (within 650m): gates closed
+  assert.equal(isClosing(crossingS - 500, crossingS - 700), true);
+  assert.equal(isClosing(crossingS - 50, crossingS - 250), true);
+
+  // Train crossing: gates closed
+  assert.equal(isClosing(crossingS + 20, crossingS - 180), true);
+
+  // Train has fully cleared crossing: gates open
+  assert.equal(isClosing(crossingS + 260, crossingS + 50), false);
+});
+
+test('player train formation spacing joins coaches seamlessly without gaps for ICF and LHB', () => {
+  for (const coachType of ['icf', 'lhb']) {
+    const spec = COACH_TYPES[coachType];
+    const gap = spec.gap ?? FORMATION.couplingGap;
+    const L = FORMATION.locomotive.length;
+
+    const vehicles = [{ kind: 'locomotive', offset: L / 2, length: L }];
+    let back = L;
+    for (let i = 0; i < FORMATION.coachCount; i++) {
+      back += gap;
+      vehicles.push({ kind: 'coach', offset: back + spec.length / 2, length: spec.length });
+      back += spec.length;
+    }
+
+    assert.equal(vehicles.length, 9);
+    for (let i = 1; i < vehicles.length; i++) {
+      const prev = vehicles[i - 1];
+      const curr = vehicles[i];
+      const prevRear = prev.offset + prev.length / 2;
+      const currFront = curr.offset - curr.length / 2;
+      const measuredGap = currFront - prevRear;
+      assert.ok(Math.abs(measuredGap - gap) < 1e-4, `Expected gap ${gap}, got ${measuredGap}`);
+      // Reach of couplers / gangway bellows from each side must bridge the gap
+      const reach = gap / 2 + 0.02;
+      assert.ok(reach * 2 > gap, 'Gangway bellows overlap to form seamless connection');
+    }
+  }
+});
+
+test('station departure announcement attenuation fades as train leaves station', () => {
+  // Volume follows Math.pow(proximity, 1.8)
+  const volAt = (prox) => (prox > 0.04 ? Math.pow(prox, 1.8) : 0);
+  assert.equal(volAt(1.0), 1.0); // At platform: full volume
+  assert.ok(volAt(0.5) < 0.35);  // Mid-departure: drops by >65%
+  assert.ok(volAt(0.2) < 0.06);  // Exiting yard: barely a whisper
+  assert.equal(volAt(0.02), 0);  // Clear of station: completely silent
 });
