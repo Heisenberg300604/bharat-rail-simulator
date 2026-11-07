@@ -48,10 +48,57 @@ function buildStation(length, buildingSide) {
     b.box([-canopyLen / 2 - 2, canopyLen / 2 + 2], [CANOPY_H - 0.35, CANOPY_H], [z0 + 0.3, z0 + 0.45], '#efe4c8');
     b.box([-canopyLen / 2 - 2, canopyLen / 2 + 2], [CANOPY_H - 0.35, CANOPY_H], [z1 - 0.45, z1 - 0.3], '#efe4c8');
     // benches + lamp posts outside the canopy
-    for (let x = -canopyLen / 2 + 15; x < canopyLen / 2; x += 30) {
-      b.box([x - 1, x + 1], [PLATFORM_TOP + 0.4, PLATFORM_TOP + 0.48], [zm - 0.25, zm + 0.25], '#6b7a85');
-      b.box([x - 1, x + 1], [PLATFORM_TOP, PLATFORM_TOP + 0.4], [zm - 0.05, zm + 0.05], '#4a4f55');
+    for (let x = -canopyLen / 2 + 15; x < canopyLen / 2; x += 28) {
+      // Concrete side arms in maroon
+      b.box([x - 1.1, x - 0.95], [PLATFORM_TOP, PLATFORM_TOP + 0.85], [zm - 0.35, zm + 0.35], '#6e1f1f');
+      b.box([x + 0.95, x + 1.1], [PLATFORM_TOP, PLATFORM_TOP + 0.85], [zm - 0.35, zm + 0.35], '#6e1f1f');
+      // Wooden seat & backrest slats
+      b.box([x - 0.95, x + 0.95], [PLATFORM_TOP + 0.42, PLATFORM_TOP + 0.47], [zm - 0.32, zm + 0.32], '#ab6b34');
+      b.box([x - 0.95, x + 0.95], [PLATFORM_TOP + 0.65, PLATFORM_TOP + 0.82], [zm - 0.05, zm + 0.05], '#ab6b34');
     }
+
+    // Electronic Coach Guidance Display Boards (CGDB) hanging from canopy
+    for (let x = -canopyLen / 2 + 18; x < canopyLen / 2; x += 24) {
+      b.box([x - 0.03, x + 0.03], [CANOPY_H - 1.1, CANOPY_H], [zm - 0.4, zm - 0.35], '#222');
+      b.box([x - 0.03, x + 0.03], [CANOPY_H - 1.1, CANOPY_H], [zm + 0.35, zm + 0.4], '#222');
+      b.box([x - 0.45, x + 0.45], [CANOPY_H - 1.42, CANOPY_H - 1.1], [zm - 0.7, zm + 0.7], '#141414');
+      // Amber LED matrix faces on both sides
+      b.box([x - 0.43, x + 0.43], [CANOPY_H - 1.4, CANOPY_H - 1.12], [zm - 0.72, zm - 0.69], '#ff9500', { mat: 'lamp' });
+      b.box([x - 0.43, x + 0.43], [CANOPY_H - 1.4, CANOPY_H - 1.12], [zm + 0.69, zm + 0.72], '#ff9500', { mat: 'lamp' });
+    }
+
+    // Round Indian Railways analog platform clock hanging from canopy
+    b.cylinder({ radius: 0.45, length: 0.16, axis: 'x', position: [0, CANOPY_H - 1.15, zm], color: '#f8f8f4', segments: 24 });
+    b.cylinder({ radius: 0.48, length: 0.12, axis: 'x', position: [0, CANOPY_H - 1.15, zm], color: '#1a1a1a', segments: 24 });
+    b.box([-0.02, 0.02], [CANOPY_H - 0.7, CANOPY_H], [zm - 0.03, zm + 0.03], '#222');
+
+    // IRCTC Chai / Refreshment Kiosk under canopy (at x = -28)
+    const stallX = -28;
+    b.box([stallX - 2.2, stallX + 2.2], [PLATFORM_TOP, PLATFORM_TOP + 1.05], [zm - 1.2, zm + 1.2], '#1d487a');
+    b.box([stallX - 2.3, stallX + 2.3], [PLATFORM_TOP + 1.05, PLATFORM_TOP + 1.12], [zm - 1.25, zm + 1.25], '#b4bac0');
+    b.box([stallX - 2.4, stallX + 2.4], [PLATFORM_TOP + 2.35, PLATFORM_TOP + 2.45], [zm - 1.35, zm + 1.35], '#f2b528');
+    for (const sx of [-2.2, 2.2]) {
+      for (const sz of [-1.2, 1.2]) {
+        b.box([stallX + sx - 0.04, stallX + sx + 0.04], [PLATFORM_TOP + 1.05, PLATFORM_TOP + 2.35], [zm + sz - 0.04, zm + sz + 0.04], '#333');
+      }
+    }
+    b.cylinder({ radius: 0.22, length: 0.55, position: [stallX - 1.1, PLATFORM_TOP + 1.4, zm + 0.4], color: '#d09530', segments: 14 });
+    b.box([stallX - 0.3, stallX + 1.6], [PLATFORM_TOP + 1.12, PLATFORM_TOP + 1.6], [zm - 0.8, zm + 0.8], '#a5cbe2', { mat: 'lamp' });
+
+    // Drinking Water Booth ("स्वच्छ पेयजल") under canopy (at x = 35)
+    const waterX = 35;
+    b.box([waterX - 1.6, waterX + 1.6], [PLATFORM_TOP, PLATFORM_TOP + 0.85], [zm - 0.8, zm + 0.8], '#235999');
+    b.box([waterX - 1.5, waterX + 1.5], [PLATFORM_TOP + 0.85, PLATFORM_TOP + 0.95], [zm - 0.7, zm + 0.7], '#cfd4da');
+    for (const tapX of [-0.9, 0, 0.9]) {
+      b.cylinder({ radius: 0.025, length: 0.35, position: [waterX + tapX, PLATFORM_TOP + 1.12, zm], color: '#b0b8c0', segments: 8 });
+      b.cylinder({ radius: 0.02, length: 0.12, axis: 'z', position: [waterX + tapX, PLATFORM_TOP + 1.25, zm + 0.06], color: '#b0b8c0', segments: 6 });
+      b.cylinder({ radius: 0.02, length: 0.12, axis: 'z', position: [waterX + tapX, PLATFORM_TOP + 1.25, zm - 0.06], color: '#b0b8c0', segments: 6 });
+    }
+    b.box([waterX - 1.4, waterX + 1.4], [PLATFORM_TOP + 2.1, PLATFORM_TOP + 2.45], [zm - 0.05, zm + 0.05], '#1d5e9f');
+    for (const legX of [-1.3, 1.3]) {
+      b.box([waterX + legX - 0.03, waterX + legX + 0.03], [PLATFORM_TOP + 0.95, PLATFORM_TOP + 2.1], [zm - 0.03, zm + 0.03], '#444');
+    }
+
     for (let x = -L / 2 + 12; x < L / 2; x += 24) {
       if (Math.abs(x) < canopyLen / 2 + 3) continue;
       b.box([x - 0.08, x + 0.08], [PLATFORM_TOP, PLATFORM_TOP + 5.2], [zm - 0.08, zm + 0.08], '#5b6066');

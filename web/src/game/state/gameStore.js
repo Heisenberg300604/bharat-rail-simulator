@@ -176,8 +176,20 @@ export function releaseAllInputs() {
   for (const key of Object.keys(game.input)) game.input[key] = false;
 }
 
+const _loadStartTime = Date.now();
+
 export function sceneReady() {
-  if (game.screen === 'loading') setScreen('title');
+  if (game.screen === 'loading') {
+    const elapsed = Date.now() - _loadStartTime;
+    const minLoadingTime = 1500; // ms: gives time for shaders to warm up and for the user to enjoy the train & track animation
+    if (elapsed < minLoadingTime) {
+      setTimeout(() => {
+        if (game.screen === 'loading') setScreen('title');
+      }, minLoadingTime - elapsed);
+    } else {
+      setScreen('title');
+    }
+  }
 }
 
 export function resetJourney() {
