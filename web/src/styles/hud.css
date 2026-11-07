@@ -190,3 +190,139 @@
   font-size: 0.75rem;
   color: var(--green);
 }
+
+/* ---------- v2 driver's display ---------- */
+.hud__alerts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+.alert {
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.alert--red {
+  background: rgba(226, 72, 61, 0.95);
+  color: #fff;
+  animation: blink 0.9s steps(2, start) infinite;
+}
+.alert--amber {
+  background: rgba(242, 169, 59, 0.95);
+  color: var(--accent-ink);
+}
+@keyframes blink {
+  to {
+    opacity: 0.55;
+  }
+}
+.hud__speed {
+  width: 268px;
+}
+.speed-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.speed__value.is-over {
+  color: #ff6b5e;
+}
+.limit-sign {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #fff;
+  border: 5px solid #d52b1e;
+  display: grid;
+  place-items: center;
+  color: #111;
+  font-weight: 800;
+  font-size: 1.05rem;
+}
+.meter {
+  margin-top: 8px;
+}
+.meter__label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--ink-dim);
+  margin-bottom: 3px;
+}
+.meter__track {
+  position: relative;
+  height: 9px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+.meter__zero {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: rgba(255, 255, 255, 0.5);
+}
+.meter__fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+.meter__fill--te {
+  background: var(--green);
+}
+.meter__fill--be {
+  background: #4a9bff;
+}
+.brake-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+  align-items: end;
+}
+.brake-handle__pos {
+  font-weight: 700;
+  font-size: 0.85rem;
+  padding: 3px 0;
+}
+.brake-handle__pos.is-emergency {
+  color: #ff6b5e;
+}
+.gauge__label {
+  font-size: 0.68rem;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.gauge__value {
+  font-weight: 700;
+  font-size: 1rem;
+}
+.gauge__value small {
+  font-size: 0.6rem;
+  font-weight: 500;
+  color: var(--ink-dim);
+  margin-left: 2px;
+}
+.gauge__track {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  margin-top: 2px;
+}
+.gauge__fill {
+  height: 100%;
+}
+.gauge__fill--bp {
+  background: #4ac6ff;
+}
+.gauge__fill--bc {
+  background: var(--red);
+}

@@ -1,7 +1,9 @@
 # Bharat Rail Simulator — Web MVP
 
-Drive an Indian-style electric passenger train from **New Delhi** to **Ghaziabad**
-in the browser. Built with React, Vite, Three.js and React Three Fiber.
+Drive a WAP-7 electric locomotive with 8 LHB coaches from **New Delhi** to
+**Ghaziabad** in the browser. Built with React, Vite, Three.js and React Three
+Fiber. Runs on macOS and Windows (Chrome, Edge, Safari, Firefox), including
+laptops with Intel integrated graphics.
 The specification lives in [WEB_MVP_SPEC.MD](WEB_MVP_SPEC.MD).
 
 > The route is a short, **fictional** test segment (8 km), not a geographic
@@ -22,26 +24,47 @@ npm run preview    # serve the production build locally
 
 ## How to play
 
-1. Click **Start Journey** (this also unlocks audio — browsers block sound until you click).
-2. The train starts at New Delhi with the brake fully applied.
-3. Hold **X** to release the brake, hold **W** to raise the throttle.
-4. Drive about 7.3 km. The HUD shows the distance to the stop marker.
-5. Slow down early (a heavy train needs hundreds of metres to stop) and stop with
-   the locomotive front inside the **green stop zone** next to the **STOP** board.
-6. Stay stopped for 3 seconds → journey complete.
+1. Click **Start Journey**. This also unlocks audio; browsers block sound until
+   you click.
+2. You're at New Delhi with the A9 brake applied (brake pipe 3.4 kg/cm²).
+3. Hold **X** to release the brake. Wait for the brake pipe to recharge to
+   5.0; traction is cut below 4.75, just as on the real loco.
+4. Hold **W** to notch up the TE/BE lever. Obey the speed limits: **30** km/h
+   through the yard until the whole train has cleared it, then **110**.
+5. Plan your stop. A full-service stop from 110 km/h needs about **1 km**, and
+   the HUD shows your current stopping distance.
+6. Stop with the loco front inside the **green zone** by the **STOP** board and
+   hold for 3 s. You get a score out of 100.
 
 | Key | Action |
 | --- | --- |
-| W / ↑ | Increase throttle (hold) |
-| S / ↓ | Decrease throttle (hold) |
-| Space | Apply brake (hold) |
-| X | Release brake (hold) |
-| F | Direction Forward / Neutral / Reverse (only when stopped) |
+| W / ↑ | TE/BE lever up: more traction (hold) |
+| S / ↓ | TE/BE lever down: less traction, then regenerative braking (hold) |
+| Space | A9 automatic brake: apply (hold) |
+| X | A9 automatic brake: release (hold) |
+| E / Backspace | Emergency brake |
+| F | Reverser Forward / Neutral / Reverse (only when stopped, lever at 0) |
 | H | Horn (hold) |
 | L | Headlight |
-| C | Cab / exterior camera |
-| Esc | Pause menu (volume, mute, graphics quality, FPS counter) |
+| C or 1–4 | Camera: cab, chase, orbit, trackside |
+| Mouse | Drag to look around (cab) or orbit; wheel to zoom; double-click resets |
+| Esc | Pause menu: volume, mute, graphics quality, field of view, FPS counter |
 | R | Restart journey (asks to confirm) |
+
+The physics, with real WAP-7 and LHB numbers, is explained in
+[docs/SIMULATION.md](docs/SIMULATION.md).
+
+## Performance (Mac and Windows laptops)
+
+- **Graphics preset is chosen automatically** from the GPU: Apple Silicon or
+  NVIDIA/AMD → High, Intel Iris Xe → Medium, older Intel UHD → Low. You can
+  change it in the pause menu.
+- **Adaptive resolution:** if the frame rate drops below about 48 FPS, render
+  resolution steps down automatically, and climbs back when there's headroom.
+- Models are merged and instanced. The whole train is about 15 draw calls, the
+  whole railway a handful, and the scenery is chunked with distance culling.
+  Measured on an M4: 46–88 draw calls, a steady 60 FPS. With the CPU throttled
+  4× on Low: 58–60 FPS.
 
 ## How it works (short version)
 
@@ -105,12 +128,14 @@ static host, e.g. GitHub Pages or Vercel's free tier (check their current terms)
 | 2 Train movement + controls + HUD | Done |
 | 3 Coach following + cab/exterior cameras | Done (3 coaches) |
 | 4 Stations, stop zone, completion, restart | Done |
-| 5 Real GLB locomotive/coach models | Not started — placeholders are original blockouts |
-| 6 Audio & polish | Partial — synthesized placeholder sounds, volume/mute, pause menu |
-| 7 Performance & release | Partial — tested in Chrome on Apple Silicon (M4) |
+| 5 Real GLB locomotive/coach models | Done: WAP-7 (CC BY) and LHB coach (Free Standard), optimised; see docs/ASSET_CREDITS.md |
+| 6 Audio & polish | Done: real Indian horn, coach rolling and station recordings, plus synthesized traction sounds |
+| 7 Performance & release | Partial: tested in headless Chrome on Apple Silicon with CPU throttling; still needs a real Windows laptop test |
 
 Known limitations:
-- The horn and other sounds are synthesized placeholders, not real Indian
-  locomotive recordings.
-- No station ambience yet.
-- Tested in Chrome only so far; Safari and Firefox still need a manual check.
+- No free, licence-clear **ICF** coach model of good accuracy was found. The
+  parked blue rake is a blue-grey repaint of the LHB model.
+- The WAP-7 body texture shows real fleet numbers and "Indian Railways"
+  lettering; see the open question in docs/ASSET_CREDITS.md.
+- The WAP-7 traction-motor sound is synthesized; no licence-clean recording exists.
+- Tested in Chrome on macOS. Windows, Safari and Firefox still need a manual check.

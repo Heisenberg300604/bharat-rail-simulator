@@ -10,16 +10,18 @@ import {
   toggleCamera,
   toggleHeadlight,
   cycleDirection,
+  emergencyBrake,
+  setCamera,
   releaseAllInputs,
   publish,
 } from '../state/gameStore.js';
 
 // e.code is the physical key, so this works on non-QWERTY layouts too.
 const HELD_KEYS = {
-  KeyW: 'throttleUp',
-  ArrowUp: 'throttleUp',
-  KeyS: 'throttleDown',
-  ArrowDown: 'throttleDown',
+  KeyW: 'leverUp',
+  ArrowUp: 'leverUp',
+  KeyS: 'leverDown',
+  ArrowDown: 'leverDown',
   Space: 'brakeApply',
   KeyX: 'brakeRelease',
   KeyH: 'horn',
@@ -30,6 +32,12 @@ const PRESS_KEYS = {
   KeyL: toggleHeadlight,
   KeyC: toggleCamera,
   KeyR: requestRestart,
+  KeyE: emergencyBrake,
+  Backspace: emergencyBrake,
+  Digit1: () => setCamera('cab'),
+  Digit2: () => setCamera('chase'),
+  Digit3: () => setCamera('orbit'),
+  Digit4: () => setCamera('trackside'),
 };
 
 export function useKeyboardControls() {

@@ -1,6 +1,6 @@
-// PLACEHOLDER AUDIO — every sound here is synthesized in code with the
-// Web Audio API (no downloaded files), so there are no licensing questions.
-// See audioManifest.js for what each sound is and how to replace it later.
+// Game audio (Web Audio API). Real Indian Railways recordings are loaded in the
+// background after the Start click; until they arrive (or if they fail), the
+// synthesized versions play. See audioManifest.js for the sound list.
 //
 // Browsers block audio until the user interacts with the page, so init() is
 // called from the "Start Journey" button click.
@@ -33,6 +33,9 @@ class AudioEngine {
   lastJointDistance = 0;
   hornOn = false;
   lastBrake = 0;
+  buffers = {};
+  hornSource = null;
+  lastReleaseSound = -10;
 
   init() {
     if (this.ctx) {
@@ -63,8 +66,9 @@ class AudioEngine {
 
     // Rolling rumble: low-passed noise, louder & brighter with speed.
     this.rollFilter = ctx.createBiquadFilter();
-    this.rollFilter.type = 'lowpass';
-    this.rollFilter.frequency.value = 150;
+    this.rollFilter.type = 'bandpass'; // mid band: audible on laptop speakers too
+    this.rollFilter.frequency.value = 300;
+    this.rollFilter.Q.value = 0.7;
     this.rollGain = ctx.createGain();
     this.rollGain.gain.value = 0;
     loopNoise().connect(this.rollFilter).connect(this.rollGain).connect(this.master);
@@ -90,6 +94,25 @@ class AudioEngine {
     this.motorOsc.connect(motorFilter).connect(this.motorGain).connect(this.master);
     this.motorOsc.start();
 
+    // Idle: traction-motor blowers + compressor hum, audible even at a standstill.
+    const blowerFilter = ctx.createBiquadFilter();
+    blowerFilter.type = 'bandpass';
+    blowerFilter.frequency.value = 520;
+    blowerFilter.Q.value = 1.2;
+    this.idleGain = ctx.createGain();
+    this.idleGain.gain.value = 0;
+    loopNoise().connect(blowerFilter).connect(this.idleGain).connect(this.master);
+    const hum = ctx.createOscillator();
+    hum.type = 'sawtooth';
+    hum.frequency.value = 100; // mains-frequency transformer hum harmonic
+    const humFilter = ctx.createBiquadFilter();
+    humFilter.type = 'lowpass';
+    humFilter.frequency.value = 500;
+    const humGain = ctx.createGain();
+    humGain.gain.value = 0.25;
+    hum.connect(humFilter).connect(humGain).connect(this.idleGain);
+    hum.start();
+
     // Brake air hiss: high-passed noise, on while brake is being applied/released.
     const hissFilter = ctx.createBiquadFilter();
     hissFilter.type = 'highpass';
@@ -105,7 +128,7 @@ class AudioEngine {
     hornFilter.type = 'lowpass';
     hornFilter.frequency.value = 2200;
     hornFilter.connect(this.hornGain).connect(this.master);
-    for (const f of m.horn.frequencies) {
+    for (const f of m.horn.synthFrequencies) {
       const osc = ctx.createOscillator();
       osc.type = 'sawtooth';
       osc.frequency.value = f;
@@ -116,10 +139,100 @@ class AudioEngine {
     this.clackBuffer = makeClackBuffer(ctx);
     this.clackFilter = ctx.createBiquadFilter();
     this.clackFilter.type = 'lowpass';
-    this.clackFilter.frequency.value = 1200;
+    this.clackFilter.frequency.value = 2600;
     this.clackFilter.connect(this.master);
 
+    // Bus for recorded samples
+    this.rollSampleGain = ctx.createGain();
+    this.rollSampleGain.gain.value = 0;
+    this.rollSampleGain.connect(this.master);
+    this.stationGain = ctx.createGain();
+    this.stationGain.gain.value = 0;
+    this.stationGain.connect(this.master);
+
     this.ready = true;
+    this.burstHiss(); // audible confirmation that sound is working
+    this.loadSamples();
+  }
+
+  /** Fetch + decode the recordings without blocking the game. */
+  async loadSamples() {
+    const entries = Object.entries(AUDIO_MANIFEST).filter(([, v]) => v && v.url);
+    await Promise.all(
+      entries.map(async ([key, def]) => {
+        try {
+          const res = await fetch(def.url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          this.buffers[key] = await this.ctx.decodeAudioData(await res.arrayBuffer());
+        } catch (err) {
+          console.warn(`Audio "${key}" unavailable, using synthesized fallback:`, err.message);
+        }
+      }),
+    );
+    // Start the looping beds once their recordings are available
+    if (this.buffers.rolling) this.startLoop(this.buffers.rolling, this.rollSampleGain, (src) => (this.rollSource = src));
+    if (this.buffers.station) this.startLoop(this.buffers.station, this.stationGain);
+  }
+
+  startLoop(buffer, destination, keep) {
+    const src = this.ctx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = true;
+    // skip MP3 encoder padding at both ends so the loop point is seamless
+    src.loopStart = 0.03;
+    src.loopEnd = buffer.duration - 0.06;
+    src.connect(destination);
+    src.start(0, 0.03);
+    keep?.(src);
+  }
+
+  playOneShot(buffer, level) {
+    const src = this.ctx.createBufferSource();
+    src.buffer = buffer;
+    const g = this.ctx.createGain();
+    g.gain.value = level;
+    src.connect(g).connect(this.master);
+    src.start();
+  }
+
+  hornStart(now) {
+    const h = AUDIO_MANIFEST.horn;
+    if (!this.buffers.horn) {
+      this.hornGain.gain.setTargetAtTime(h.synthLevel, now, 0.03);
+      return;
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.buffers.horn;
+    src.loop = true; // the steady middle loops for as long as H is held
+    src.loopStart = h.loopStart;
+    src.loopEnd = h.loopEnd;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0, now);
+    g.gain.linearRampToValueAtTime(h.level, now + 0.06);
+    src.connect(g).connect(this.master);
+    src.start(now);
+    this.hornSource = { src, g };
+  }
+
+  hornStop(now) {
+    this.hornGain.gain.setTargetAtTime(0, now, 0.12);
+    if (this.hornSource) {
+      const { src, g } = this.hornSource;
+      g.gain.cancelScheduledValues(now);
+      g.gain.setValueAtTime(g.gain.value, now);
+      g.gain.setTargetAtTime(0, now, 0.1);
+      src.stop(now + 0.7);
+      this.hornSource = null;
+    }
+  }
+
+  /** Short "pssh" of air (brake release), also played when the journey starts. */
+  burstHiss() {
+    if (!this.ready) return;
+    const now = this.ctx.currentTime;
+    this.hissGain.gain.cancelScheduledValues(now);
+    this.hissGain.gain.setValueAtTime(AUDIO_MANIFEST.brakeHiss.level * 2.5, now);
+    this.hissGain.gain.setTargetAtTime(0, now + 0.3, 0.35);
   }
 
   setVolume(volume, muted) {
@@ -144,7 +257,7 @@ class AudioEngine {
   }
 
   /** Called every frame with the current game state. Cheap: only sets targets. */
-  update(train, input, maxSpeedMps) {
+  update(train, input, maxSpeedMps, env = {}) {
     if (!this.ready) return;
     const now = this.ctx.currentTime;
     const m = AUDIO_MANIFEST;
@@ -153,21 +266,38 @@ class AudioEngine {
     const moving = v > 0.2 ? 1 : 0;
     const smooth = 0.15;
 
-    this.rollGain.gain.setTargetAtTime(moving * m.rolling.level * (0.25 + 0.75 * r), now, smooth);
-    this.rollFilter.frequency.setTargetAtTime(150 + 650 * r, now, smooth);
+    // Rolling: the real in-coach recording (pitch and level follow speed);
+    // the synthesized rumble only fills in until it has loaded.
+    const hasRoll = !!this.buffers.rolling;
+    this.rollGain.gain.setTargetAtTime(moving * m.rolling.synthLevel * (hasRoll ? 0.25 : 1) * (0.25 + 0.75 * r), now, smooth);
+    this.rollFilter.frequency.setTargetAtTime(300 + 900 * r, now, smooth);
+    if (hasRoll) {
+      const level = v > 0.2 ? m.rolling.level * Math.min(1, 0.12 + 1.1 * Math.sqrt(r)) : 0;
+      this.rollSampleGain.gain.setTargetAtTime(level, now, 0.25);
+      this.rollSource?.playbackRate.setTargetAtTime(0.7 + 0.45 * r, now, 0.3);
+    }
+    // Station ambience fades in near the platforms
+    this.stationGain.gain.setTargetAtTime(m.station.level * (env.stationProximity ?? 0), now, 0.6);
     this.windGain.gain.setTargetAtTime(m.wind.level * r * r, now, smooth);
+    this.idleGain.gain.setTargetAtTime(m.idle.level * (1 + 0.6 * train.throttle), now, 0.4);
     this.motorOsc.frequency.setTargetAtTime(55 + 260 * r, now, smooth);
     this.motorGain.gain.setTargetAtTime(m.motor.level * train.throttle * (0.4 + 0.6 * r), now, smooth);
 
-    // Brake hiss while the handle is moving.
+    // Brake hiss while the handle is moving; real air-release "pssh" on release.
     const brakeMoving = Math.abs(train.brake - this.lastBrake) > 1e-4;
+    const releasing = train.brake < this.lastBrake - 1e-4;
+    if (releasing && this.buffers.brakeRelease && now - this.lastReleaseSound > 4) {
+      this.playOneShot(this.buffers.brakeRelease, m.brakeRelease.level);
+      this.lastReleaseSound = now;
+    }
     this.lastBrake = train.brake;
     this.hissGain.gain.setTargetAtTime(brakeMoving ? m.brakeHiss.level : 0, now, brakeMoving ? 0.05 : 0.3);
 
     // Horn: quick attack, short release.
     if (input.horn !== this.hornOn) {
       this.hornOn = input.horn;
-      this.hornGain.gain.setTargetAtTime(input.horn ? m.horn.level : 0, now, input.horn ? 0.03 : 0.12);
+      if (input.horn) this.hornStart(now);
+      else this.hornStop(now);
     }
 
     // Rail-joint clacks: two clicks (one per axle of a bogie) every rail length.

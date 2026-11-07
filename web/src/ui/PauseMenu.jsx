@@ -46,6 +46,18 @@ export default function PauseMenu({ settings }) {
               ))}
             </select>
           </label>
+          <label className="setting">
+            <span>Coaches</span>
+            <select value={settings.coachLivery} onChange={(e) => updateSettings({ coachLivery: e.target.value })}>
+              <option value="red">Red-grey LHB</option>
+              <option value="blue">Blue-grey LHB</option>
+            </select>
+          </label>
+          <label className="setting">
+            <span>Field of view</span>
+            <input type="range" min="50" max="90" step="1" value={settings.fov} onChange={(e) => updateSettings({ fov: Number(e.target.value) })} />
+            <span className="num">{settings.fov}°</span>
+          </label>
           <label className="setting setting--check">
             <input type="checkbox" checked={settings.showFps} onChange={(e) => updateSettings({ showFps: e.target.checked })} />
             <span>Show FPS</span>

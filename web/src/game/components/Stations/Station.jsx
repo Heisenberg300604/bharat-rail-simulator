@@ -1,142 +1,208 @@
-// A simple original station: raised platform, canopy, building and the
-// familiar yellow Hindi/English name boards. Stations sit on straight track,
-// so the whole station is one group aligned with the route.
-import { useMemo } from 'react';
+// An original, generic Indian station with four platform faces:
+//   PF1 (side platform beside the main line) | island PF2/PF3 | PF4 (side)
+// plus canopies, lamp posts, benches, a foot-over-bridge (FOB) spanning all
+// tracks, a long station building, and yellow Hindi/English name boards.
+// All static parts are merged by ModelBuilder into ~3 draw calls per station.
+import { useEffect, useMemo } from 'react';
+import * as THREE from 'three';
 import { route } from '../../state/gameStore.js';
-import { TRACK, JOURNEY } from '../../config/gameConfig.js';
-import { makeNoiseTexture, makePlateTexture, makeStationBoardTexture } from '../../world/textures.js';
+import { TRACK, JOURNEY, PLATFORMS } from '../../config/gameConfig.js';
+import { ModelBuilder } from '../../world/modelBuilder.js';
+import { makeNoiseTexture, makePlateTexture, makeStationBoardTexture, makeFacadeTexture } from '../../world/textures.js';
 import { stopZone } from '../../simulation/journeyManager.js';
 
-const PLATFORM_EDGE = 1.78; // distance from track centre to platform edge
-const PLATFORM_WIDTH = 9;
-const PLATFORM_TOP = TRACK.railTop + 0.76; // Indian high-level platform ≈ 760 mm above rail
+const PLATFORM_TOP = TRACK.railTop + 0.76; // high-level platform ≈ 760 mm above rail
+const CANOPY_H = PLATFORM_TOP + 4.6;
+const FOB_DECK = 9.0;
 
-let platformTexture = null;
-function getPlatformTexture() {
-  platformTexture ??= makeNoiseTexture({ base: '#a9a196', speckles: ['#9a9287', '#b8b0a4', '#8f887e'], density: 1.2, seed: 3 });
-  return platformTexture;
+// Station-local frame: x along the track, z to the RIGHT. Lateral (+left) → z = -lat.
+const zOf = (lat) => -lat;
+
+function buildStation(length, buildingSide) {
+  const b = new ModelBuilder();
+  const L = length;
+  const canopyLen = Math.min(260, L - 60);
+
+  for (const pf of PLATFORMS) {
+    const [la, lb] = pf.lat;
+    const z0 = Math.min(zOf(la), zOf(lb));
+    const z1 = Math.max(zOf(la), zOf(lb));
+    const zm = (z0 + z1) / 2;
+    const width = z1 - z0;
+    // platform body + surface (textured) + edge coping on track sides
+    b.box([-L / 2, L / 2], [0, PLATFORM_TOP - 0.05], [z0, z1], '#b9b1a4', { mat: 'platform', uvScale: 6 });
+    b.box([-L / 2, L / 2], [PLATFORM_TOP - 0.05, PLATFORM_TOP], [z0 + 0.5, z1 - 0.5], '#d9d3c8', { mat: 'platform', uvScale: 6 });
+    for (const edge of [z0, z1]) {
+      const inward = edge === z0 ? 1 : -1;
+      b.box([-L / 2, L / 2], [PLATFORM_TOP - 0.05, PLATFORM_TOP + 0.005], edge === z0 ? [z0, z0 + 0.5] : [z1 - 0.5, z1], '#e8e4da');
+      // yellow safety line
+      const zl = edge + inward * 0.75;
+      b.box([-L / 2, L / 2], [PLATFORM_TOP, PLATFORM_TOP + 0.01], [zl - 0.08, zl + 0.08], '#f2c230');
+    }
+    // canopy: two rows of posts + roof with fascia
+    for (let x = -canopyLen / 2; x <= canopyLen / 2; x += 10) {
+      b.box([x - 0.15, x + 0.15], [PLATFORM_TOP, CANOPY_H], [zm - 0.15, zm + 0.15], '#a33a2c');
+      b.box([x - 0.08, x + 0.08], [CANOPY_H - 0.6, CANOPY_H], [zm - width / 2 + 1, zm + width / 2 - 1], '#a33a2c');
+    }
+    b.box([-canopyLen / 2 - 2, canopyLen / 2 + 2], [CANOPY_H, CANOPY_H + 0.18], [z0 + 0.3, z1 - 0.3], '#8d9894', { mat: 'roof' });
+    b.box([-canopyLen / 2 - 2, canopyLen / 2 + 2], [CANOPY_H - 0.35, CANOPY_H], [z0 + 0.3, z0 + 0.45], '#efe4c8');
+    b.box([-canopyLen / 2 - 2, canopyLen / 2 + 2], [CANOPY_H - 0.35, CANOPY_H], [z1 - 0.45, z1 - 0.3], '#efe4c8');
+    // benches + lamp posts outside the canopy
+    for (let x = -canopyLen / 2 + 15; x < canopyLen / 2; x += 30) {
+      b.box([x - 1, x + 1], [PLATFORM_TOP + 0.4, PLATFORM_TOP + 0.48], [zm - 0.25, zm + 0.25], '#6b7a85');
+      b.box([x - 1, x + 1], [PLATFORM_TOP, PLATFORM_TOP + 0.4], [zm - 0.05, zm + 0.05], '#4a4f55');
+    }
+    for (let x = -L / 2 + 12; x < L / 2; x += 24) {
+      if (Math.abs(x) < canopyLen / 2 + 3) continue;
+      b.box([x - 0.08, x + 0.08], [PLATFORM_TOP, PLATFORM_TOP + 5.2], [zm - 0.08, zm + 0.08], '#5b6066');
+      b.box([x - 0.25, x + 0.25], [PLATFORM_TOP + 5.1, PLATFORM_TOP + 5.3], [zm - 0.5, zm + 0.5], '#e9e6dc', { mat: 'lamp' });
+    }
+  }
+
+  // Foot-over-bridge spanning every platform, with a staircase down to each
+  const fobX = L / 2 - 70;
+  const allLat = PLATFORMS.flatMap((p) => p.lat);
+  const zMin = zOf(Math.max(...allLat)) - 2;
+  const zMax = zOf(Math.min(...allLat)) + 1;
+  b.box([fobX - 2, fobX + 2], [FOB_DECK, FOB_DECK + 0.4], [zMin, zMax], '#c9c2b4');
+  b.box([fobX - 2, fobX + 2], [FOB_DECK + 0.4, FOB_DECK + 1.5], [zMin, zMin + 0.12], '#d8d0c0');
+  b.box([fobX - 2, fobX + 2], [FOB_DECK + 0.4, FOB_DECK + 1.5], [zMax - 0.12, zMax], '#d8d0c0');
+  b.box([fobX - 2.3, fobX + 2.3], [FOB_DECK + 3.0, FOB_DECK + 3.15], [zMin, zMax], '#8d9894', { mat: 'roof' });
+  for (const pf of PLATFORMS) {
+    const zm = (zOf(pf.lat[0]) + zOf(pf.lat[1])) / 2;
+    b.box([fobX - 0.3, fobX + 0.3], [PLATFORM_TOP, FOB_DECK], [zm - 0.3, zm + 0.3], '#a33a2c');
+    // sloping staircase slab, rising towards the bridge
+    const run = (FOB_DECK - PLATFORM_TOP) * 1.6;
+    const len = Math.hypot(run, FOB_DECK - PLATFORM_TOP);
+    const ang = Math.atan2(FOB_DECK - PLATFORM_TOP, run);
+    b.add(new THREE.BoxGeometry(len, 0.3, 2.2), {
+      color: '#bfb7a8',
+      position: [fobX - 2 - run / 2, (PLATFORM_TOP + FOB_DECK) / 2, zm + 1.6],
+      rotation: [0, 0, ang],
+    });
+  }
+
+  // Station building behind PF1: long red-sandstone block with cream bands
+  const pf1Far = PLATFORMS[0].lat[1];
+  const bz0 = zOf(pf1Far) - 16 * buildingSide;
+  const bz1 = zOf(pf1Far) - 1 * buildingSide;
+  const [zA, zB] = [Math.min(bz0, bz1), Math.max(bz0, bz1)];
+  b.box([-60, 60], [0, 10], [zA, zB], '#b4573f', { mat: 'facade', uvScale: 3.4 });
+  b.box([-61, 61], [10, 11], [zA - 0.5, zB + 0.5], '#efe4c8');
+  b.box([-61, 61], [3.6, 4.0], [zA - 0.3, zB + 0.3], '#efe4c8');
+  b.box([-16, 16], [11, 15], [zA + 2, zB - 2], '#c46a4f');
+  b.box([-17, 17], [15, 15.8], [zA + 1.5, zB - 1.5], '#efe4c8');
+  // chhatri-style kiosks on the roof corners
+  for (const x of [-55, 55, -14, 14]) {
+    b.box([x - 1.5, x + 1.5], [11, 13.5], [zA + 1, zA + 4], '#efe4c8');
+    b.add(new THREE.SphereGeometry(1.8, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), { color: '#efe4c8', position: [x, 13.5, zA + 2.5] });
+  }
+  return b.build();
 }
 
 export default function Station({ station, isDestination }) {
   const length = station.platformEnd - station.platformStart;
   const centerS = (station.platformStart + station.platformEnd) / 2;
 
-  const { pose, boardTex, stopTex, platformTex } = useMemo(() => {
+  const built = useMemo(() => {
     const pose = route.sample(centerS, {});
-    const platformTex = getPlatformTexture().clone();
-    platformTex.repeat.set(length / 6, PLATFORM_WIDTH / 6);
-    platformTex.needsUpdate = true;
-    return {
-      pose,
-      platformTex,
-      boardTex: makeStationBoardTexture(station.hindi, station.name),
-      stopTex: isDestination ? makePlateTexture('STOP', { bg: '#ffffff', fg: '#c4161c' }) : null,
+    const geos = buildStation(length, station.side);
+    const platformTex = makeNoiseTexture({ base: '#ffffff', speckles: ['#e2ddd4', '#f0ece4', '#d3cdc2'], density: 1.5, seed: 3 });
+    const facade = makeFacadeTexture();
+    const materials = {
+      body: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }),
+      platform: new THREE.MeshStandardMaterial({ vertexColors: true, map: platformTex, roughness: 0.95 }),
+      roof: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.3 }),
+      facade: new THREE.MeshStandardMaterial({ vertexColors: true, map: facade, roughness: 0.9 }),
+      lamp: new THREE.MeshStandardMaterial({ vertexColors: true, emissive: '#fff4d6', emissiveIntensity: 0.6 }),
     };
+    const boardTex = makeStationBoardTexture(station.hindi, station.name);
+    const pfTextures = PLATFORMS.map((pf) =>
+      makePlateTexture(pf.id.replace(' ', ' | '), { bg: '#123c7a', fg: '#ffffff', width: 256, height: 128, font: 'bold 80px Helvetica, Arial, sans-serif' }),
+    );
+    const stopTex = isDestination ? makePlateTexture('STOP', { bg: '#ffffff', fg: '#c4161c' }) : null;
+    return { pose, geos, materials, boardTex, pfTextures, stopTex };
   }, [centerS, length, station, isDestination]);
 
-  // Station-local frame: x along the track, z to the right. Left side = -z.
-  const side = station.side; // +1 left, -1 right
-  const zNear = -side * PLATFORM_EDGE;
-  const zFar = -side * (PLATFORM_EDGE + PLATFORM_WIDTH);
-  const zMid = (zNear + zFar) / 2;
-  const faceTrack = side > 0 ? 0 : Math.PI; // plane normal pointing at the track
-  const canopyLen = Math.min(170, length - 40);
+  useEffect(
+    () => () => {
+      Object.values(built.geos).forEach((g) => g.dispose());
+      Object.values(built.materials).forEach((m) => {
+        m.map?.dispose();
+        m.dispose();
+      });
+      built.boardTex.dispose();
+      built.pfTextures.forEach((t) => t.dispose());
+      built.stopTex?.dispose();
+    },
+    [built],
+  );
 
+  const { pose, geos, materials } = built;
   const zone = stopZone(JOURNEY);
+  const pf1Edge = zOf(PLATFORMS[0].lat[0]);
 
   return (
     <group position={[pose.x, 0, pose.z]} rotation={[0, -pose.heading, 0]}>
-      {/* platform */}
-      <mesh position={[0, PLATFORM_TOP / 2, zMid]} receiveShadow>
-        <boxGeometry args={[length, PLATFORM_TOP, PLATFORM_WIDTH]} />
-        <meshStandardMaterial map={platformTex} roughness={0.95} />
-      </mesh>
-      {/* yellow safety line + white edge */}
-      <mesh position={[0, PLATFORM_TOP + 0.005, zNear - side * 0.6]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[length, 0.25]} />
-        <meshStandardMaterial color="#f2c230" />
-      </mesh>
-      <mesh position={[0, PLATFORM_TOP + 0.005, zNear - side * 0.12]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[length, 0.2]} />
-        <meshStandardMaterial color="#e8e6df" />
-      </mesh>
-
-      {/* canopy: posts + roof */}
-      {Array.from({ length: Math.floor(canopyLen / 12) + 1 }, (_, i) => -canopyLen / 2 + i * 12).map((x) => (
-        <mesh key={x} position={[x, PLATFORM_TOP + 2.2, zMid]}>
-          <boxGeometry args={[0.3, 4.4, 0.3]} />
-          <meshStandardMaterial color="#6b4a2f" />
-        </mesh>
+      {Object.entries(geos).map(([key, geo]) => (
+        <mesh key={key} geometry={geo} material={materials[key]} receiveShadow castShadow={key === 'roof'} />
       ))}
-      <mesh position={[0, PLATFORM_TOP + 4.5, zMid]} castShadow receiveShadow>
-        <boxGeometry args={[canopyLen + 4, 0.25, PLATFORM_WIDTH - 0.6]} />
-        <meshStandardMaterial color="#3f6650" roughness={0.8} />
-      </mesh>
 
-      {/* station building behind the platform */}
-      <group position={[0, 0, zFar - side * 8]}>
-        <mesh position={[0, 5, 0]} castShadow receiveShadow>
-          <boxGeometry args={[70, 10, 14]} />
-          <meshStandardMaterial color="#b5523b" roughness={0.9} />
-        </mesh>
-        <mesh position={[0, 10.4, 0]}>
-          <boxGeometry args={[71, 0.8, 14.6]} />
-          <meshStandardMaterial color="#efe4c8" />
-        </mesh>
-        <mesh position={[0, 12.5, 0]} castShadow>
-          <boxGeometry args={[18, 4, 10]} />
-          <meshStandardMaterial color="#efe4c8" />
-        </mesh>
-        {/* arched-looking openings facing the platform */}
-        {[-26, -18, -10, 10, 18, 26].map((x) => (
-          <mesh key={x} position={[x, 3.2, side * 7.02]} rotation={[0, faceTrack, 0]}>
-            <planeGeometry args={[3.2, 4.6]} />
-            <meshStandardMaterial color="#3b2a22" />
-          </mesh>
-        ))}
-        <mesh position={[0, 8, side * 7.03]} rotation={[0, faceTrack, 0]}>
-          <planeGeometry args={[14, 4.4]} />
-          <meshStandardMaterial map={boardTex} />
-        </mesh>
-      </group>
-
-      {/* name boards along the platform, readable from the train */}
-      {[-length / 2 + 25, 0, length / 2 - 25].map((x) => (
-        <group key={x} position={[x, PLATFORM_TOP, zNear - side * 2.4]}>
-          {[-1.6, 1.6].map((px) => (
-            <mesh key={px} position={[px, 1.4, 0]}>
-              <boxGeometry args={[0.1, 2.8, 0.1]} />
-              <meshStandardMaterial color="#333" />
+      {/* yellow name boards, double-sided, along each platform */}
+      {PLATFORMS.map((pf) => {
+        const zm = (zOf(pf.lat[0]) + zOf(pf.lat[1])) / 2;
+        return [-length / 2 + 30, length / 2 - 30, 0].map((x) => (
+          <group key={`${pf.id}${x}`} position={[x === 0 ? -40 : x, PLATFORM_TOP, zm]}>
+            {[-1.7, 1.7].map((px) => (
+              <mesh key={px} position={[px, 1.5, 0]}>
+                <boxGeometry args={[0.1, 3, 0.1]} />
+                <meshStandardMaterial color="#2d2d2d" />
+              </mesh>
+            ))}
+            <mesh position={[0, 3.1, 0.03]}>
+              <planeGeometry args={[4.2, 1.3]} />
+              <meshStandardMaterial map={built.boardTex} />
             </mesh>
-          ))}
-          <mesh position={[0, 3.0, 0]} rotation={[0, faceTrack, 0]}>
-            <planeGeometry args={[4, 1.25]} />
-            <meshStandardMaterial map={boardTex} />
+            <mesh position={[0, 3.1, -0.03]} rotation={[0, Math.PI, 0]}>
+              <planeGeometry args={[4.2, 1.3]} />
+              <meshStandardMaterial map={built.boardTex} />
+            </mesh>
+          </group>
+        ));
+      })}
+
+      {/* blue platform-number boards hanging under each canopy */}
+      {PLATFORMS.map((pf, i) => {
+        const zm = (zOf(pf.lat[0]) + zOf(pf.lat[1])) / 2;
+        return [-60, 60].map((x) => (
+          <mesh key={`${pf.id}n${x}`} position={[x, CANOPY_H - 1.0, zm]} rotation={[0, -Math.PI / 2, 0]}>
+            <planeGeometry args={[1.6, 0.8]} />
+            <meshStandardMaterial map={built.pfTextures[i]} side={THREE.DoubleSide} />
           </mesh>
-          <mesh position={[0, 3.0, side * -0.01]} rotation={[0, faceTrack + Math.PI, 0]}>
-            <planeGeometry args={[4, 1.25]} />
-            <meshStandardMaterial map={boardTex} />
-          </mesh>
-        </group>
-      ))}
+        ));
+      })}
+
+      {/* big name board on the building, facing the tracks */}
+      <mesh position={[0, 7.2, zOf(PLATFORMS[0].lat[1]) - 1 + 0.04]}>
+        <planeGeometry args={[16, 5]} />
+        <meshStandardMaterial map={built.boardTex} />
+      </mesh>
 
       {isDestination && (
         <group>
-          {/* STOP board facing the arriving train, at the platform edge */}
-          <group position={[JOURNEY.stopMarker - centerS, PLATFORM_TOP, zNear - side * 0.9]}>
-            <mesh position={[0, 1.2, 0]}>
-              <boxGeometry args={[0.1, 2.4, 0.1]} />
+          <group position={[JOURNEY.stopMarker - centerS, PLATFORM_TOP, pf1Edge - 0.9]}>
+            <mesh position={[0, 1.3, 0]}>
+              <boxGeometry args={[0.1, 2.6, 0.1]} />
               <meshStandardMaterial color="#333" />
             </mesh>
-            <mesh position={[-0.06, 2.7, 0]} rotation={[0, -Math.PI / 2, 0]}>
-              <planeGeometry args={[1.0, 1.0]} />
-              <meshStandardMaterial map={stopTex} emissive="#ffffff" emissiveIntensity={0.15} emissiveMap={stopTex} />
+            <mesh position={[-0.06, 2.9, 0]} rotation={[0, -Math.PI / 2, 0]}>
+              <planeGeometry args={[1.1, 1.1]} />
+              <meshStandardMaterial map={built.stopTex} emissive="#ffffff" emissiveIntensity={0.2} emissiveMap={built.stopTex} />
             </mesh>
           </group>
-          {/* green painted stop zone on the platform edge (where the loco front should stop) */}
-          <mesh position={[(zone.start + zone.end) / 2 - centerS, PLATFORM_TOP + 0.01, zNear - side * 0.35]} rotation={[-Math.PI / 2, 0, 0]}>
-            <planeGeometry args={[zone.end - zone.start, 0.3]} />
-            <meshStandardMaterial color="#2fbf5b" emissive="#2fbf5b" emissiveIntensity={0.3} />
+          <mesh position={[(zone.start + zone.end) / 2 - centerS, PLATFORM_TOP + 0.015, pf1Edge - 0.3]} rotation={[-Math.PI / 2, 0, 0]}>
+            <planeGeometry args={[zone.end - zone.start, 0.35]} />
+            <meshStandardMaterial color="#2fbf5b" emissive="#2fbf5b" emissiveIntensity={0.35} />
           </mesh>
         </group>
       )}

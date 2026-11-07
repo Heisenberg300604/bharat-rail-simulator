@@ -3,22 +3,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createRoute, vehiclePose, computeFormation } from './routeMath.js';
-import { createTrainState, stepTrain, cycleDirection, createFixedStepper, DIRECTION } from './trainSimulation.js';
+import { createTrainState, stepTrain, cycleDirection, createFixedStepper, applyEmergency, speedLimitFor, DIRECTION } from './trainSimulation.js';
 import { createJourney, updateJourney, JOURNEY_STATE } from './journeyManager.js';
-import { TRAIN, ROUTE_SEGMENTS, JOURNEY, FORMATION, FIXED_TIMESTEP } from '../config/gameConfig.js';
+import { TRAIN, ROUTE_SEGMENTS, JOURNEY, FORMATION, FIXED_TIMESTEP, SPEED_LIMITS } from '../config/gameConfig.js';
 
 const DT = FIXED_TIMESTEP;
-const NO_INPUT = { throttleUp: false, throttleDown: false, brakeApply: false, brakeRelease: false };
+const NO_INPUT = { leverUp: false, leverDown: false, brakeApply: false, brakeRelease: false };
 
 function newTrain(start = 300) {
-  return createTrainState({ startDistance: start, minDistance: 0, maxDistance: 8000 });
+  return createTrainState({ startDistance: start, minDistance: 0, maxDistance: 8000, coachCount: FORMATION.coachCount, cfg: TRAIN });
 }
 function run(train, input, seconds) {
   for (let t = 0; t < seconds; t += DT) stepTrain(train, input, DT, TRAIN);
-}
-/** Release brakes and set full throttle by holding keys. */
-function readyToDrive(train) {
-  run(train, { ...NO_INPUT, brakeRelease: true, throttleUp: true }, 3);
 }
 
 // ---------------------------------------------------------------- route
@@ -75,98 +71,134 @@ test('formation places coaches behind the locomotive with gaps', () => {
     const gap = cur.centerOffset - cur.length / 2 - (prev.centerOffset + prev.length / 2);
     assert.ok(Math.abs(gap - FORMATION.couplingGap) < 1e-9);
   }
-  assert.ok(totalLength > 90 && totalLength < 100);
+  assert.ok(totalLength > 205 && totalLength < 220, `length ${totalLength}`); // WAP-7 + 8 LHB ≈ 213 m
 });
 
 // ---------------------------------------------------------------- train
-test('train starts stationary with brakes applied and does not move', () => {
+const KMH = 1 / 3.6;
+function cruising(kmh, start = 1000) {
+  const t = newTrain(start);
+  t.maxDistance = 1e9;
+  t.brakeHandle = 0;
+  t.bp = TRAIN.bpNormal;
+  t.bc = t.brakeSignal = 0;
+  t.speedMps = kmh * KMH;
+  return t;
+}
+
+test('train starts held by the brakes; traction is cut while the brake pipe is low', () => {
   const train = newTrain();
-  run(train, NO_INPUT, 5);
+  run(train, { ...NO_INPUT, leverUp: true }, 3);
   assert.equal(train.speedMps, 0);
   assert.equal(train.routeDistance, 300);
+  assert.ok(train.tractionCut);
 });
 
-test('throttle accelerates gradually (no instant speed)', () => {
+test('releasing the A9 brake recharges the brake pipe, cylinders release slowly', () => {
   const train = newTrain();
-  readyToDrive(train);
-  const v1 = train.speedMps;
+  run(train, { ...NO_INPUT, brakeRelease: true }, 2.5);
+  assert.ok(train.bp > 4.9, `bp ${train.bp}`);
+  assert.ok(train.bc > 0.5, 'brake cylinders should still be releasing');
+  run(train, NO_INPUT, 20);
+  assert.ok(train.bc < 0.05, `bc ${train.bc}`);
+});
+
+test('full power: 0–100 km/h takes about a minute (WAP-7 + 8 LHB ≈ 523 t)', () => {
+  const train = cruising(0);
+  let t = 0;
+  while (train.speedMps < 100 * KMH && t < 300) {
+    stepTrain(train, { ...NO_INPUT, leverUp: true }, DT, TRAIN);
+    t += DT;
+  }
+  assert.ok(t > 50 && t < 90, `0–100 took ${t.toFixed(1)} s`);
+});
+
+test('coasting at 110 km/h loses speed only slowly', () => {
+  const train = cruising(110);
   run(train, NO_INPUT, 10);
-  assert.ok(train.speedMps > v1, 'speed should increase');
-  assert.ok(train.speedMps < 6, `still gradual after ~13s, got ${train.speedMps}`);
-  assert.ok(train.routeDistance > 300);
+  const lost = 110 - train.speedMps * 3.6;
+  assert.ok(lost > 0.5 && lost < 3, `lost ${lost.toFixed(2)} km/h in 10 s`);
 });
 
-test('speed never exceeds the cap', () => {
-  const train = newTrain(10);
-  train.maxDistance = 1e9;
-  readyToDrive(train);
-  run(train, NO_INPUT, 600);
-  assert.ok(train.speedMps <= TRAIN.maxSpeedKmh / 3.6 + 1e-9);
-  assert.ok(train.speedMps > TRAIN.maxSpeedKmh / 3.6 - 1, 'should reach near max speed');
+test('full-service stop from 110 km/h needs roughly a kilometre; emergency is shorter', () => {
+  const service = cruising(110);
+  const s0 = service.routeDistance;
+  run(service, { ...NO_INPUT, brakeApply: true }, 200);
+  const serviceDist = service.routeDistance - s0;
+  assert.equal(service.speedMps, 0);
+  assert.ok(serviceDist > 800 && serviceDist < 1300, `service ${serviceDist.toFixed(0)} m`);
+
+  const emerg = cruising(110);
+  applyEmergency(emerg);
+  const e0 = emerg.routeDistance;
+  run(emerg, NO_INPUT, 200);
+  const emergDist = emerg.routeDistance - e0;
+  assert.ok(emergDist < serviceDist, 'emergency must be shorter');
+  assert.ok(emergDist > 600 && emergDist < 950, `emergency ${emergDist.toFixed(0)} m`);
 });
 
-test('coasting slows the train only slightly', () => {
-  const train = newTrain(10);
-  train.maxDistance = 1e9;
-  train.brake = train.brakeEffective = 0;
-  train.speedMps = 25;
-  run(train, NO_INPUT, 10);
-  assert.ok(train.speedMps < 25 && train.speedMps > 23, `got ${train.speedMps}`);
+test('brakes never stop the train instantly', () => {
+  const train = cruising(100);
+  applyEmergency(train);
+  run(train, NO_INPUT, 1);
+  assert.ok(train.speedMps * 3.6 > 97, 'brake force takes time to build up');
 });
 
-test('brakes decelerate gradually, need distance, and hold the train at rest', () => {
-  const train = newTrain(10);
-  train.maxDistance = 1e9;
-  train.brake = train.brakeEffective = 0;
-  train.speedMps = 100 / 3.6;
-  // One fixed step of full braking must not stop the train
-  stepTrain(train, { ...NO_INPUT, brakeApply: true }, DT, TRAIN);
-  assert.ok(train.speedMps > 27);
-  const startS = train.routeDistance;
-  run(train, { ...NO_INPUT, brakeApply: true }, 90);
+test('regenerative braking (lever below 0) slows the train', () => {
+  const train = cruising(100);
+  run(train, { ...NO_INPUT, leverDown: true }, 15);
+  assert.ok(train.lever < 0);
+  assert.ok(train.speedMps * 3.6 < 85, `speed ${train.speedMps * 3.6}`);
+});
+
+test('stopped train stays stopped', () => {
+  const train = cruising(20);
+  run(train, { ...NO_INPUT, brakeApply: true }, 60);
   assert.equal(train.speedMps, 0);
-  const stoppingDistance = train.routeDistance - startS;
-  assert.ok(stoppingDistance > 350, `stopping distance ${stoppingDistance}`);
-  const restS = train.routeDistance;
+  const s = train.routeDistance;
   run(train, NO_INPUT, 10);
-  assert.equal(train.routeDistance, restS, 'stays stopped');
+  assert.equal(train.routeDistance, s);
 });
 
-test('direction cannot change while moving, but can when stopped', () => {
-  const train = newTrain();
-  train.speedMps = 5;
-  const res = cycleDirection(train, TRAIN);
-  assert.equal(res.ok, false);
-  assert.equal(train.direction, DIRECTION.FORWARD);
+test('reverser cannot change while moving or with power applied', () => {
+  const train = cruising(20);
+  assert.equal(cycleDirection(train, TRAIN).ok, false);
   train.speedMps = 0;
+  train.lever = 0.5;
+  assert.equal(cycleDirection(train, TRAIN).ok, false);
+  train.lever = 0;
   assert.equal(cycleDirection(train, TRAIN).ok, true);
   assert.equal(train.direction, DIRECTION.NEUTRAL);
 });
 
 test('neutral gives no traction; reverse moves backwards', () => {
-  const train = newTrain();
+  const train = cruising(0);
   cycleDirection(train, TRAIN); // neutral
-  readyToDrive(train);
-  run(train, { ...NO_INPUT }, 5);
+  run(train, { ...NO_INPUT, leverUp: true }, 5);
   assert.equal(train.speedMps, 0);
+  train.lever = 0;
   cycleDirection(train, TRAIN); // reverse
-  run(train, NO_INPUT, 5);
-  assert.ok(train.routeDistance < 300);
+  run(train, { ...NO_INPUT, leverUp: true }, 8);
+  assert.ok(train.routeDistance < 1000);
 });
 
 test('train stops at the end of track', () => {
-  const train = newTrain(7990);
-  train.speedMps = 10;
-  train.brake = train.brakeEffective = 0;
+  const train = cruising(30, 7990);
+  train.maxDistance = 8000;
   run(train, NO_INPUT, 3);
   assert.equal(train.routeDistance, 8000);
   assert.equal(train.speedMps, 0);
 });
 
+test('speed limit applies until the rear of the train clears it', () => {
+  assert.equal(speedLimitFor(SPEED_LIMITS, 800, 1013), 30);
+  assert.equal(speedLimitFor(SPEED_LIMITS, 950, 1163), 110);
+});
+
 test('fixed stepper caps huge frame delays', () => {
   const stepper = createFixedStepper(DT, 0.1);
   let steps = 0;
-  stepper.advance(5, () => steps++); // a 5 s browser stall
+  stepper.advance(5, () => steps++);
   assert.ok(steps <= Math.ceil(0.1 / DT));
 });
 
@@ -190,23 +222,39 @@ test('stopping outside the zone does not complete the journey', () => {
   assert.notEqual(journey.state, JOURNEY_STATE.COMPLETED);
 });
 
-test('a scripted full drive from New Delhi to Ghaziabad completes in 4–10 minutes', () => {
-  const train = createTrainState({ startDistance: JOURNEY.startDistance, minDistance: 100, maxDistance: JOURNEY.bufferStop });
+test('an automatic driver obeying speed limits completes New Delhi → Ghaziabad in 5–12 min', () => {
+  const total = computeFormation(FORMATION).totalLength;
+  const train = createTrainState({ startDistance: JOURNEY.startDistance, minDistance: total + 5, maxDistance: JOURNEY.bufferStop, coachCount: FORMATION.coachCount, cfg: TRAIN });
   const journey = createJourney();
+  const A = 0.3; // planning deceleration (m/s²), comfortably below full service
   let t = 0;
-  while (journey.state !== JOURNEY_STATE.COMPLETED && t < 1200) {
-    const remaining = JOURNEY.stopMarker - train.routeDistance;
-    // Simple "driver": full power, then brake when within braking distance (+ margin)
-    const v = train.speedMps;
-    const brakingDistance = (v * v) / (2 * 0.6 * TRAIN.maxBrakeDecel) + v * TRAIN.brakeResponseTime + 5;
-    const shouldBrake = remaining < brakingDistance || remaining < 1;
-    const input = shouldBrake
-      ? { ...NO_INPUT, brakeApply: true, throttleDown: true }
-      : { ...NO_INPUT, brakeRelease: true, throttleUp: true };
+  while (journey.state !== JOURNEY_STATE.COMPLETED && t < 1500) {
+    const front = train.routeDistance;
+    const limit = speedLimitFor(SPEED_LIMITS, front - total, front);
+    let target = limit - 5;
+    for (const l of SPEED_LIMITS) if (l.from > front && l.kmh < target) target = Math.min(target, Math.sqrt((l.kmh - 5) ** 2 / 12.96 + 2 * A * Math.max(0, l.from - front - 150)) * 3.6);
+    const remaining = JOURNEY.stopMarker - front;
+    target = Math.min(target, Math.sqrt(Math.max(0, 2 * A * (remaining - 40))) * 3.6 + 3);
+    const v = train.speedMps * 3.6;
+    const input = { ...NO_INPUT };
+    if (remaining < 2) input.brakeApply = true;
+    else if (v < target - 3) {
+      input.brakeRelease = true;
+      if (train.lever < 0.8) input.leverUp = true;
+    } else if (v > target + 2) {
+      if (train.lever > -0.6) input.leverDown = true;
+      if (v > target + 6) input.brakeApply = true;
+      else input.brakeRelease = true;
+    } else {
+      input.brakeRelease = true;
+      if (train.lever > 0.15) input.leverDown = true;
+    }
     stepTrain(train, input, DT, TRAIN);
-    updateJourney(journey, train, DT, JOURNEY);
+    updateJourney(journey, train, DT, JOURNEY, limit);
     t += DT;
   }
-  assert.equal(journey.state, JOURNEY_STATE.COMPLETED, `ended at s=${train.routeDistance}`);
-  assert.ok(t > 240 && t < 600, `journey took ${t.toFixed(0)} s`);
+  assert.equal(journey.state, JOURNEY_STATE.COMPLETED, `ended at s=${train.routeDistance.toFixed(0)} v=${(train.speedMps * 3.6).toFixed(1)}`);
+  assert.ok(t > 300 && t < 720, `journey took ${t.toFixed(0)} s`);
+  assert.ok(journey.result.maxOverspeedKmh < 5, `overspeed ${journey.result.maxOverspeedKmh.toFixed(1)}`);
+  console.log(`  auto-driver: ${(t / 60).toFixed(1)} min, max ${journey.result.maxSpeedKmh.toFixed(0)} km/h, stop offset ${journey.result.stopOffset.toFixed(1)} m, score ${journey.result.score}`);
 });

@@ -328,3 +328,14 @@ input[type='range'] {
     transform: translateX(220px);
   }
 }
+.credits a {
+  color: var(--ink);
+}
+.panel--title {
+  pointer-events: auto;
+}
+.title-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+}

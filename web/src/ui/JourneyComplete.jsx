@@ -25,6 +25,23 @@ export default function JourneyComplete({ result }) {
             <dd className="num">{Math.round(result.maxSpeedKmh)} km/h</dd>
           </div>
           <div>
+            <dt>Speed discipline</dt>
+            <dd>
+              {result.overspeedSeconds < 1 ? 'No overspeeding' : `${Math.round(result.overspeedSeconds)} s over the limit`}
+              {result.maxOverspeedKmh >= 1 && <small>worst: +{Math.round(result.maxOverspeedKmh)} km/h</small>}
+            </dd>
+          </div>
+          {result.emergencyUsed && (
+            <div>
+              <dt>Emergency brake</dt>
+              <dd>Used (−15)</dd>
+            </div>
+          )}
+          <div>
+            <dt>Driving score</dt>
+            <dd className="num">{result.score} / 100</dd>
+          </div>
+          <div>
             <dt>Stop</dt>
             <dd>
               {result.stopRating}

@@ -56,7 +56,12 @@ export function createRoute(segmentDefs, start = {}) {
     return out;
   }
 
-  return { segments, length, sample };
+  /** Signed curvature (1/radius) at distance s; 0 on straights. */
+  function curvatureAt(dist) {
+    return findSegment(Math.min(Math.max(dist, 0), length)).curvature;
+  }
+
+  return { segments, length, sample, curvatureAt };
 }
 
 function pointOnSegment(seg, t, out) {

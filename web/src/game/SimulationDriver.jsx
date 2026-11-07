@@ -6,14 +6,24 @@
 //   5. publish a HUD snapshot ~10 times per second (not every frame)
 import { useFrame } from '@react-three/fiber';
 import { useMemo, useRef } from 'react';
-import { game, publish, completeJourney, sceneReady, showToast } from './state/gameStore.js';
+import { game, publish, completeJourney, sceneReady, showToast, route, currentSpeedLimit, formation } from './state/gameStore.js';
 import { stepTrain, createFixedStepper } from './simulation/trainSimulation.js';
 import { updateJourney, JOURNEY_STATE } from './simulation/journeyManager.js';
-import { TRAIN, JOURNEY, FIXED_TIMESTEP, MAX_FRAME_DELTA } from './config/gameConfig.js';
+import { TRAIN, JOURNEY, FIXED_TIMESTEP, MAX_FRAME_DELTA, STATIONS } from './config/gameConfig.js';
 import { audioEngine } from './audio/audioEngine.js';
 
 const HUD_INTERVAL = 0.1;
-const MAX_SPEED_MPS = TRAIN.maxSpeedKmh / 3.6;
+
+/** 1 at a platform, fading to 0 about half a kilometre away (for station ambience). */
+function stationProximity(s) {
+  let best = 0;
+  for (const st of STATIONS) {
+    const d = Math.max(0, Math.max(st.platformStart - s, s - formation.totalLength - st.platformEnd));
+    best = Math.max(best, 1 - Math.min(1, d / 550));
+  }
+  return best;
+}
+const MAX_SPEED_MPS = TRAIN.sectionalSpeedKmh / 3.6;
 
 export default function SimulationDriver() {
   const stepper = useMemo(() => createFixedStepper(FIXED_TIMESTEP, MAX_FRAME_DELTA), []);
@@ -30,8 +40,9 @@ export default function SimulationDriver() {
     if (game.screen === 'playing') {
       const { alpha } = stepper.advance(delta, (dt) => {
         const speedBefore = train.speedMps;
-        stepTrain(train, game.input, dt, TRAIN);
-        updateJourney(game.journey, train, dt, JOURNEY);
+        const k = Math.abs(route.curvatureAt(train.routeDistance - 100));
+        stepTrain(train, game.input, dt, TRAIN, { curveRadius: k > 0 ? 1 / k : Infinity });
+        updateJourney(game.journey, train, dt, JOURNEY, currentSpeedLimit(train));
         if (train.hitBufferStop && speedBefore > 0.5) showToast('End of the line — the train hit the buffer stop');
       });
       // Interpolate between the last two physics states for silky motion
@@ -42,7 +53,7 @@ export default function SimulationDriver() {
       game.renderDistance = train.routeDistance;
     }
 
-    audioEngine.update(train, game.input, MAX_SPEED_MPS);
+    audioEngine.update(train, game.input, MAX_SPEED_MPS, { stationProximity: stationProximity(train.routeDistance) });
 
     // FPS counter (cheap)
     t.fpsFrames++;

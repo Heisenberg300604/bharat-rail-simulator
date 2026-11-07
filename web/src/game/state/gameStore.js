@@ -5,9 +5,18 @@
 // immutable *snapshot* that we publish only when needed — ~10×/s for the HUD,
 // immediately for menu/screen changes.
 import { useSyncExternalStore } from 'react';
-import { TRAIN, JOURNEY, ROUTE_SEGMENTS, FORMATION, STATIONS, QUALITY_PRESETS } from '../config/gameConfig.js';
+import { TRAIN, JOURNEY, ROUTE_SEGMENTS, FORMATION, STATIONS, QUALITY_PRESETS, SPEED_LIMITS } from '../config/gameConfig.js';
 import { createRoute, computeFormation } from '../simulation/routeMath.js';
-import { createTrainState, cycleDirection as simCycleDirection, DIRECTION_LABEL } from '../simulation/trainSimulation.js';
+import {
+  createTrainState,
+  cycleDirection as simCycleDirection,
+  applyEmergency,
+  DIRECTION_LABEL,
+  brakeHandleLabel,
+  estimateStoppingDistance,
+  speedLimitFor,
+  nextSpeedLimit,
+} from '../simulation/trainSimulation.js';
 import {
   createJourney,
   journeyHint,
@@ -16,6 +25,7 @@ import {
   JOURNEY_STATE,
 } from '../simulation/journeyManager.js';
 import { audioEngine } from '../audio/audioEngine.js';
+import { detectQuality } from './detectQuality.js';
 
 export const route = createRoute(ROUTE_SEGMENTS);
 export const formation = computeFormation(FORMATION);
@@ -27,11 +37,13 @@ function newTrain() {
     startDistance: JOURNEY.startDistance,
     minDistance: formation.totalLength + 5, // rear of the train can't pass the route start
     maxDistance: JOURNEY.bufferStop,
+    coachCount: FORMATION.coachCount,
+    cfg: TRAIN,
   });
 }
 
 function loadSettings() {
-  const defaults = { volume: 0.7, muted: false, quality: 'high', showFps: false };
+  const defaults = { volume: 0.8, muted: false, quality: detectQuality(), showFps: false, fov: 65, coachLivery: 'red' };
   try {
     const saved = JSON.parse(localStorage.getItem('brs-settings') || '{}');
     const merged = { ...defaults, ...saved };
@@ -55,12 +67,13 @@ export const game = {
   train: newTrain(),
   journey: createJourney(),
   renderDistance: JOURNEY.startDistance, // smoothed distance used for drawing
-  input: { throttleUp: false, throttleDown: false, brakeApply: false, brakeRelease: false, horn: false },
-  cameraMode: 'cab', // 'cab' | 'exterior'
+  input: { leverUp: false, leverDown: false, brakeApply: false, brakeRelease: false, horn: false },
+  cameraMode: 'cab', // 'cab' | 'chase' | 'orbit' | 'trackside'
   headlight: true,
   settings: loadSettings(),
   toast: null, // { text, until }
   fps: 0,
+  renderScale: 1,
   resetVersion: 0, // bumps on restart so the frame loop can reset its timers
 };
 
@@ -68,10 +81,26 @@ export const game = {
 const listeners = new Set();
 let snapshot = buildSnapshot();
 
+export function currentSpeedLimit(train = game.train) {
+  return speedLimitFor(SPEED_LIMITS, train.routeDistance - formation.totalLength, train.routeDistance);
+}
+
 function buildSnapshot() {
   const t = game.train;
   const now = performance.now();
+  const limit = currentSpeedLimit(t);
   return {
+    lever: t.lever,
+    teKN: t.teActual,
+    bp: t.bp,
+    bc: t.bc,
+    brakeHandle: t.brakeHandle,
+    brakeLabel: brakeHandleLabel(t),
+    emergency: t.emergency,
+    tractionCut: t.tractionCut && t.lever > 0,
+    speedLimit: limit,
+    nextLimit: nextSpeedLimit(SPEED_LIMITS, t.routeDistance, limit),
+    stoppingDistance: estimateStoppingDistance(t, TRAIN),
     screen: game.screen,
     speedKmh: t.speedMps * 3.6,
     throttle: t.throttle,
@@ -91,6 +120,7 @@ function buildSnapshot() {
     toast: game.toast && game.toast.until > now ? game.toast.text : null,
     settings: { ...game.settings },
     fps: game.fps,
+    renderScale: game.renderScale,
   };
 }
 
@@ -112,6 +142,10 @@ export function useGameSnapshot() {
  */
 export function useGameValue(selector) {
   return useSyncExternalStore(subscribe, () => selector(snapshot));
+}
+/** The active graphics preset object (see QUALITY_PRESETS). */
+export function useQuality() {
+  return QUALITY_PRESETS[useGameValue((s) => s.settings.quality)];
 }
 
 // ------------------------------------------------------------ actions
@@ -175,14 +209,28 @@ export function completeJourney() {
   setScreen('completed');
 }
 
+const CAMERA_ORDER = ['cab', 'chase', 'orbit', 'trackside'];
 export function toggleCamera() {
-  game.cameraMode = game.cameraMode === 'cab' ? 'exterior' : 'cab';
+  game.cameraMode = CAMERA_ORDER[(CAMERA_ORDER.indexOf(game.cameraMode) + 1) % CAMERA_ORDER.length];
   publish();
+}
+export function setCamera(mode) {
+  if (CAMERA_ORDER.includes(mode)) {
+    game.cameraMode = mode;
+    publish();
+  }
 }
 
 export function toggleHeadlight() {
   game.headlight = !game.headlight;
   publish();
+}
+
+export function emergencyBrake() {
+  if (!game.train.emergency) {
+    applyEmergency(game.train);
+    showToast('EMERGENCY BRAKE — brake pipe vented. Stop, then hold X to reset.', 3500);
+  }
 }
 
 export function cycleDirection() {
