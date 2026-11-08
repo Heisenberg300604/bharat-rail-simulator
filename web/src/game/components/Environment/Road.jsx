@@ -111,20 +111,31 @@ function ribbon(points, halfWidth, yFn) {
   return geo;
 }
 
-/** Dashed centre line as thin quads. */
+/** Dashed centre line: every dash is a quad, all merged into ONE geometry (one draw call). */
 function dashes(points, dash = 3, gap = 6) {
   const path = makePath(points);
-  const geos = [];
-  const o = {};
+  const pos = [];
+  const idx = [];
+  const a = {};
+  const b = {};
   for (let d = 0; d < path.length - dash; d += dash + gap) {
-    const seg = [];
-    for (let k = 0; k <= 2; k++) {
-      path.sample(d + (dash * k) / 2, o);
-      seg.push([o.x, o.z]);
-    }
-    geos.push(ribbon(seg, 0.07, () => 0.065));
+    path.sample(d, a);
+    path.sample(d + dash, b);
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const len = Math.hypot(dx, dz) || 1;
+    const nx = (dz / len) * 0.07;
+    const nz = (-dx / len) * 0.07;
+    const base = pos.length / 3;
+    pos.push(a.x + nx, 0.065, a.z + nz, a.x - nx, 0.065, a.z - nz, b.x + nx, 0.065, b.z + nz, b.x - nx, 0.065, b.z - nz);
+    idx.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
   }
-  return geos;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(new Float32Array(pos.length).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
+  geo.setIndex(idx);
+  geo.computeBoundingSphere();
+  return [geo];
 }
 
 function buildStreetlight() {
