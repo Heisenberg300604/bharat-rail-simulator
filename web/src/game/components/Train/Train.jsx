@@ -15,11 +15,23 @@ import { sceneRefs } from '../../state/sceneRefs.js';
 import { FORMATION, COACH_TYPES, LIVERIES, PARKED_TRAINS, AI_TRAINS, TRACK } from '../../config/gameConfig.js';
 import { vehiclePose } from '../../simulation/routeMath.js';
 import { lines, mainLine, downLine } from '../../world/trackLayout.js';
-import { buildLocomotive, buildBogieFrame, buildWheelset, buildCoachExtras, buildRearEndIndicators } from '../../world/models/trainModels.js';
+import { buildLocomotive, buildBogieFrame, buildWheelset, buildCoachExtras, buildRearEndIndicators, tailLampPosition } from '../../world/models/trainModels.js';
 import { getCoachVariants, coachVariantKey } from '../../world/models/coaches.js';
 import { buildCabInterior } from './CabInterior.jsx';
-import { buildCoachInterior } from './CoachInterior.jsx';
+import { buildCoachInterior, createInteriorMaterials, coachEye, COACH_LAYOUTS, INTERIOR_FLOOR, buildDoorway, doorEye } from './CoachInterior.jsx';
+import { buildPersonGeometry, createPeopleMaterial, makeCrowdMesh, randomPerson, ANIM } from '../../world/models/people.js';
+import { seededRandom } from '../../world/geometry.js';
 import { loadMergedModel } from '../../world/models/loadGlbModel.js';
+import { createGlowMaterial, createBeamMesh, makeGlowMesh, setGlow, disposeGlowMaterial } from '../../world/glow.js';
+import { envState } from '../../world/environment.js';
+
+// Lamp positions in the locomotive's local frame (x forward, y up, z right)
+const HEADLAMP = [10.3, 4.05, 0];
+const MARKERS = [
+  [10.32, 2.35, 1.05],
+  [10.32, 2.35, -1.05],
+];
+const _v = new THREE.Vector3();
 
 // Licensed WAP-7 model (CC-BY-4.0, see docs/ASSET_CREDITS.md). Until it has
 // loaded — or if it fails — the procedural locomotive is shown instead.
@@ -167,7 +179,10 @@ export default function Train() {
     return {
       loco,
       cab: buildCabInterior(),
-      coachInterior: buildCoachInterior(),
+      interiors: { lhb: buildCoachInterior('lhb'), icf: buildCoachInterior('icf') },
+      interiorMaterials: createInteriorMaterials(),
+      personGeo: buildPersonGeometry(),
+      personMat: createPeopleMaterial(),
       locoBogie: buildBogieFrame('loco'),
       lhbBogie: buildBogieFrame('coach'),
       icfBogie: buildBogieFrame('icf'),
@@ -175,12 +190,48 @@ export default function Train() {
       coachWheel: buildWheelset(COACH_TYPES.lhb.wheelRadius),
       lhbExtras: buildCoachExtras(COACH_TYPES.lhb.gap, COACH_TYPES.lhb.length, 'lhb'),
       icfExtras: buildCoachExtras(COACH_TYPES.icf.gap, COACH_TYPES.icf.length, 'icf'),
-      rearEnd: buildRearEndIndicators(),
+      rearEnds: { lhb: buildRearEndIndicators('lhb'), icf: buildRearEndIndicators('icf') },
+      doorways: { lhb: buildDoorway('lhb'), icf: buildDoorway('icf') },
+      reflectMat: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, emissive: '#ffffff', emissiveIntensity: 0 }),
       mats: makeMaterials(),
       locoMats: makeMaterials(),
       interiorMats: makeMaterials(),
     };
   }, []);
+
+  // Night lighting: glow sprites + headlight beam for our loco, a flashing tail
+  // lamp, and one dynamic glow layer for every other train's lamps.
+  const lamps = useMemo(() => {
+    const headMat = createGlowMaterial({ manual: true });
+    const head = makeGlowMesh(
+      [
+        { x: HEADLAMP[0], y: HEADLAMP[1], z: HEADLAMP[2], size: 2.2, color: '#fff6e0' },
+        ...MARKERS.map(([x, y, z]) => ({ x, y, z, size: 0.8, color: '#fff2d0' })),
+      ],
+      headMat,
+    );
+    head.frustumCulled = false;
+    const tailMat = createGlowMaterial({ manual: true });
+    const tail = makeGlowMesh([{ x: -0.1, y: 1.98, z: -0.8, size: 1.1, color: '#ff2a1a' }], tailMat);
+    tail.frustumCulled = false;
+    const beam = createBeamMesh(75, 10);
+    beam.position.set(HEADLAMP[0] + 0.1, HEADLAMP[1] - 0.05, 0);
+    beam.rotation.z = -0.05; // aimed slightly down at the track
+    const othersMat = createGlowMaterial({ day: 0.15, night: 1.2 });
+    const others = makeGlowMesh([], othersMat, { maxCount: 64 });
+    return { head, tail, beam, others };
+  }, []);
+  useEffect(
+    () => () => {
+      for (const m of [lamps.head, lamps.tail, lamps.others]) {
+        disposeGlowMaterial(m.material);
+        m.dispose();
+      }
+      lamps.beam.geometry.dispose();
+      lamps.beam.material.dispose();
+    },
+    [lamps],
+  );
 
   useEffect(
     () => () => {
@@ -194,11 +245,19 @@ export default function Train() {
         assets.coachWheel,
         ...Object.values(assets.loco),
         ...Object.values(assets.cab),
-        ...Object.values(assets.coachInterior),
-        ...Object.values(assets.rearEnd),
+        ...Object.values(assets.interiors.lhb),
+        ...Object.values(assets.interiors.icf),
+        assets.personGeo,
+        ...Object.values(assets.rearEnds.lhb),
+        ...Object.values(assets.rearEnds.icf),
+        ...Object.values(assets.doorways.lhb),
+        ...Object.values(assets.doorways.icf),
       ];
       all.forEach((g) => g.dispose());
       [...Object.values(assets.mats), ...Object.values(assets.locoMats), ...Object.values(assets.interiorMats)].forEach((m) => m.dispose());
+      const im = assets.interiorMaterials;
+      [im.body, im.glass, im.lamp, assets.personMat, assets.reflectMat].forEach((m) => m.dispose());
+      im.dispose();
     },
     [assets],
   );
@@ -215,6 +274,45 @@ export default function Train() {
   }, []);
 
   const coachVariants = useMemo(getCoachVariants, []);
+
+  // Inside the first coach: the interior for the chosen coach type, with
+  // passengers sitting on the berths around you.
+  const playerCoachType = coachLivery === 'icfBlue' ? 'icf' : 'lhb';
+  const passengers = useMemo(() => {
+    const c = COACH_LAYOUTS[playerCoachType];
+    const rand = seededRandom(playerCoachType === 'icf' ? 71 : 72);
+    const people = [];
+    const seat = (x, z, yaw) => {
+      const person = randomPerson(rand, rand() < 0.45 ? 'woman' : rand() < 0.15 ? 'child' : 'man');
+      person.headLoad = 0;
+      person.bag = 0;
+      people.push({ x, y: INTERIOR_FLOOR, z, yaw, person, anim: ANIM.sit, phase: rand() });
+    };
+    for (let k = 0; k < c.bays; k++) {
+      const xb = c.bayStart + k * c.bayPitch;
+      const xf = xb + c.bayPitch;
+      const mine = k === c.eye.bay;
+      for (const z of [-1.1, -0.62, -0.15]) {
+        // rear berth: in our bay the window seat is ours (and we keep some elbow room)
+        if (mine ? z > -0.4 : rand() < 0.55) seat(xb + 0.32, z, 0);
+        // the berth facing us is always occupied in our bay
+        if (mine || rand() < 0.55) seat(xf - 0.32, z, Math.PI);
+      }
+      if (rand() < 0.6) seat(xb + 0.32, 1.12, 0);
+      if (rand() < 0.5) seat(xf - 0.32, 1.12, Math.PI);
+    }
+    const mesh = makeCrowdMesh(people, assets.personGeo, assets.personMat);
+    return mesh;
+  }, [playerCoachType, assets]);
+  useEffect(() => () => passengers.geometry.dispose(), [passengers]);
+  useLayoutEffect(() => {
+    sceneRefs.coachEye = coachEye(playerCoachType);
+    sceneRefs.doorEye = doorEye(playerCoachType);
+    const [tx, ty, tz] = tailLampPosition(playerCoachType);
+    setGlow(lamps.tail, 0, tx - 0.05, ty, tz, 1.1, '#ff2a1a');
+    lamps.tail.instanceMatrix.needsUpdate = true;
+    if (tailLampRef.current) tailLampRef.current.position.set(tx + 0.03, ty, tz);
+  }, [playerCoachType, lamps]);
 
   // Parts to draw for locomotives: GLB parts if loaded, else procedural groups
   const locoParts = useMemo(
@@ -259,6 +357,7 @@ export default function Train() {
   const cabGroup = useRef();
   const coachInteriorGroup = useRef();
   const rearEndGroup = useRef();
+  const doorGroup = useRef();
   const tailLampRef = useRef();
   const exteriorGroup = useRef();
   const light = useRef();
@@ -273,12 +372,16 @@ export default function Train() {
   useLayoutEffect(() => {
     sceneRefs.locomotive = locoGroup.current;
     sceneRefs.coachInterior = coachInteriorGroup.current;
+    sceneRefs.rearEnd = rearEndGroup.current;
+    sceneRefs.doorway = doorGroup.current;
     light.current.target = lightTarget;
     assets.locoMats.paint.color.set(LIVERIES.wap7.paint);
     assets.locoMats.paint2.color.set(LIVERIES.wap7.paint2);
     return () => {
       sceneRefs.locomotive = null;
       sceneRefs.coachInterior = null;
+      sceneRefs.rearEnd = null;
+      sceneRefs.doorway = null;
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -319,16 +422,41 @@ export default function Train() {
     }
   }
 
+  /** Running AI locos show their headlight; parked ones only red marker lamps. Uses _m. */
+  function addLocoGlows(v, idx) {
+    if (idx > 60) return idx;
+    if (v.isAi) {
+      _v.set(...HEADLAMP).applyMatrix4(_m);
+      setGlow(lamps.others, idx++, _v.x, _v.y, _v.z, 2.4, '#fff4dc');
+    }
+    for (const mk of MARKERS) {
+      _v.set(...mk).applyMatrix4(_m);
+      setGlow(lamps.others, idx++, _v.x, _v.y, _v.z, 0.7, v.isAi ? '#fff2d0' : '#ff3b2a');
+    }
+    return idx;
+  }
+
   function updateAll(includeParked) {
     const r = refs.current;
     const d = game.renderDistance;
     let coachWheelIdx = 0;
+    let glowIdx = 0;
+    const lit = envState.lamps > 0.02;
 
     for (const v of vehicles) {
       const isLoco = v.kind === 'locomotive';
       const spec = isLoco ? FORMATION.locomotive : COACH_TYPES[v.type] || COACH_TYPES.lhb;
 
-      if (!v.dynamic && !includeParked) continue;
+      if (!v.dynamic && !includeParked) {
+        // parked locos never move, but their marker lamps still need a glow slot
+        if (isLoco && lit) {
+          vehiclePose(v.line, v.centerS, spec.bogieSpacing, pose);
+          _q.setFromAxisAngle(_up, v.reverseHeading ? pose.yaw + Math.PI : pose.yaw);
+          _m.compose(_p.set(pose.x, TRACK.railTop, pose.z), _q, _one);
+          glowIdx = addLocoGlows(v, glowIdx);
+        }
+        continue;
+      }
 
       let centerS;
       let dist;
@@ -360,6 +488,7 @@ export default function Train() {
       } else if (isLoco) {
         const pli = v.locoIndex;
         for (const part of locoParts) r[`ploco_${part.key}`]?.setMatrixAt(pli, _m);
+        if (lit) glowIdx = addLocoGlows(v, glowIdx);
         if (r.locoBogie) placeRunningGear(v, centerS, dist, r.locoBogie, (pli + 1) * 2, r.locoWheel, (pli + 1) * 6, spec, v.reverseHeading);
       } else {
         const variantKey = v.variantKey;
@@ -387,6 +516,16 @@ export default function Train() {
       coachInteriorGroup.current.updateMatrixWorld();
     }
 
+    // The doorway view stands at the front door of the second coach
+    if (doorGroup.current && vehicles[2]) {
+      const c2 = vehicles[2];
+      const spec2 = COACH_TYPES[c2.type] || COACH_TYPES.lhb;
+      vehiclePose(mainLine, d - c2.offset, spec2.bogieSpacing, pose);
+      doorGroup.current.position.set(pose.x, TRACK.railTop, pose.z);
+      doorGroup.current.rotation.set(0, pose.yaw, 0);
+      doorGroup.current.updateMatrixWorld();
+    }
+
     // Place LV board and flashing red tail lamp on the rear wall of the player train
     if (rearEndGroup.current && vehicles[FORMATION.coachCount]) {
       const lastCoach = vehicles[FORMATION.coachCount];
@@ -396,6 +535,13 @@ export default function Train() {
       rearEndGroup.current.position.set(pose.x, TRACK.railTop, pose.z);
       rearEndGroup.current.rotation.set(0, pose.yaw, 0);
       rearEndGroup.current.updateMatrixWorld();
+    }
+
+    if (lit || lamps.others.count) {
+      lamps.others.count = lit ? glowIdx : 0;
+      lamps.others.instanceMatrix.needsUpdate = true;
+      lamps.others.instanceColor.needsUpdate = true;
+      lamps.others.frustumCulled = false;
     }
 
     for (const mesh of Object.values(r)) {
@@ -416,15 +562,30 @@ export default function Train() {
     exteriorGroup.current.visible = !isCab;
     cabGroup.current.visible = isCab;
     if (coachInteriorGroup.current) coachInteriorGroup.current.visible = isInterior;
+    if (doorGroup.current) doorGroup.current.visible = mode === 'door' && isPlaying;
+    // retro-reflective X and LV board light up in headlights / station lights at night
+    assets.reflectMat.emissiveIntensity = 0.35 * envState.lamps * envState.night;
+    if (isInterior) {
+      const u = assets.personMat.userData.uniforms;
+      u.uTime.value = state.clock.elapsedTime;
+      u.uFill.value = 0.3 + 0.25 * envState.night;
+    }
 
-    light.current.intensity = game.headlight ? 80 : 0;
+    light.current.intensity = game.headlight ? 70 + 90 * envState.night : 0;
     assets.locoMats.lamp.emissiveIntensity = game.headlight ? 4 : 0;
 
-    if (tailLampRef.current) {
-      // Indian Railways tail lamp standard: 75 flashes per minute = 1.25 Hz
-      const flash = Math.sin(state.clock.getElapsedTime() * 7.85) > 0.15;
-      tailLampRef.current.material.emissiveIntensity = flash ? 3.5 : 0.05;
-    }
+    // Indian Railways tail lamp standard: 75 flashes per minute = 1.25 Hz
+    const flash = Math.sin(state.clock.getElapsedTime() * 7.85) > 0.15;
+    if (tailLampRef.current) tailLampRef.current.material.emissiveIntensity = flash ? 3.5 : 0.05;
+    const dark = envState.lamps;
+    lamps.tail.material.uniforms.uIntensity.value = flash ? 0.35 + 1.3 * dark : 0;
+    const hl = game.headlight ? 1 : 0;
+    lamps.head.material.uniforms.uIntensity.value = hl * (0.25 + 1.4 * dark);
+    lamps.head.visible = !isCab;
+    // The beam is a scattering effect: strongest in fog/rain, subtle on clear nights
+    const scatter = Math.min(1, envState.night * 0.45 + (1 - envState.sunVisible) * 0.8 * (0.35 + 0.65 * dark));
+    lamps.beam.material.uniforms.uIntensity.value = hl * scatter * (isCab ? 0.35 : 0.6);
+    lamps.beam.visible = hl * scatter > 0.01;
   }, FRAME_PRIORITY_TRAIN);
 
   const register = (name, dynamic = false) => (el) => {
@@ -459,25 +620,43 @@ export default function Train() {
         </group>
         <spotLight ref={light} position={[10.4, 4.0, 0]} angle={0.2} penumbra={0.6} distance={320} decay={1} color="#fff6dd" />
         <primitive object={lightTarget} />
+        <primitive object={lamps.head} />
+        <primitive object={lamps.beam} />
       </group>
 
       {/* Passenger Coach Interior (visible in 'interior' camera mode) */}
       <group ref={coachInteriorGroup} visible={false}>
-        {Object.entries(assets.coachInterior).map(([key, geo]) => (
-          <mesh key={key} geometry={geo} material={assets.interiorMats[key] ?? assets.interiorMats.body} />
+        {Object.entries(assets.interiors[playerCoachType]).map(([key, geo]) => (
+          <mesh
+            key={`${playerCoachType}${key}`}
+            geometry={geo}
+            material={assets.interiorMaterials[key] ?? assets.interiorMaterials.body}
+            castShadow={key === 'body'}
+            receiveShadow={key === 'body'}
+          />
         ))}
+        <primitive object={passengers} />
       </group>
 
       {/* Player train rear: iconic yellow 'LV' board & flashing red tail LED */}
-      <group ref={rearEndGroup}>
-        {Object.entries(assets.rearEnd).map(([key, geo]) => (
-          <mesh key={key} geometry={geo} material={assets.interiorMats[key] ?? assets.interiorMats.body} />
+      <group ref={doorGroup} visible={false}>
+        {Object.entries(assets.doorways[playerCoachType]).map(([key, geo]) => (
+          <mesh key={`${playerCoachType}${key}`} geometry={geo} material={assets.interiorMaterials.body} />
         ))}
+      </group>
+
+      <group ref={rearEndGroup}>
+        {Object.entries(assets.rearEnds[playerCoachType]).map(([key, geo]) => (
+          <mesh key={`${playerCoachType}${key}`} geometry={geo} material={key === 'reflect' ? assets.reflectMat : assets.interiorMats.body} castShadow />
+        ))}
+        <primitive object={lamps.tail} />
         <mesh ref={tailLampRef} position={[-0.04, 1.98, -0.8]}>
           <sphereGeometry args={[0.045, 12, 12]} />
           <meshStandardMaterial color="#ff1111" emissive="#ff1111" emissiveIntensity={3.5} roughness={0.1} />
         </mesh>
       </group>
+
+      <primitive object={lamps.others} />
 
       {/* Instanced meshes for all other locomotives (AI + parked) */}
       {nOtherLocos > 0 &&

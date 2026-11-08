@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { ModelBuilder } from '../modelBuilder.js';
 import { makeLhbSideTexture, LHB_SIDE, makeIcfSideTexture, ICF_SIDE } from '../textures.js';
 import { LIVERIES, COACH_TYPES } from '../../config/gameConfig.js';
+import { onEnvironmentChange } from '../environment.js';
 
 const HW = 1.62;
 
@@ -88,6 +89,24 @@ function icfGeometry() {
 
 let shared = null;
 
+/** Coach side panel. Its windows glow (emissive mask) when the lights come on at dusk. */
+function sideMaterial(texture, type) {
+  const mat = new THREE.MeshStandardMaterial({
+    map: texture,
+    roughness: type === 'icf' ? 0.6 : 0.42,
+    metalness: 0.12,
+    emissiveMap: texture.userData.glow ?? null,
+    emissive: texture.userData.glow ? '#ffffff' : '#000000',
+    emissiveIntensity: 0,
+  });
+  // Coach materials live for the whole session (shared module cache), so the
+  // subscription is intentionally never removed.
+  onEnvironmentChange((env) => {
+    mat.emissiveIntensity = env.lamps * (type === 'icf' ? 1.25 : 1.5);
+  });
+  return mat;
+}
+
 export function getCoachVariants() {
   if (shared) return shared;
   const geo = { lhb: lhbGeometry(), icf: icfGeometry() };
@@ -96,7 +115,7 @@ export function getCoachVariants() {
     const liv = LIVERIES[liveryKey];
     const g = geo[type];
     return [
-      { geometry: g.side, material: new THREE.MeshStandardMaterial({ map: texture, roughness: type === 'icf' ? 0.6 : 0.42, metalness: 0.12 }) },
+      { geometry: g.side, material: sideMaterial(texture, type) },
       { geometry: g.paint, material: new THREE.MeshStandardMaterial({ color: liv.paint, roughness: 0.5, metalness: 0.12 }) },
       { geometry: g.paint2, material: new THREE.MeshStandardMaterial({ color: liv.paint2, roughness: 0.5, metalness: 0.12 }) },
       { geometry: g.body, material: bodyMat },

@@ -152,7 +152,16 @@ export const AI_TRAINS = [
 
 // Road beside the line (left side) and a manned level crossing over both tracks.
 export const ROAD = { lateral: 32, from: 1250, to: 6350, width: 7 };
-export const LEVEL_CROSSING = { s: 4200, farLateral: -150, closeAhead: 650, whistleBoard: 600 };
+// Manned level crossings (Indian Railways "LC gates"): lifting booms, a
+// gateman's lodge (gumti), whistle boards 600 m before each side, check rails
+// through the crossing, and a cross road with traffic that queues while the
+// booms are down. Gates close when a train is `closeAhead` metres away.
+export const LEVEL_CROSSINGS = [
+  { id: 'LC-41', s: 1120, closeAhead: 650, whistleBoard: 600 }, // just outside New Delhi
+  { id: 'LC-42', s: 4200, closeAhead: 650, whistleBoard: 600 }, // open country
+  { id: 'LC-43', s: 6760, closeAhead: 650, whistleBoard: 600 }, // Ghaziabad approach
+];
+export const LEVEL_CROSSING = { ...LEVEL_CROSSINGS[1], farLateral: -150 }; // the original one (kept for tests)
 
 // Livery colours (primary body, secondary band). Applied per vehicle instance,
 // so one coach model serves every scheme.
@@ -198,6 +207,7 @@ export const QUALITY_PRESETS = {
     fogFar: 1000,
     cameraFar: 1300,
     sceneryDensity: 0.45,
+    crowdDensity: 0.45,
     detailDistance: 450, // sleepers/small props drawn within this distance
     sceneryDistance: 1000,
   },
@@ -212,6 +222,7 @@ export const QUALITY_PRESETS = {
     fogFar: 1500,
     cameraFar: 1900,
     sceneryDensity: 0.75,
+    crowdDensity: 0.75,
     detailDistance: 650,
     sceneryDistance: 1500,
   },
@@ -226,6 +237,7 @@ export const QUALITY_PRESETS = {
     fogFar: 2200,
     cameraFar: 2600,
     sceneryDensity: 1,
+    crowdDensity: 1,
     detailDistance: 900,
     sceneryDistance: 2200,
   },

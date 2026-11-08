@@ -1,195 +1,326 @@
-// Indian Railways passenger coach interior (ICF Sleeper Compartment).
-// Visible in the 'interior' camera view. Features authentic Indian Railways
-// details: longitudinal aisle, 6-berth main bay (lower, middle, upper berths
-// with rexine blue cushions), 2 side berths, luggage racks with metal slats,
-// ceiling with oscillating cabin fans, partition walls, window with safety bars,
-// window table with chai cup, mobile charger point, and emergency alarm chain.
-// Built with ModelBuilder into merged geometries for minimal draw calls.
+// Passenger coach interiors, one per coach type, built to the same dimensions
+// as the exterior shells (see world/models/coaches.js and textures.js):
+//   LHB AC 3-tier — 8 bays at 2.16 m pitch, sealed tinted windows with
+//                   curtains, LED light strip, folding middle berths as backrests
+//   ICF Sleeper   — 9 bays at 1.8 m pitch, open windows with steel bars,
+//                   ceiling fans and tube lights, blue rexine berths
+//
+// The side walls have real openings exactly where the windows are painted on
+// the exterior, so you can look out at the platform and the countryside. (The
+// exterior side panels are one-sided planes facing outward, so they are
+// invisible from inside — the interior walls are what you see.)
+//
+// Coach local frame: x along the coach (+x = forward), y up (0 = rail top),
+// z to the right; the main berth bays are on the LEFT (−z), side berths on the
+// right (+z), aisle in between.
 import * as THREE from 'three';
 import { ModelBuilder } from '../../world/modelBuilder.js';
+import { onEnvironmentChange } from '../../world/environment.js';
 
-// Passenger window seat position in the sleeper bay:
-// Sitting comfortably on the rear bench cushion facing forward into the bay,
-// right beside the open barred window, looking across the table and out at the track.
-// In coach local frame: x along coach (+x forward), y up (0 = rail top), z right (-z left towards window).
-export const COACH_EYE = [-0.62, 2.08, -0.96];
-export const COACH_LOOK_PITCH_DEG = -4;
-export const COACH_DEFAULT_YAW_DEG = 28; // slightly angled towards the window and table
+const FLOOR = 1.28; // coach floor above rail top
+export const INTERIOR_FLOOR = FLOOR;
+const WALL_IN = 1.5; // inner face of the side walls (exterior skin is at 1.62)
+const WALL_OUT = 1.585;
+const MAIN_Z = [-1.47, 0.12]; // main berths: window wall → aisle
+const SIDE_Z = [0.76, 1.47]; // side berths
+const AISLE_Z = 0.44;
 
-const BLUE_REXINE = '#1b3b6f'; // classic Indian Railways dark blue vinyl seat cushion
-const CREAM_WALL = '#e6dcce'; // laminate partition wall
-const TEAK_TRIM = '#5c3a21'; // wooden edging
-const STEEL_RACK = '#9aa1a6'; // stainless steel luggage rack
-const FLOOR_VINYL = '#383c40'; // grey non-slip coach flooring
-const FAN_METAL = '#26282a'; // 110V DC cabin fan cage
-const BAR_METAL = '#b8bcbf'; // aluminium window bars
+export const COACH_LAYOUTS = {
+  lhb: {
+    ceil: 3.56,
+    bayPitch: 2.16,
+    bayStart: -8.64,
+    bays: 8,
+    endX: 8.95,
+    windows: Array.from({ length: 8 }, (_, i) => (i - 3.5) * 2.16),
+    winHalf: 0.68,
+    winY: [2.08, 2.94],
+    glazed: true,
+    berth: '#2f4473',
+    berthEdge: '#1d2b4d',
+    wall: '#dcd7cb',
+    trim: '#9aa1a8',
+    curtain: '#304f86',
+    eye: { bay: 4, height: 1.2, yawDeg: 38 },
+  },
+  icf: {
+    ceil: 3.5,
+    bayPitch: 1.8,
+    bayStart: -8.55,
+    bays: 9,
+    endX: 9.0,
+    windows: Array.from({ length: 19 }, (_, i) => (i - 9) * 0.9),
+    winHalf: 0.31,
+    winY: [2.13, 2.67],
+    glazed: false,
+    berth: '#2a5291',
+    berthEdge: '#183460',
+    wall: '#d6d2bd',
+    trim: '#6b5434',
+    curtain: null,
+    eye: { bay: 4, height: 1.12, yawDeg: 40 },
+  },
+};
 
-export function buildCoachInterior() {
+/** Seated passenger's eye in the coach frame, beside the window on the rear lower berth. */
+export function coachEye(type) {
+  const c = COACH_LAYOUTS[type] ?? COACH_LAYOUTS.lhb;
+  const xb = c.bayStart + c.eye.bay * c.bayPitch;
+  return { eye: [xb + 0.36, FLOOR + c.eye.height, -1.0], yawDeg: c.eye.yawDeg };
+}
+// Back-compat exports (default = LHB)
+export const COACH_EYE = coachEye('lhb').eye;
+export const COACH_LOOK_PITCH_DEG = -3;
+export const COACH_DEFAULT_YAW_DEG = COACH_LAYOUTS.lhb.eye.yawDeg;
+
+const STEEL = '#a9b0b6';
+const DARK = '#3a3d42';
+const FLOOR_VINYL = '#4b4f55';
+
+/** Side wall from xA to xB with rectangular openings at the windows. */
+function sideWall(b, side, c, color) {
+  const z = side < 0 ? [-WALL_OUT, -WALL_IN] : [WALL_IN, WALL_OUT];
+  const [y0, y1] = c.winY;
+  const xA = -c.endX;
+  const xB = c.endX;
+  b.box([xA, xB], [FLOOR, y0], z, color);
+  b.box([xA, xB], [y1, c.ceil], z, color);
+  let x = xA;
+  for (const wx of c.windows) {
+    const x0 = wx - c.winHalf;
+    const x1 = wx + c.winHalf;
+    if (x0 > x + 0.001) b.box([x, x0], [y0, y1], z, color);
+    x = x1;
+  }
+  if (x < xB) b.box([x, xB], [y0, y1], z, color);
+}
+
+function windowDetail(b, side, wx, c) {
+  const s = side;
+  const [y0, y1] = c.winY;
+  const h = c.winHalf;
+  const zi = s * WALL_IN; // inner face
+  const zr = (d) => (s < 0 ? [zi, zi + d] : [zi - d, zi]); // a box d deep, sticking into the room
+  // frame around the opening (reveal), sill ledge
+  b.box([wx - h - 0.05, wx + h + 0.05], [y1, y1 + 0.05], zr(0.06), c.trim);
+  b.box([wx - h - 0.05, wx - h], [y0, y1], zr(0.06), c.trim);
+  b.box([wx + h, wx + h + 0.05], [y0, y1], zr(0.06), c.trim);
+  b.box([wx - h - 0.08, wx + h + 0.08], [y0 - 0.04, y0], zr(0.13), c.trim);
+  if (c.glazed) {
+    // sealed double glazing, set back in the wall
+    b.box([wx - h, wx + h], [y0, y1], s < 0 ? [-WALL_OUT + 0.005, -WALL_OUT + 0.015] : [WALL_OUT - 0.015, WALL_OUT - 0.005], '#a9c1cc', { mat: 'glass' });
+    if (c.curtain) {
+      // curtains tied back at both sides of the window
+      for (const cx of [wx - h - 0.12, wx + h + 0.12]) {
+        b.box([cx - 0.1, cx + 0.1], [y0 - 0.15, y1 + 0.08], zr(0.08), c.curtain);
+        b.box([cx - 0.11, cx + 0.11], [y0 + 0.25, y0 + 0.29], zr(0.09), '#c9a54a'); // tie band
+      }
+      b.cylinder({ radius: 0.012, length: 2 * h + 0.6, axis: 'x', position: [wx, y1 + 0.1, s * (WALL_IN - 0.06)], color: STEEL });
+    }
+  } else {
+    // ICF: open window with four horizontal steel bars and the raised louvre shutter
+    for (let k = 1; k <= 4; k++) {
+      const by = y0 + ((y1 - y0) * k) / 5;
+      b.cylinder({ radius: 0.011, length: 2 * h, axis: 'x', position: [wx, by, s * (WALL_IN + 0.03)], color: '#c3c8cc' });
+    }
+    b.box([wx - h, wx + h], [y1 + 0.02, y1 + 0.24], zr(0.03), '#b9bec2');
+  }
+}
+
+/** One berth cushion slab with a darker edge band. */
+function cushion(b, x, y, z, c) {
+  b.box(x, y, z, c.berth);
+  b.box(x, [y[0] - 0.015, y[0]], [z[0] + 0.01, z[1] - 0.01], c.berthEdge);
+}
+
+export function buildCoachInterior(type = 'lhb') {
+  const c = COACH_LAYOUTS[type] ?? COACH_LAYOUTS.lhb;
   const b = new ModelBuilder();
+  const F = FLOOR;
+  const P = c.bayPitch;
+  const xA = -c.endX;
+  const xB = c.endX;
 
-  // Extended compartment bounds: spans across two full bays (x from -3.4 to 3.4)
-  // so looking down the aisle reveals a seamless coach corridor.
-  const X0 = -3.4;
-  const X1 = 3.4;
-  const Y_FLOOR = 1.15; // floor above rail
-  const Y_CEIL = 3.65; // ceiling
-  const W_CABIN = 1.55; // half width of coach inside
-
-  // 1. Non-slip vinyl floor
-  b.box([X0, X1], [Y_FLOOR - 0.04, Y_FLOOR], [-W_CABIN, W_CABIN], FLOOR_VINYL);
-  // Longitudinal aisle floor strip (light metal threshold edging)
-  for (const z of [0.35, 0.75]) {
-    b.box([X0, X1], [Y_FLOOR, Y_FLOOR + 0.005], [z - 0.015, z + 0.015], '#7a8087');
+  // shell: floor, ceiling, side walls with window openings, end walls
+  b.box([xA, xB], [F - 0.05, F], [-WALL_IN, WALL_IN], FLOOR_VINYL);
+  b.box([xA, xB], [F, F + 0.004], [MAIN_Z[1] + 0.02, SIDE_Z[0] - 0.02], '#5d6168'); // aisle runner
+  b.box([xA, xB], [c.ceil, c.ceil + 0.05], [-WALL_IN, WALL_IN], '#ecebe6');
+  // sloping cove panels where the ceiling meets the walls
+  for (const s of [-1, 1]) {
+    b.add(new THREE.BoxGeometry(2 * c.endX, 0.03, 0.42), { color: '#e3e1da', position: [0, c.ceil - 0.12, s * (WALL_IN - 0.18)], rotation: [s * 0.62, 0, 0] });
+  }
+  sideWall(b, -1, c, c.wall);
+  sideWall(b, 1, c, c.wall);
+  for (const wx of c.windows) {
+    windowDetail(b, -1, wx, c);
+    windowDetail(b, 1, wx, c);
+  }
+  for (const end of [-1, 1]) {
+    const x = end * c.endX;
+    const xr = end > 0 ? [x, x + 0.06] : [x - 0.06, x];
+    b.box(xr, [F, c.ceil], [-WALL_IN, AISLE_Z - 0.5], c.wall);
+    b.box(xr, [F, c.ceil], [AISLE_Z + 0.5, WALL_IN], c.wall);
+    b.box(xr, [F + 2.05, c.ceil], [AISLE_Z - 0.5, AISLE_Z + 0.5], c.wall);
+    // vestibule door (glazed sliding door on AC coaches)
+    const dx = end > 0 ? [x + 0.01, x + 0.03] : [x - 0.03, x - 0.01];
+    b.box(dx, [F, F + 2.05], [AISLE_Z - 0.5, AISLE_Z + 0.5], c.glazed ? '#6f7c84' : '#8b8f86', c.glazed ? { mat: 'glass' } : {});
+    b.box(end > 0 ? [x - 0.02, x] : [x, x + 0.02], [F + 2.0, F + 2.08], [AISLE_Z - 0.56, AISLE_Z + 0.56], c.trim);
+    // fire extinguisher and a sign over the door
+    b.cylinder({ radius: 0.075, length: 0.5, position: [x - end * 0.12, F + 0.6, AISLE_Z + 0.75], color: '#c4161c' });
+    b.box(end > 0 ? [x - 0.02, x] : [x, x + 0.02], [F + 2.2, F + 2.38], [AISLE_Z - 0.35, AISLE_Z + 0.35], '#1d4f91');
   }
 
-  // 2. Transverse partition walls (creams with teak wood trim)
-  for (const x of [-2.2, -1.1, 1.1, 2.2]) {
-    // Partition from window to aisle (z = -W_CABIN to z = 0.35)
-    b.box([x - 0.025, x + 0.025], [Y_FLOOR, Y_CEIL - 0.08], [-W_CABIN, 0.35], CREAM_WALL);
-    b.box([x - 0.032, x + 0.032], [Y_FLOOR, Y_CEIL], [0.32, 0.36], TEAK_TRIM); // aisle pillar
-    b.box([x - 0.03, x + 0.03], [Y_CEIL - 0.15, Y_CEIL - 0.08], [-W_CABIN, 0.35], TEAK_TRIM); // top molding
-    // Teak baseboard
-    b.box([x - 0.03, x + 0.03], [Y_FLOOR, Y_FLOOR + 0.08], [-W_CABIN, 0.35], TEAK_TRIM);
-  }
+  // bays
+  for (let k = 0; k < c.bays; k++) {
+    const xb = c.bayStart + k * P; // rear partition of this bay
+    const xf = xb + P; // front partition
+    // partition behind the rear berths (main side) and a short screen on the side-berth side
+    b.box([xb - 0.035, xb + 0.035], [F, c.ceil - 0.12], [-WALL_IN, MAIN_Z[1] + 0.02], c.wall);
+    b.box([xb - 0.045, xb + 0.045], [F, c.ceil - 0.12], [MAIN_Z[1] - 0.02, MAIN_Z[1] + 0.05], c.trim); // aisle edge pillar
+    b.box([xb - 0.03, xb + 0.03], [F, F + 1.95], [SIDE_Z[0], WALL_IN], c.wall);
+    if (k === c.bays - 1) b.box([xf - 0.035, xf + 0.035], [F, c.ceil - 0.12], [-WALL_IN, MAIN_Z[1] + 0.02], c.wall);
 
-  // 3. Main Bay Berths (left side: z from -W_CABIN to 0.3)
-  const B_Z0 = -W_CABIN + 0.08;
-  const B_Z1 = 0.28;
-
-  // Primary bay berths (x around 0)
-  const bays = [0];
-  for (const bx0 of bays) {
-    // Lower berths (facing benches)
-    for (const bx of [bx0 - 0.65, bx0 + 0.65]) {
-      // Storage trunk space underneath bench
-      b.box([bx - 0.35, bx + 0.35], [Y_FLOOR, Y_FLOOR + 0.42], [B_Z0, B_Z1], '#42454a');
-      // Blue rexine lower berth cushion
-      b.box([bx - 0.36, bx + 0.36], [Y_FLOOR + 0.42, Y_FLOOR + 0.52], [B_Z0, B_Z1], BLUE_REXINE);
-      // Backrest cushion on partition wall
-      const isRear = bx < bx0;
-      const wallX = isRear ? bx0 - 1.1 + 0.04 : bx0 + 1.1 - 0.04;
-      b.box(isRear ? [wallX - 0.04, wallX + 0.02] : [wallX - 0.02, wallX + 0.04], [Y_FLOOR + 0.55, Y_FLOOR + 1.0], [B_Z0, B_Z1], BLUE_REXINE);
-      // Headrest trim
-      b.box(isRear ? [wallX - 0.045, wallX + 0.025] : [wallX - 0.025, wallX + 0.045], [Y_FLOOR + 0.98, Y_FLOOR + 1.02], [B_Z0, B_Z1], TEAK_TRIM);
+    for (const dir of [1, -1]) {
+      // dir = 1: rear berth facing forward (against xb); −1: front berth facing back (against xf)
+      const wallX = dir > 0 ? xb : xf;
+      const near = wallX + dir * 0.04;
+      const far = wallX + dir * 0.66;
+      const bx = [Math.min(near, far), Math.max(near, far)];
+      // lower berth: storage base + cushion
+      b.box(bx, [F, F + 0.37], [MAIN_Z[0], MAIN_Z[1] - 0.06], DARK);
+      cushion(b, bx, [F + 0.37, F + 0.47], MAIN_Z, c);
+      // backrest = the folded-down middle berth
+      const back = [Math.min(wallX + dir * 0.04, wallX + dir * 0.13), Math.max(wallX + dir * 0.04, wallX + dir * 0.13)];
+      cushion(b, back, [F + 0.52, F + 1.12], [MAIN_Z[0] + 0.02, MAIN_Z[1] - 0.02], c);
+      // middle-berth chains hanging from the upper berth
+      for (const cz of [MAIN_Z[0] + 0.12, MAIN_Z[1] - 0.06]) {
+        b.cylinder({ radius: 0.01, length: 0.72, position: [wallX + dir * 0.6, F + 1.48, cz], color: STEEL });
+      }
+      // upper berth with an aisle-side guard rail
+      cushion(b, bx, [F + 1.86, F + 1.95], MAIN_Z, c);
+      b.box(bx, [F + 1.95, F + 2.12], [MAIN_Z[1] - 0.05, MAIN_Z[1] - 0.02], STEEL);
+      // side berths: two seats facing each other (lower side berth by day)
+      const sx = [Math.min(wallX + dir * 0.05, wallX + dir * 0.62), Math.max(wallX + dir * 0.05, wallX + dir * 0.62)];
+      b.box(sx, [F, F + 0.37], [SIDE_Z[0] + 0.03, SIDE_Z[1]], DARK);
+      cushion(b, sx, [F + 0.37, F + 0.47], SIDE_Z, c);
+      cushion(b, [Math.min(wallX + dir * 0.05, wallX + dir * 0.13), Math.max(wallX + dir * 0.05, wallX + dir * 0.13)], [F + 0.52, F + 1.05], SIDE_Z, c);
     }
-
-    // Middle berths (suspended at mid height)
-    for (const mx of [bx0 - 0.68, bx0 + 0.68]) {
-      b.box([mx - 0.33, mx + 0.33], [Y_FLOOR + 1.15, Y_FLOOR + 1.23], [B_Z0, B_Z1], BLUE_REXINE);
-      // Suspension chains & steel brackets
-      b.cylinder({ radius: 0.014, length: 0.72, axis: 'y', position: [mx, Y_FLOOR + 1.55, 0.25], color: STEEL_RACK });
-      b.cylinder({ radius: 0.014, length: 0.72, axis: 'y', position: [mx, Y_FLOOR + 1.55, -W_CABIN + 0.15], color: STEEL_RACK });
+    // side upper berth across the whole bay
+    cushion(b, [xb + 0.06, xf - 0.06], [F + 1.78, F + 1.87], SIDE_Z, c);
+    b.box([xb + 0.06, xf - 0.06], [F + 1.87, F + 2.0], [SIDE_Z[0], SIDE_Z[0] + 0.03], STEEL);
+    // ladder at the aisle end of the rear berths
+    for (const lx of [xb + 0.42, xb + 0.62]) b.cylinder({ radius: 0.013, length: 1.86, position: [lx, F + 0.93, MAIN_Z[1] + 0.03], color: STEEL });
+    for (let ry = F + 0.62; ry < F + 1.8; ry += 0.3) b.cylinder({ radius: 0.011, length: 0.2, axis: 'x', position: [xb + 0.52, ry, MAIN_Z[1] + 0.03], color: STEEL });
+    // fold-down window table between the facing lower berths
+    const xm = (xb + xf) / 2;
+    b.box([xm - 0.24, xm + 0.24], [F + 0.7, F + 0.735], [-WALL_IN, -WALL_IN + 0.34], c.glazed ? '#8a9097' : '#6b4a2d');
+    b.box([xm - 0.03, xm + 0.03], [F + 0.4, F + 0.7], [-WALL_IN, -WALL_IN + 0.04], STEEL);
+    // berth number plate + charging socket + reading lamp on the partition
+    b.box([xb + 0.035, xb + 0.05], [F + 1.4, F + 1.5], [MAIN_Z[1] - 0.32, MAIN_Z[1] - 0.08], '#f2f2f2');
+    b.box([xb + 0.035, xb + 0.05], [F + 0.82, F + 0.92], [MAIN_Z[0] + 0.12, MAIN_Z[0] + 0.24], '#ececec');
+    b.box([xb + 0.04, xb + 0.1], [F + 1.7, F + 1.74], [MAIN_Z[0] + 0.5, MAIN_Z[0] + 0.62], '#fff4d8', { mat: 'lamp' });
+    // privacy curtain bunched at the aisle (AC coaches)
+    if (c.curtain) {
+      b.box([xb + 0.07, xb + 0.2], [F + 0.55, F + 2.3], [MAIN_Z[1] + 0.04, MAIN_Z[1] + 0.12], c.curtain);
+      b.box([xb + 0.07, xb + 0.18], [F + 0.55, F + 1.8], [SIDE_Z[0] - 0.08, SIDE_Z[0]], c.curtain);
     }
+    // luggage: a suitcase under the berth, bags on an upper berth
+    const bagColors = ['#7a2a24', '#2d3b52', '#5a4632', '#2e4d3a', '#46385e'];
+    const bc = bagColors[k % bagColors.length];
+    b.box([xb + 0.15, xb + 0.55], [F, F + 0.3], [MAIN_Z[0] + 0.2, MAIN_Z[0] + 0.8], bc);
+    if (k % 2 === 0) b.box([xf - 0.6, xf - 0.15], [F + 1.95, F + 2.2], [MAIN_Z[0] + 0.3, MAIN_Z[0] + 0.75], bagColors[(k + 2) % bagColors.length]);
 
-    // Upper berths (fixed at top with safety guard rail)
-    for (const ux of [bx0 - 0.68, bx0 + 0.68]) {
-      b.box([ux - 0.34, ux + 0.34], [Y_FLOOR + 1.85, Y_FLOOR + 1.94], [B_Z0, B_Z1], BLUE_REXINE);
-      // Safety guard rail
-      b.box([ux - 0.34, ux + 0.34], [Y_FLOOR + 1.94, Y_FLOOR + 2.10], [0.22, 0.26], STEEL_RACK);
+    // ceiling: AC diffuser slots (LHB) or a fan per bay (ICF)
+    if (c.glazed) {
+      b.box([xb + 0.1, xf - 0.1], [c.ceil - 0.015, c.ceil], [-0.95, -0.8], '#8e959c');
+      b.box([xb + 0.1, xf - 0.1], [c.ceil - 0.015, c.ceil], [1.0, 1.12], '#8e959c');
+    } else {
+      for (const fz of [-0.55, 1.05]) {
+        const fx = xm;
+        b.cylinder({ radius: 0.018, length: 0.18, position: [fx, c.ceil - 0.09, fz], color: '#2a2c2e' });
+        b.cylinder({ radius: 0.075, length: 0.1, position: [fx, c.ceil - 0.22, fz], color: '#2a2c2e' });
+        b.cylinder({ radius: 0.22, length: 0.05, position: [fx, c.ceil - 0.27, fz], color: '#4e5357' });
+        b.box([fx - 0.2, fx + 0.2], [c.ceil - 0.285, c.ceil - 0.265], [fz - 0.035, fz + 0.035], '#6c727a');
+        b.box([fx - 0.035, fx + 0.035], [c.ceil - 0.285, c.ceil - 0.265], [fz - 0.2, fz + 0.2], '#6c727a');
+      }
+      b.box([xm - 0.6, xm + 0.6], [c.ceil - 0.05, c.ceil], [AISLE_Z - 0.06, AISLE_Z + 0.06], '#f4f2ea', { mat: 'lamp' });
     }
-
-    // Steel climbing ladder to upper berths
-    for (const lz of [0.24, 0.32]) {
-      b.cylinder({ radius: 0.016, length: 1.85, axis: 'y', position: [bx0, Y_FLOOR + 1.0, lz], color: STEEL_RACK });
-    }
-    for (let ry = Y_FLOOR + 0.42; ry <= Y_FLOOR + 1.8; ry += 0.34) {
-      b.cylinder({ radius: 0.012, length: 0.08, axis: 'z', position: [bx0, ry, 0.28], color: STEEL_RACK });
-    }
-
-    // Overhead luggage racks
-    b.box([bx0 - 0.95, bx0 + 0.95], [Y_FLOOR + 2.05, Y_FLOOR + 2.08], [B_Z0, B_Z1 - 0.05], STEEL_RACK);
-    for (let sx = bx0 - 0.9; sx <= bx0 + 0.9; sx += 0.15) {
-      b.box([sx - 0.01, sx + 0.01], [Y_FLOOR + 2.08, Y_FLOOR + 2.18], [B_Z0, B_Z1 - 0.05], STEEL_RACK);
-    }
   }
-
-  // 4. Side Berths across the aisle (right side: z from 0.75 to W_CABIN)
-  const S_Z0 = 0.75;
-  const S_Z1 = W_CABIN - 0.05;
-  for (const sx0 of [-1.65, 0.55]) {
-    // Side lower berth bench
-    b.box([sx0 - 0.9, sx0 + 0.9], [Y_FLOOR, Y_FLOOR + 0.42], [S_Z0, S_Z1], '#42454a');
-    b.box([sx0 - 0.9, sx0 + 0.9], [Y_FLOOR + 0.42, Y_FLOOR + 0.52], [S_Z0, S_Z1], BLUE_REXINE);
-    // Side upper berth
-    b.box([sx0 - 0.9, sx0 + 0.9], [Y_FLOOR + 1.85, Y_FLOOR + 1.94], [S_Z0, S_Z1], BLUE_REXINE);
-    b.box([sx0 - 0.9, sx0 + 0.9], [Y_FLOOR + 1.94, Y_FLOOR + 2.06], [S_Z0 + 0.02, S_Z0 + 0.05], STEEL_RACK);
-  }
-
-  // 5. Windows with Aluminium Frames, Horizontal Safety Bars, and Wooden Sills
-  // Left window (beside the passenger seat):
-  b.box([-0.55, 0.55], [Y_FLOOR + 0.86, Y_FLOOR + 1.68], [-W_CABIN - 0.02, -W_CABIN + 0.04], '#34383c'); // frame
-  // Wooden window sill (where passengers rest their elbow)
-  b.box([-0.62, 0.62], [Y_FLOOR + 0.82, Y_FLOOR + 0.86], [-W_CABIN + 0.02, -W_CABIN + 0.18], TEAK_TRIM);
-  // Four aluminium safety bars
-  for (let k = 1; k <= 4; k++) {
-    const by = Y_FLOOR + 0.88 + (0.76 * k) / 5;
-    b.cylinder({ radius: 0.009, length: 1.05, axis: 'x', position: [0, by, -W_CABIN + 0.02], color: BAR_METAL });
-  }
-  // Half-open glass shutter frame
-  b.box([-0.52, 0.52], [Y_FLOOR + 1.35, Y_FLOOR + 1.66], [-W_CABIN + 0.005, -W_CABIN + 0.015], '#222528');
-  b.box([-0.06, 0.06], [Y_FLOOR + 1.33, Y_FLOOR + 1.36], [-W_CABIN + 0.01, -W_CABIN + 0.03], '#c4a242'); // brass latch
-
-  // Right side window (side berth):
-  b.box([-0.55, 0.55], [Y_FLOOR + 0.86, Y_FLOOR + 1.68], [W_CABIN - 0.04, W_CABIN + 0.02], '#34383c');
-  b.box([-0.62, 0.62], [Y_FLOOR + 0.82, Y_FLOOR + 0.86], [W_CABIN - 0.18, W_CABIN - 0.02], TEAK_TRIM);
-  for (let k = 1; k <= 4; k++) {
-    const by = Y_FLOOR + 0.88 + (0.76 * k) / 5;
-    b.cylinder({ radius: 0.009, length: 1.05, axis: 'x', position: [0, by, W_CABIN - 0.02], color: BAR_METAL });
-  }
-
-  // 6. Cabin Ceiling & Indian Railways Oscillating Electric Fans (110V DC)
-  b.box([X0, X1], [Y_CEIL - 0.05, Y_CEIL], [-W_CABIN, W_CABIN], '#e2ded5');
-  for (const [fx, fz] of [
-    [0.0, -0.45],
-    [0.0, 0.55],
-    [-2.2, -0.45],
-    [2.2, -0.45],
-  ]) {
-    // Fan mounting stem & baseplate
-    b.box([fx - 0.06, fx + 0.06], [Y_CEIL - 0.02, Y_CEIL], [fz - 0.06, fz + 0.06], FAN_METAL);
-    b.cylinder({ radius: 0.018, length: 0.22, axis: 'y', position: [fx, Y_CEIL - 0.11, fz], color: FAN_METAL });
-    // Fan motor body
-    b.cylinder({ radius: 0.07, length: 0.09, axis: 'y', position: [fx, Y_CEIL - 0.23, fz], color: FAN_METAL });
-    // Wire cage outer ring
-    b.cylinder({ radius: 0.21, length: 0.04, axis: 'y', position: [fx, Y_CEIL - 0.26, fz], color: '#4a4e52' });
-    // 4 curved fan blades
-    b.box([fx - 0.17, fx + 0.17], [Y_CEIL - 0.27, Y_CEIL - 0.25], [fz - 0.035, fz + 0.035], '#656b72');
-    b.box([fx - 0.035, fx + 0.035], [Y_CEIL - 0.27, Y_CEIL - 0.25], [fz - 0.17, fz + 0.17], '#656b72');
-  }
-
-  // 7. Ceiling light strips (warm incandescent cabin glow)
-  for (const lx of [-2.2, -1.1, 0, 1.1, 2.2]) {
-    b.box([lx - 0.22, lx + 0.22], [Y_CEIL - 0.04, Y_CEIL - 0.01], [-0.08, 0.08], '#fff0cf', { mat: 'lamp' });
-  }
-
-  // 8. Authentic Indian Railways Compartment Details:
-  // Window table between lower berths
-  b.box([-0.24, 0.24], [Y_FLOOR + 0.58, Y_FLOOR + 0.62], [-W_CABIN + 0.02, -W_CABIN + 0.42], TEAK_TRIM);
-  b.cylinder({ radius: 0.018, length: 0.58, axis: 'y', position: [0, Y_FLOOR + 0.29, -W_CABIN + 0.32], color: STEEL_RACK });
-
-  // Clay tea cup (Chai kulhad) on the window table
-  b.cylinder({ radius: 0.035, radiusTop: 0.045, length: 0.08, axis: 'y', position: [0.08, Y_FLOOR + 0.66, -W_CABIN + 0.24], color: '#c27244' });
-  // Stainless steel water bottle
-  b.cylinder({ radius: 0.038, length: 0.22, axis: 'y', position: [-0.1, Y_FLOOR + 0.73, -W_CABIN + 0.32], color: '#b5bcc2' });
-
-  // Mobile charging switchboard ("220V 50Hz MOBILE CHARGER ONLY") on partition wall
-  b.box([1.08, 1.11], [Y_FLOOR + 1.45, Y_FLOOR + 1.58], [-W_CABIN + 0.18, -W_CABIN + 0.36], '#ffffff');
-  b.box([1.11, 1.115], [Y_FLOOR + 1.47, Y_FLOOR + 1.56], [-W_CABIN + 0.2, -W_CABIN + 0.26], '#1b1c1e'); // socket 1
-  b.box([1.11, 1.115], [Y_FLOOR + 1.47, Y_FLOOR + 1.56], [-W_CABIN + 0.28, -W_CABIN + 0.34], '#1b1c1e'); // socket 2
-  b.box([1.11, 1.115], [Y_FLOOR + 1.54, Y_FLOOR + 1.56], [-W_CABIN + 0.265, -W_CABIN + 0.275], '#e82525', { mat: 'lamp' }); // red indicator LED
-
-  // Emergency alarm chain box on partition wall near aisle
-  b.box([1.08, 1.12], [Y_FLOOR + 2.0, Y_FLOOR + 2.22], [0.18, 0.32], '#c41c1c');
-  b.cylinder({ radius: 0.016, length: 0.18, axis: 'z', position: [1.14, Y_FLOOR + 1.96, 0.25], color: '#e5b010' }); // brass pull ring
-
-  // Berth numbering plaque ("1 - 8 / शयनयान SLEEPER")
-  b.box([1.09, 1.11], [Y_FLOOR + 1.72, Y_FLOOR + 1.86], [-0.32, -0.04], '#1a437a');
-  b.box([1.11, 1.115], [Y_FLOOR + 1.74, Y_FLOOR + 1.84], [-0.3, -0.06], '#ffffff');
-
-  // Coat hooks on partition wall
-  for (const hz of [-0.65, -0.45]) {
-    b.box([1.09, 1.13], [Y_FLOOR + 1.62, Y_FLOOR + 1.68], [hz - 0.015, hz + 0.015], STEEL_RACK);
-  }
+  // continuous LED light strip down the aisle (AC coaches)
+  if (c.glazed) b.box([xA + 0.3, xB - 0.3], [c.ceil - 0.025, c.ceil], [AISLE_Z - 0.09, AISLE_Z + 0.09], '#fbf8ee', { mat: 'lamp' });
 
   return b.build();
+}
+
+/** Interior materials. A soft "fill" keeps the inside readable whatever the sun does. */
+export function createInteriorMaterials() {
+  const fill = { value: 0.35 };
+  const body = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, metalness: 0 });
+  body.onBeforeCompile = (shader) => {
+    shader.uniforms.uFill = fill;
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uFill;')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * uFill;');
+  };
+  const glass = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.04,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.16,
+    depthWrite: false,
+    envMapIntensity: 1.5,
+  });
+  const lamp = new THREE.MeshStandardMaterial({ vertexColors: true, emissive: '#fff6e2', emissiveIntensity: 1.2 });
+  const unsubscribe = onEnvironmentChange((env) => {
+    // daylight through the windows by day, warm lighting at night
+    fill.value = 0.22 + 0.2 * (1 - env.night) + 0.28 * env.night;
+    lamp.emissiveIntensity = 0.8 + 1.6 * env.lamps;
+  });
+  return { body, glass, lamp, dispose: unsubscribe };
+}
+
+// ------------------------------------------------------------------ door view
+// The classic Indian train "door view": standing in the open doorway at the
+// front end of a coach (left side), looking along the train. Door position
+// matches the exterior textures (LHB 0.85–1.75 m, ICF 0.45–1.2 m from the end).
+const DOORS = {
+  lhb: { length: 23.54, from: 1.75, to: 0.85, leaf: '#c3c7cb' },
+  icf: { length: 21.337, from: 1.2, to: 0.45, leaf: '#24448f' },
+};
+
+/** Doorway frame, grab rails, step and the door leaf folded back against the body. */
+export function buildDoorway(type = 'lhb') {
+  const d = DOORS[type] ?? DOORS.lhb;
+  const HL = d.length / 2;
+  const d0 = HL - d.from;
+  const d1 = HL - d.to;
+  const b = new ModelBuilder();
+  const Z = -1.62; // outer skin, left side
+  b.box([d0, d1], [FLOOR - 0.16, FLOOR], [Z, Z + 0.32], '#5a5f66'); // floor + step edge
+  b.box([d0 + 0.05, d1 - 0.05], [FLOOR - 0.45, FLOOR - 0.38], [Z - 0.12, Z + 0.02], '#3c4046'); // footstep below
+  for (const x of [d0, d1]) {
+    const xr = x === d0 ? [x - 0.05, x] : [x, x + 0.05];
+    b.box(xr, [FLOOR - 0.15, 3.4], [Z, Z + 0.1], '#1d1f22'); // door frame
+  }
+  b.box([d0, d1], [3.32, 3.42], [Z, Z + 0.1], '#1d1f22');
+  b.box([d0, d1], [FLOOR, 3.32], [Z + 0.25, Z + 0.29], '#3b3f44'); // vestibule wall behind the doorway
+  // vertical grab rails beside the doorway (yellow on ICF, steel on LHB)
+  const rail = type === 'icf' ? '#e8b400' : '#c9ced3';
+  for (const x of [d0 - 0.07, d1 + 0.07]) {
+    b.cylinder({ radius: 0.018, length: 1.55, position: [x, 2.35, Z - 0.07], color: rail, segments: 8 });
+    for (const y of [1.6, 3.1]) b.box([x - 0.012, x + 0.012], [y - 0.012, y + 0.012], [Z - 0.07, Z], rail);
+  }
+  // door leaf swung open and latched flat against the body, behind the doorway
+  const lw = d1 - d0;
+  b.box([d0 - lw - 0.03, d0 - 0.03], [FLOOR - 0.12, 3.32], [Z - 0.06, Z - 0.02], d.leaf);
+  b.box([d0 - lw + 0.2, d0 - 0.23], [2.35, 2.95], [Z - 0.065, Z - 0.055], '#1b252d');
+  return b.build();
+}
+
+/** Eye of someone standing in the doorway, leaning out a little. */
+export function doorEye(type = 'lhb') {
+  const d = DOORS[type] ?? DOORS.lhb;
+  const HL = d.length / 2;
+  return { eye: [HL - (d.from + d.to) / 2, FLOOR + 1.62, -1.78], yawDeg: 12 };
 }

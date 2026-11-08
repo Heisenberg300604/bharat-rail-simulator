@@ -11,6 +11,27 @@ function canvasTexture(canvas, { repeat = 1, srgb = true } = {}) {
   return tex;
 }
 
+/**
+ * Half-resolution black canvas that shares the full-size canvas' coordinates
+ * (via a 0.5 scale), used for emissive "lights on" masks such as lit coach
+ * windows at night.
+ */
+function makeGlowCanvas(W, H) {
+  const c = document.createElement('canvas');
+  c.width = W / 2;
+  c.height = H / 2;
+  const g = c.getContext('2d');
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, c.width, c.height);
+  g.setTransform(0.5, 0, 0, 0.5, 0, 0);
+  return { c, g };
+}
+function glowTexture(c) {
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 /** Speckled noise: used for ground and ballast so flat colours look less plastic. */
 export function makeNoiseTexture({ size = 256, base = '#888', speckles = [], density = 0.5, seed = 1 } = {}) {
   const c = document.createElement('canvas');
@@ -157,6 +178,24 @@ export function makeFacadeTexture() {
 }
 
 /**
+ * Emissive twin of makeFacadeTexture(): only the window glows (warm tube
+ * light), everything else black. Same tile layout, so the same UVs work.
+ */
+export function makeFacadeGlowTexture() {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 96;
+  const g = c.getContext('2d');
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, 128, 96);
+  g.fillStyle = '#ffd99a';
+  g.fillRect(36, 24, 56, 40);
+  g.fillStyle = '#c9a777'; // a curtain on one half
+  g.fillRect(40, 28, 22, 32);
+  return canvasTexture(c);
+}
+
+/**
  * LHB coach side, drawn in real metres from reference photos of LHB AC 3-tier
  * coaches: red upper body, grey lower band from the body bottom (1.05 m above
  * rail) to 1.79 m, eight rounded windows (1.36 × 0.86 m, one per bay, 2.16 m
@@ -175,6 +214,7 @@ export function makeLhbSideTexture({ primary, secondary = '#b9bdc1', label = 'AC
   const L = LHB_SIDE.length;
   const sx = W / L;
   const sy = H / (LHB_SIDE.top - LHB_SIDE.bottom);
+  const glow = makeGlowCanvas(W, H);
   // helpers in metres: x from the coach's left end (as seen from outside), y above rail
   const X = (m) => m * sx;
   const Y = (m) => (LHB_SIDE.top - m) * sy;
@@ -211,6 +251,11 @@ export function makeLhbSideTexture({ primary, secondary = '#b9bdc1', label = 'AC
     g.fillStyle = '#9aa1a6';
     rrect(x0 - 0.012, y0 - 0.012, x1 + 0.012, y1 + 0.012, r + 0.01);
     g.fill(); // thin grey seal
+    // lights-on mask: LED-lit saloon behind the glass, dimmer frosted toilets
+    glow.g.fillStyle = frosted ? '#6b6352' : '#fff0cf';
+    glow.g.beginPath();
+    glow.g.roundRect(X(x0), Y(y1), X(x1) - X(x0), Y(y0) - Y(y1), [r * sx]);
+    glow.g.fill();
     if (frosted) {
       g.fillStyle = '#d7dcdf';
       rrect(x0, y0, x1, y1, r);
@@ -291,6 +336,7 @@ export function makeLhbSideTexture({ primary, secondary = '#b9bdc1', label = 'AC
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 8;
+  tex.userData.glow = glowTexture(glow.c);
   return tex;
 }
 
@@ -313,6 +359,7 @@ export function makeIcfSideTexture({ primary = '#24448f', band = '#a9d3e0' } = {
   const L = ICF_SIDE.length;
   const sx = W / L;
   const sy = H / (ICF_SIDE.top - ICF_SIDE.bottom);
+  const glow = makeGlowCanvas(W, H);
   const X = (m) => m * sx;
   const Y = (m) => (ICF_SIDE.top - m) * sy;
   const rect = (x0, y0, x1, y1) => [X(x0), Y(y1), X(x1) - X(x0), Y(y0) - Y(y1)];
@@ -345,6 +392,9 @@ export function makeIcfSideTexture({ primary = '#24448f', band = '#a9d3e0' } = {
   for (let x = 1.4; x < L - 1; x += 2.6) g.fillRect(...rect(x, 1.1, x + 0.012, 3.62));
 
   const louvre = (x0, x1, y0, y1, open) => {
+    // lights-on mask: warm tube light through open windows, slivers through shutters
+    glow.g.fillStyle = open ? '#ffe2a8' : '#3b3326';
+    glow.g.fillRect(X(x0), Y(y1), X(x1) - X(x0), Y(y0) - Y(y1));
     g.fillStyle = '#26292c';
     rrect(x0 - 0.03, y0 - 0.03, x1 + 0.03, y1 + 0.03, 0.09);
     g.fill();
@@ -422,5 +472,6 @@ export function makeIcfSideTexture({ primary = '#24448f', band = '#a9d3e0' } = {
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 8;
+  tex.userData.glow = glowTexture(glow.c);
   return tex;
 }

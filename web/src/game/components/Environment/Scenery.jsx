@@ -7,8 +7,10 @@ import * as THREE from 'three';
 import { route, useQuality } from '../../state/gameStore.js';
 import { STATIONS } from '../../config/gameConfig.js';
 import { seededRandom } from '../../world/geometry.js';
+import { onRoad } from '../../world/roadLayout.js';
 import { ModelBuilder } from '../../world/modelBuilder.js';
 import { makeFacadeTexture } from '../../world/textures.js';
+import { onEnvironmentChange } from '../../world/environment.js';
 import ChunkedInstances from '../../world/ChunkedInstances.jsx';
 
 const CITY_RADIUS = 1400;
@@ -34,8 +36,9 @@ function generate() {
     for (const side of [1, -1]) {
       if (rand() > (city ? 0.25 : 0.6)) continue;
       const lat = side * (14 + rand() * rand() * 340);
-      if (inStationYard(s, lat)) continue;
-      const pos = place(s + rand() * 8, lat);
+      const ts = s + rand() * 8;
+      if (inStationYard(ts, lat) || onRoad(ts, lat, 3.2)) continue; // keep canopies off the roads
+      const pos = place(ts, lat);
       const scale = 0.75 + rand() * 0.6;
       const tall = rand() < 0.3;
       (tall ? out.tallTrees : out.roundTrees).push({
@@ -57,6 +60,10 @@ function generate() {
       const w = 40 + rand() * 90;
       const d = 30 + rand() * 80;
       const lat = side * (24 + d / 2 + rand() * 230);
+      // a field must not be painted over a road: test a grid of points across it
+      let blocked = false;
+      for (let i = -2; i <= 2 && !blocked; i++) for (let j = -2; j <= 2 && !blocked; j++) blocked = onRoad(s + (i * w) / 4, lat + (j * d) / 4, 0, 4);
+      if (blocked) continue;
       out.fields.push({ ...place(s, lat), y: 0.06, sx: w, sy: 0.1, sz: d, color: fieldColours[Math.floor(rand() * fieldColours.length)], r: rand() });
     }
   }
@@ -67,6 +74,7 @@ function generate() {
     const h = floors * 3 + 0.6;
     const w = 4 * (2 + Math.floor(rand() * (big ? 3 : 2)));
     const d = 6 + rand() * 8;
+    if (onRoad(s, lat, Math.hypot(w, d) / 2, 3)) return; // never build on a road
     const pos = place(s, lat);
     out.buildings.push({ ...pos, y: h / 2, sx: w, sy: h, sz: d, color: plaster[Math.floor(rand() * plaster.length)], r: rand() });
     if (rand() < 0.6) {
@@ -104,24 +112,64 @@ function buildTreeGeometries() {
   return { round: round.build().body, tall: tall.build().body };
 }
 
-/** Buildings: one instanced unit box; the shader scales UVs by instance size so windows never stretch. */
+/**
+ * Buildings: one instanced unit box; the shader scales UVs by instance size so
+ * windows never stretch. At night a per-window hash (window cell + building
+ * position) decides which windows are lit, warm bulbs or cool tube lights —
+ * thousands of individually lit windows for zero extra draw calls.
+ */
+const windowGlow = { value: 0 };
 function makeBuildingMaterial() {
   const map = makeFacadeTexture();
   const mat = new THREE.MeshStandardMaterial({ map, roughness: 0.95 });
   mat.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader.replace(
-      '#include <uv_vertex>',
-      `#include <uv_vertex>
+    shader.uniforms.uWindowGlow = windowGlow;
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying vec2 vWinUv;
+        varying float vRoof;
+        varying float vSeed;`,
+      )
+      .replace(
+        '#include <uv_vertex>',
+        `#include <uv_vertex>
       #if defined(USE_INSTANCING) && defined(USE_MAP)
         vec3 bs = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
+        vSeed = dot(instanceMatrix[3].xz, vec2(0.0123, 0.0371));
+        vRoof = abs(normal.y) > 0.5 ? 1.0 : 0.0;
         if (abs(normal.y) > 0.5) {
           vMapUv = vec2(0.05, 0.95);
         } else {
           vec2 dims = abs(normal.x) > 0.5 ? vec2(bs.z, bs.y) : vec2(bs.x, bs.y);
           vMapUv = uv * dims / vec2(4.0, 3.0);
         }
+        vWinUv = vMapUv;
       #endif`,
-    );
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        uniform float uWindowGlow;
+        varying vec2 vWinUv;
+        varying float vRoof;
+        varying float vSeed;`,
+      )
+      .replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+        if (uWindowGlow > 0.0) {
+          vec2 cellId = floor(vWinUv);
+          vec2 f = fract(vWinUv);
+          float inWin = step(0.29, f.x) * step(f.x, 0.71) * step(0.34, f.y) * step(f.y, 0.74);
+          float h = fract(sin(dot(cellId + vSeed * 57.0, vec2(12.9898, 78.233))) * 43758.5453);
+          float lit = step(0.55, h);
+          vec3 warm = mix(vec3(1.0, 0.72, 0.38), vec3(0.8, 0.92, 1.0), step(0.82, h));
+          totalEmissiveRadiance += warm * inWin * lit * uWindowGlow * (1.0 - vRoof) * (0.7 + 0.6 * fract(h * 13.7));
+        }`,
+      );
   };
   return mat;
 }
@@ -158,6 +206,14 @@ export default function Scenery() {
       }
     },
     [assets],
+  );
+
+  useEffect(
+    () =>
+      onEnvironmentChange((env) => {
+        windowGlow.value = 1.4 * env.lamps * env.night;
+      }),
+    [],
   );
 
   const far = quality.sceneryDistance;

@@ -36,9 +36,10 @@ const PRESS_KEYS = {
   Backspace: emergencyBrake,
   Digit1: () => setCamera('cab'),
   Digit2: () => setCamera('interior'),
-  Digit3: () => setCamera('chase'),
-  Digit4: () => setCamera('orbit'),
-  Digit5: () => setCamera('trackside'),
+  Digit3: () => setCamera('door'),
+  Digit4: () => setCamera('rear'),
+  Digit5: () => setCamera('orbit'),
+  Digit6: () => setCamera('trackside'),
 };
 
 export function useKeyboardControls() {

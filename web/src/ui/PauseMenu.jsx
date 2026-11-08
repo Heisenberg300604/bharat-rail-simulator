@@ -1,6 +1,7 @@
 import { togglePause, requestRestart, returnToTitle, updateSettings } from '../game/state/gameStore.js';
 import { QUALITY_PRESETS } from '../game/config/gameConfig.js';
 import ControlsTable from './ControlsTable.jsx';
+import EnvironmentPicker from './EnvironmentPicker.jsx';
 
 export default function PauseMenu({ settings }) {
   return (
@@ -19,6 +20,7 @@ export default function PauseMenu({ settings }) {
           </button>
         </div>
 
+        <EnvironmentPicker settings={settings} />
         <div className="settings">
           <label className="setting">
             <span>Volume</span>
@@ -35,6 +37,14 @@ export default function PauseMenu({ settings }) {
           <label className="setting setting--check">
             <input type="checkbox" checked={settings.muted} onChange={(e) => updateSettings({ muted: e.target.checked })} />
             <span>Mute</span>
+          </label>
+          <label className="setting">
+            <span>Background sounds</span>
+            <select value={settings.ambience ?? 'occasional'} onChange={(e) => updateSettings({ ambience: e.target.value })}>
+              <option value="occasional">Occasional (comes and goes)</option>
+              <option value="always">Always</option>
+              <option value="off">Off</option>
+            </select>
           </label>
           <label className="setting">
             <span>Graphics</span>
@@ -58,6 +68,10 @@ export default function PauseMenu({ settings }) {
             <span>Field of view</span>
             <input type="range" min="50" max="90" step="1" value={settings.fov} onChange={(e) => updateSettings({ fov: Number(e.target.value) })} />
             <span className="num">{settings.fov}°</span>
+          </label>
+          <label className="setting setting--check">
+            <input type="checkbox" checked={settings.crowd} onChange={(e) => updateSettings({ crowd: e.target.checked })} />
+            <span>People on platforms</span>
           </label>
           <label className="setting setting--check">
             <input type="checkbox" checked={settings.showFps} onChange={(e) => updateSettings({ showFps: e.target.checked })} />

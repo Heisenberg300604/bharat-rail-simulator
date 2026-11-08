@@ -8,11 +8,13 @@ import * as THREE from 'three';
 import { route } from '../../state/gameStore.js';
 import { TRACK, JOURNEY, PLATFORMS } from '../../config/gameConfig.js';
 import { ModelBuilder } from '../../world/modelBuilder.js';
-import { makeNoiseTexture, makePlateTexture, makeStationBoardTexture, makeFacadeTexture } from '../../world/textures.js';
+import { makeNoiseTexture, makePlateTexture, makeStationBoardTexture, makeFacadeTexture, makeFacadeGlowTexture } from '../../world/textures.js';
+import { createGlowMaterial, createPoolMaterial, makeGlowMesh, disposeGlowMaterial } from '../../world/glow.js';
+import { onEnvironmentChange } from '../../world/environment.js';
 import { stopZone } from '../../simulation/journeyManager.js';
 
-const PLATFORM_TOP = TRACK.railTop + 0.76; // high-level platform ≈ 760 mm above rail
-const CANOPY_H = PLATFORM_TOP + 4.6;
+export const PLATFORM_TOP = TRACK.railTop + 0.76; // high-level platform ≈ 760 mm above rail
+export const CANOPY_H = PLATFORM_TOP + 4.6;
 const FOB_DECK = 9.0;
 
 // Station-local frame: x along the track, z to the RIGHT. Lateral (+left) → z = -lat.
@@ -20,6 +22,7 @@ const zOf = (lat) => -lat;
 
 function buildStation(length, buildingSide) {
   const b = new ModelBuilder();
+  const lights = { tubes: [], posts: [], boards: [] }; // positions for night glows (station-local)
   const L = length;
   const canopyLen = Math.min(260, L - 60);
 
@@ -47,6 +50,13 @@ function buildStation(length, buildingSide) {
     b.box([-canopyLen / 2 - 2, canopyLen / 2 + 2], [CANOPY_H, CANOPY_H + 0.18], [z0 + 0.3, z1 - 0.3], '#8d9894', { mat: 'roof' });
     b.box([-canopyLen / 2 - 2, canopyLen / 2 + 2], [CANOPY_H - 0.35, CANOPY_H], [z0 + 0.3, z0 + 0.45], '#efe4c8');
     b.box([-canopyLen / 2 - 2, canopyLen / 2 + 2], [CANOPY_H - 0.35, CANOPY_H], [z1 - 0.45, z1 - 0.3], '#efe4c8');
+    // LED tube lights under the canopy, one row above each platform edge
+    for (let x = -canopyLen / 2 + 5; x < canopyLen / 2; x += 10) {
+      for (const zt of [z0 + 2.2, z1 - 2.2]) {
+        b.box([x - 0.6, x + 0.6], [CANOPY_H - 0.62, CANOPY_H - 0.56], [zt - 0.05, zt + 0.05], '#f4f1e6', { mat: 'lamp' });
+        lights.tubes.push({ x, y: CANOPY_H - 0.66, z: zt });
+      }
+    }
     // benches + lamp posts outside the canopy
     for (let x = -canopyLen / 2 + 15; x < canopyLen / 2; x += 28) {
       // Concrete side arms in maroon
@@ -65,6 +75,7 @@ function buildStation(length, buildingSide) {
       // Amber LED matrix faces on both sides
       b.box([x - 0.43, x + 0.43], [CANOPY_H - 1.4, CANOPY_H - 1.12], [zm - 0.72, zm - 0.69], '#ff9500', { mat: 'lamp' });
       b.box([x - 0.43, x + 0.43], [CANOPY_H - 1.4, CANOPY_H - 1.12], [zm + 0.69, zm + 0.72], '#ff9500', { mat: 'lamp' });
+      lights.boards.push({ x, y: CANOPY_H - 1.26, z: zm - 0.78 }, { x, y: CANOPY_H - 1.26, z: zm + 0.78 });
     }
 
     // Round Indian Railways analog platform clock hanging from canopy
@@ -103,6 +114,7 @@ function buildStation(length, buildingSide) {
       if (Math.abs(x) < canopyLen / 2 + 3) continue;
       b.box([x - 0.08, x + 0.08], [PLATFORM_TOP, PLATFORM_TOP + 5.2], [zm - 0.08, zm + 0.08], '#5b6066');
       b.box([x - 0.25, x + 0.25], [PLATFORM_TOP + 5.1, PLATFORM_TOP + 5.3], [zm - 0.5, zm + 0.5], '#e9e6dc', { mat: 'lamp' });
+      lights.posts.push({ x, y: PLATFORM_TOP + 5.0, z: zm });
     }
   }
 
@@ -144,7 +156,9 @@ function buildStation(length, buildingSide) {
     b.box([x - 1.5, x + 1.5], [11, 13.5], [zA + 1, zA + 4], '#efe4c8');
     b.add(new THREE.SphereGeometry(1.8, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), { color: '#efe4c8', position: [x, 13.5, zA + 2.5] });
   }
-  return b.build();
+  // lit windows / porch lamps along the station building
+  for (let x = -54; x <= 54; x += 12) lights.posts.push({ x, y: 4.6, z: zOf(pf1Far) - 0.5 * buildingSide, small: true });
+  return { geos: b.build(), lights };
 }
 
 export default function Station({ station, isDestination }) {
@@ -153,31 +167,59 @@ export default function Station({ station, isDestination }) {
 
   const built = useMemo(() => {
     const pose = route.sample(centerS, {});
-    const geos = buildStation(length, station.side);
+    const { geos, lights } = buildStation(length, station.side);
     const platformTex = makeNoiseTexture({ base: '#ffffff', speckles: ['#e2ddd4', '#f0ece4', '#d3cdc2'], density: 1.5, seed: 3 });
     const facade = makeFacadeTexture();
     const materials = {
       body: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }),
       platform: new THREE.MeshStandardMaterial({ vertexColors: true, map: platformTex, roughness: 0.95 }),
       roof: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.3 }),
-      facade: new THREE.MeshStandardMaterial({ vertexColors: true, map: facade, roughness: 0.9 }),
+      facade: new THREE.MeshStandardMaterial({ vertexColors: true, map: facade, roughness: 0.9, emissive: '#ffffff', emissiveMap: makeFacadeGlowTexture(), emissiveIntensity: 0 }),
       lamp: new THREE.MeshStandardMaterial({ vertexColors: true, emissive: '#fff4d6', emissiveIntensity: 0.6 }),
     };
+    // Night: glow sprites at every lamp and soft pools of light on the platforms
+    const glowMat = createGlowMaterial();
+    const poolMat = createPoolMaterial({ strength: 0.75 });
+    const glowItems = [
+      ...lights.tubes.map((l) => ({ ...l, size: 2.4, color: '#fff3dc' })),
+      ...lights.posts.map((l) => ({ ...l, size: l.small ? 2.4 : 5.5, color: '#ffe7c2' })),
+      ...lights.boards.map((l) => ({ ...l, size: 1.1, color: '#ff9a1f' })),
+    ];
+    const poolItems = [
+      ...lights.tubes.map((l) => ({ x: l.x, y: PLATFORM_TOP + 0.02, z: l.z, size: 7.5, color: '#ffeccc' })),
+      ...lights.posts.filter((l) => !l.small).map((l) => ({ x: l.x, y: PLATFORM_TOP + 0.02, z: l.z, size: 13, color: '#ffe2b5' })),
+    ];
+    const glows = makeGlowMesh(glowItems, glowMat);
+    const pools = makeGlowMesh(poolItems, poolMat, { ground: true });
     const boardTex = makeStationBoardTexture(station.hindi, station.name);
     const pfTextures = PLATFORMS.map((pf) =>
       makePlateTexture(pf.id.replace(' ', ' | '), { bg: '#123c7a', fg: '#ffffff', width: 256, height: 128, font: 'bold 80px Helvetica, Arial, sans-serif' }),
     );
     const stopTex = isDestination ? makePlateTexture('STOP', { bg: '#ffffff', fg: '#c4161c' }) : null;
-    return { pose, geos, materials, boardTex, pfTextures, stopTex };
+    return { pose, geos, materials, boardTex, pfTextures, stopTex, glows, pools };
   }, [centerS, length, station, isDestination]);
+
+  useEffect(
+    () =>
+      onEnvironmentChange((env) => {
+        built.materials.lamp.emissiveIntensity = 0.45 + 2.4 * env.lamps;
+        built.materials.facade.emissiveIntensity = 0.9 * env.lamps * env.night;
+      }),
+    [built],
+  );
 
   useEffect(
     () => () => {
       Object.values(built.geos).forEach((g) => g.dispose());
       Object.values(built.materials).forEach((m) => {
         m.map?.dispose();
+        m.emissiveMap?.dispose();
         m.dispose();
       });
+      for (const mesh of [built.glows, built.pools]) {
+        disposeGlowMaterial(mesh.material);
+        mesh.dispose();
+      }
       built.boardTex.dispose();
       built.pfTextures.forEach((t) => t.dispose());
       built.stopTex?.dispose();
@@ -194,6 +236,8 @@ export default function Station({ station, isDestination }) {
       {Object.entries(geos).map(([key, geo]) => (
         <mesh key={key} geometry={geo} material={materials[key]} receiveShadow castShadow={key === 'roof'} />
       ))}
+      <primitive object={built.glows} />
+      <primitive object={built.pools} />
 
       {/* yellow name boards, double-sided, along each platform */}
       {PLATFORMS.map((pf) => {

@@ -11,7 +11,7 @@ import { game, useGameValue, formation } from '../../state/gameStore.js';
 import { sceneRefs } from '../../state/sceneRefs.js';
 import { mainLine } from '../../world/trackLayout.js';
 import { CAB_EYE, CAB_LOOK_PITCH_DEG } from '../Train/CabInterior.jsx';
-import { COACH_EYE, COACH_LOOK_PITCH_DEG } from '../Train/CoachInterior.jsx';
+import { COACH_EYE, COACH_LOOK_PITCH_DEG, COACH_DEFAULT_YAW_DEG } from '../Train/CoachInterior.jsx';
 import { TRACK, FORMATION, COACH_TYPES } from '../../config/gameConfig.js';
 import { vehiclePose } from '../../simulation/routeMath.js';
 import { attachPointer, consumePointer } from '../../hooks/pointerInput.js';
@@ -21,8 +21,8 @@ const DEG = Math.PI / 180;
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
 const _coachMat = new THREE.Matrix4();
 
-export const CAMERA_MODES = ['cab', 'interior', 'chase', 'orbit', 'trackside'];
-export const CAMERA_LABELS = { cab: 'Cab', interior: 'Coach', chase: 'Chase', orbit: 'Orbit', trackside: 'Trackside' };
+export const CAMERA_MODES = ['cab', 'interior', 'door', 'rear', 'orbit', 'trackside'];
+export const CAMERA_LABELS = { cab: 'Cab', interior: 'Coach', door: 'Door', rear: 'Last coach', orbit: 'Orbit', trackside: 'Trackside' };
 
 function setFov(camera, fov) {
   if (Math.abs(camera.fov - fov) > 0.01) {
@@ -41,8 +41,10 @@ export default function CameraRig() {
   // Per-view state that survives between frames (and view switches)
   const st = useRef({
     cab: { yaw: 0, pitch: 0, zoom: 1 },
-    interior: { yaw: 28 * DEG, pitch: 0, zoom: 1 },
+    interior: { yaw: COACH_DEFAULT_YAW_DEG * DEG, pitch: 0, zoom: 1 },
     orbit: { yaw: -140 * DEG, pitch: 18 * DEG, dist: 45 },
+    door: { yaw: 12 * DEG, pitch: -4 * DEG, zoom: 1 },
+    rear: { yaw: 0, pitch: -7 * DEG, zoom: 1 },
     trackside: { s: null, side: 1 },
     initialised: false,
     lastMode: null,
@@ -86,13 +88,14 @@ export default function CameraRig() {
 
     if (view === 'interior') {
       const c = s.interior;
-      if (input.reset) Object.assign(c, { yaw: 28 * DEG, pitch: 0, zoom: 1 });
-      c.yaw = clamp(c.yaw - input.dx * 0.004, -110 * DEG, 110 * DEG);
+      const seat = sceneRefs.coachEye ?? { eye: COACH_EYE, yawDeg: COACH_DEFAULT_YAW_DEG };
+      if (input.reset) Object.assign(c, { yaw: seat.yawDeg * DEG, pitch: 0, zoom: 1 });
+      c.yaw = clamp(c.yaw - input.dx * 0.004, -150 * DEG, 150 * DEG);
       c.pitch = clamp(c.pitch - input.dy * 0.004, -35 * DEG, 32 * DEG);
       c.zoom = clamp(c.zoom * (1 + input.wheel * 0.001), 0.5, 1);
       const sway = Math.min(game.train.speedMps / 25, 1);
       const t = state.clock.elapsedTime;
-      const [ex, ey, ez] = COACH_EYE;
+      const [ex, ey, ez] = seat.eye;
       v.eye.set(ex, ey + Math.sin(t * 8.5) * 0.008 * sway, ez + Math.sin(t * 1.5) * 0.015 * sway);
       const pitch = COACH_LOOK_PITCH_DEG * DEG + c.pitch;
       v.look.set(Math.cos(c.yaw) * Math.cos(pitch), Math.sin(pitch), -Math.sin(c.yaw) * Math.cos(pitch)).add(v.eye);
@@ -116,6 +119,48 @@ export default function CameraRig() {
         camera.position.copy(v.eye);
         camera.lookAt(v.look);
       }
+      setFov(camera, fovSetting * c.zoom);
+      return;
+    }
+
+    // Standing in the open doorway of the second coach, looking along the train
+    if (view === 'door' && sceneRefs.doorway) {
+      const c = s.door;
+      const seat = sceneRefs.doorEye ?? { eye: [10.5, 2.9, -1.78], yawDeg: 12 };
+      if (input.reset || snap) Object.assign(c, { yaw: seat.yawDeg * DEG, pitch: -4 * DEG, zoom: input.reset ? 1 : c.zoom });
+      c.yaw = clamp(c.yaw - input.dx * 0.004, -20 * DEG, 200 * DEG); // forward along the train … back down it
+      c.pitch = clamp(c.pitch - input.dy * 0.004, -45 * DEG, 35 * DEG);
+      c.zoom = clamp(c.zoom * (1 + input.wheel * 0.001), 0.45, 1);
+      const sway = Math.min(game.train.speedMps / 25, 1);
+      const t = state.clock.elapsedTime;
+      const [ex, ey, ez] = seat.eye;
+      v.eye.set(ex, ey + Math.sin(t * 7.3) * 0.01 * sway, ez + Math.sin(t * 1.3) * 0.02 * sway);
+      v.look.set(Math.cos(c.yaw) * Math.cos(c.pitch), Math.sin(c.pitch), -Math.sin(c.yaw) * Math.cos(c.pitch)).add(v.eye);
+      sceneRefs.doorway.localToWorld(v.eye);
+      sceneRefs.doorway.localToWorld(v.look);
+      camera.position.copy(v.eye);
+      camera.lookAt(v.look);
+      setFov(camera, fovSetting * c.zoom);
+      return;
+    }
+
+    // From the back of the last coach: the track running away behind the train.
+    // Drag round 180° to see the "X", the LV board and the tail lamp.
+    if (view === 'rear' && sceneRefs.rearEnd) {
+      const c = s.rear;
+      if (input.reset) Object.assign(c, { yaw: 0, pitch: -7 * DEG, zoom: 1 });
+      c.yaw = clamp(c.yaw - input.dx * 0.004, -185 * DEG, 185 * DEG);
+      c.pitch = clamp(c.pitch - input.dy * 0.004, -50 * DEG, 30 * DEG);
+      c.zoom = clamp(c.zoom * (1 + input.wheel * 0.001), 0.4, 1);
+      const sway = Math.min(game.train.speedMps / 25, 1);
+      const t = state.clock.elapsedTime;
+      v.eye.set(-3.8, 3.05 + Math.sin(t * 6.1) * 0.012 * sway, Math.sin(t * 1.1) * 0.03 * sway);
+      // base direction = backwards (−X); yaw turns round towards the coach
+      v.look.set(-Math.cos(c.yaw) * Math.cos(c.pitch), Math.sin(c.pitch), Math.sin(c.yaw) * Math.cos(c.pitch)).add(v.eye);
+      sceneRefs.rearEnd.localToWorld(v.eye);
+      sceneRefs.rearEnd.localToWorld(v.look);
+      camera.position.copy(v.eye);
+      camera.lookAt(v.look);
       setFov(camera, fovSetting * c.zoom);
       return;
     }

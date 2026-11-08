@@ -256,25 +256,61 @@ export function buildWheelset(radius) {
  * 2. Large yellow/red diagonal cross ("X") stripes across the rear wall
  * 3. Tail lamp bracket & housing for the 1.25 Hz pulsing red LED
  */
-export function buildRearEndIndicators() {
+/**
+ * Last-vehicle markings, as on every Indian Railways train: a big yellow
+ * "X" (retro-reflective paint, white-bordered) on the closed rear gangway
+ * door, the black-on-yellow "LV" (Last Vehicle) board, and the bracket for the
+ * flashing red tail lamp. Origin = centre of the coach's rear end wall at rail
+ * level; the coach body is towards +X.
+ * keys: body (vertex colours), reflect (glows a little when lit at night)
+ */
+export function buildRearEndIndicators(type = 'lhb') {
   const b = new ModelBuilder();
-  // 1. Diagonal cross ("X") on rear wall
-  b.add(new THREE.BoxGeometry(0.015, 0.07, 1.3), { color: '#ffcc00', position: [-0.02, 2.25, 0], rotation: [0.65, 0, 0] });
-  b.add(new THREE.BoxGeometry(0.015, 0.07, 1.3), { color: '#ffcc00', position: [-0.02, 2.25, 0], rotation: [-0.65, 0, 0] });
+  const icf = type === 'icf';
+  const reach = (icf ? 0.7 : 0.5) / 2 + 0.02; // how far the gangway bellows stick out
+  const vw = icf ? 0.55 : 0.66;
+  const y0 = COACH_BODY_LIFT + 0.3;
+  const y1 = COACH_BODY_LIFT + 2.45;
+  const xf = -reach - 0.012; // face of the gangway door
 
-  // 2. Circular Yellow "LV" (Last Vehicle) plate
-  b.cylinder({ radius: 0.25, length: 0.02, axis: 'x', position: [-0.03, 1.45, 0.55], color: '#f5c316', segments: 24 });
-  b.cylinder({ radius: 0.255, length: 0.015, axis: 'x', position: [-0.025, 1.45, 0.55], color: '#111', segments: 24 });
-  // Black "LV" lettering
-  b.box([-0.045, -0.035], [1.37, 1.53], [0.47, 0.50], '#111');
-  b.box([-0.045, -0.035], [1.37, 1.40], [0.47, 0.54], '#111');
-  b.box([-0.045, -0.035], [1.37, 1.53], [0.57, 0.60], '#111');
-  b.box([-0.045, -0.035], [1.37, 1.53], [0.62, 0.65], '#111');
-  b.box([-0.045, -0.035], [1.37, 1.40], [0.57, 0.65], '#111');
+  // 1. closed gangway door over the bellows
+  b.box([-reach - 0.01, -reach + 0.02], [y0, y1], [-vw, vw], '#2c2f33');
+  b.box([-reach - 0.012, -reach - 0.008], [y0 + 0.15, y1 - 0.15], [-vw + 0.12, vw - 0.12], '#34383d');
 
-  // 3. Tail lamp casing mounted on right bracket
-  b.box([-0.05, 0.02], [1.9, 1.96], [-0.85, -0.75], '#1f2022');
-  b.cylinder({ radius: 0.07, length: 0.08, axis: 'x', position: [-0.04, 1.98, -0.8], color: '#1a1a1a', segments: 16 });
+  // 2. the "X": two diagonal yellow bars with a white border, corner to corner
+  const dy = y1 - y0 - 0.25;
+  const dz = 2 * vw - 0.2;
+  const len = Math.hypot(dy, dz);
+  const ang = Math.atan2(dy, dz);
+  const yc = (y0 + y1) / 2;
+  for (const sgn of [1, -1]) {
+    b.add(new THREE.BoxGeometry(0.008, 0.24, len + 0.06), { color: '#f4f2ea', mat: 'reflect', position: [xf - 0.004, yc, 0], rotation: [sgn * ang, 0, 0] });
+    b.add(new THREE.BoxGeometry(0.008, 0.16, len), { color: '#f7c600', mat: 'reflect', position: [xf - 0.012, yc, 0], rotation: [sgn * ang, 0, 0] });
+  }
 
+  // 3. "LV" board on the end wall, right of the gangway (black letters on yellow)
+  const lz = vw + 0.42;
+  const ly = COACH_BODY_LIFT + 0.75;
+  b.cylinder({ radius: 0.27, length: 0.02, axis: 'x', position: [-0.025, ly, lz], color: '#111', segments: 28 });
+  b.cylinder({ radius: 0.25, length: 0.02, axis: 'x', position: [-0.035, ly, lz], color: '#f5c316', mat: 'reflect', segments: 28 });
+  const lx = [-0.05, -0.044];
+  // L
+  b.box(lx, [ly - 0.11, ly + 0.11], [lz - 0.15, lz - 0.115], '#111');
+  b.box(lx, [ly - 0.11, ly - 0.075], [lz - 0.15, lz - 0.04], '#111');
+  // V (two slanted strokes)
+  for (const sgn of [-1, 1]) {
+    b.add(new THREE.BoxGeometry(0.006, 0.24, 0.035), { color: '#111', position: [-0.047, ly, lz + 0.075 + sgn * 0.03], rotation: [sgn * 0.27, 0, 0] });
+  }
+
+  // 4. tail lamp bracket + housing on the left of the gangway
+  const tz = -(vw + 0.4);
+  b.box([-0.05, 0.02], [1.9, 1.96], [tz - 0.05, tz + 0.05], '#1f2022');
+  b.cylinder({ radius: 0.075, length: 0.08, axis: 'x', position: [-0.04, 1.98, tz], color: '#1a1a1a', segments: 16 });
   return b.build();
+}
+
+/** Where the tail lamp sits on the rear end (matches buildRearEndIndicators). */
+export function tailLampPosition(type = 'lhb') {
+  const vw = type === 'icf' ? 0.55 : 0.66;
+  return [-0.09, 1.98, -(vw + 0.4)];
 }

@@ -11,7 +11,9 @@ import Train from './components/Train/Train.jsx';
 import Station from './components/Stations/Station.jsx';
 import Scenery from './components/Environment/Scenery.jsx';
 import Road from './components/Environment/Road.jsx';
-import { Sky, Ground, Lighting, EnvironmentLighting, HORIZON_COLOR } from './components/Environment/Atmosphere.jsx';
+import { Sky, Ground, Lighting, EnvironmentLighting, EnvironmentController, HORIZON_COLOR } from './components/Environment/Atmosphere.jsx';
+import Weather from './components/Environment/Weather.jsx';
+import Crowds from './components/People/Crowds.jsx';
 import CameraRig from './components/Cameras/CameraRig.jsx';
 
 export default function GameCanvas() {
@@ -39,6 +41,7 @@ export default function GameCanvas() {
       <color attach="background" args={[HORIZON_COLOR]} />
       <fog attach="fog" args={[HORIZON_COLOR, 300, quality.fogFar]} />
       <SimulationDriver />
+      <EnvironmentController />
       <EnvironmentLighting enabled={quality.environment} />
       <Lighting shadows={quality.shadows} shadowMapSize={quality.shadowMapSize} />
       <Sky radius={quality.cameraFar * 0.9} />
@@ -50,6 +53,8 @@ export default function GameCanvas() {
         <Station key={st.id} station={st} isDestination={st.id === JOURNEY.destinationId} />
       ))}
       <Train />
+      <Crowds />
+      <Weather />
       <CameraRig />
     </Canvas>
   );

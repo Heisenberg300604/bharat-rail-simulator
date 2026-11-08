@@ -1,6 +1,7 @@
 import { startJourney, updateSettings, origin, destination } from '../game/state/gameStore.js';
 import { QUALITY_PRESETS } from '../game/config/gameConfig.js';
 import ControlsTable from './ControlsTable.jsx';
+import EnvironmentPicker from './EnvironmentPicker.jsx';
 
 export default function StartScreen({ settings }) {
   return (
@@ -14,6 +15,7 @@ export default function StartScreen({ settings }) {
         <p className="route-line">
           {origin.name} <span aria-hidden>→</span> {destination.name}
         </p>
+        <EnvironmentPicker settings={settings} />
         <button className="btn btn--primary" onClick={startJourney} autoFocus>
           Start Journey
         </button>

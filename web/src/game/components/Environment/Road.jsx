@@ -1,131 +1,149 @@
-// Indian Railways roadside environment:
-// 1. Parallel asphalt highway with lane markings and streetlights
-// 2. Dynamic Indian road traffic: Auto-rickshaws, Buses, Trucks, and Passenger Cars
-// 3. Manned Indian Railways level crossing (LC-42) with animated boom gates,
-//    warning flashers, gatekeeper cabin (gumti), and whistle boards ("W/L", "सी/फा")
-// 4. Trackside Multi-Aspect Colour Light Signals (MACLS) with glowing LED lamps
-// All rendered with merged geometries and InstancedMeshes for 60 FPS performance.
+// Roadside world:
+// 1. A highway beside the line (veering away at both ends so traffic enters
+//    and leaves out of sight), with sodium streetlights.
+// 2. A cross road through manned level crossing LC-42 — boom gates, flashers,
+//    gatekeeper's gumti, whistle boards ("W/L", "सी/फा").
+// 3. Indian road traffic — hatchbacks, SUVs, CNG autos, motorbikes, state
+//    buses, painted trucks and tractor-trolleys — driven by the IDM
+//    car-following model (simulation/roadTraffic.js): they keep their gaps,
+//    queue at the closed gates and pull away when the booms lift.
+// 4. Multi-aspect colour-light signals beside the line.
+// Performance: one InstancedMesh per vehicle type for bodies (per-vehicle paint
+// colour via a shader mask) + one for lamps; streetlights are chunked
+// instances; night headlights are one dynamic glow layer.
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { game, route, useQuality, currentSpeedLimit } from '../../state/gameStore.js';
+import { game, useQuality } from '../../state/gameStore.js';
+import { sceneRefs } from '../../state/sceneRefs.js';
 import { mainLine } from '../../world/trackLayout.js';
 import { ROAD, LEVEL_CROSSING, TRACK } from '../../config/gameConfig.js';
 import { ModelBuilder } from '../../world/modelBuilder.js';
 import { seededRandom } from '../../world/geometry.js';
 import ChunkedInstances from '../../world/ChunkedInstances.jsx';
+import { VEHICLE_TYPES, createVehicleMaterial } from '../../world/models/roadVehicles.js';
+import { createTraffic, stepTraffic, placeAlongLane } from '../../simulation/roadTraffic.js';
+import { createGlowMaterial, createPoolMaterial, makeGlowMesh, setGlow, disposeGlowMaterial } from '../../world/glow.js';
+import { envState, onEnvironmentChange } from '../../world/environment.js';
 
 const _mat = new THREE.Matrix4();
 const _pos = new THREE.Vector3();
 const _quat = new THREE.Quaternion();
+const _qRot = new THREE.Quaternion();
 const _scale = new THREE.Vector3(1, 1, 1);
+const _zero = new THREE.Vector3(0, 0, 0);
 const _up = new THREE.Vector3(0, 1, 0);
+const _zAxis = new THREE.Vector3(0, 0, 1);
+const _v = new THREE.Vector3();
 
-// ---------------------------------------------------------------- Road models
-function buildAutoRickshaw() {
-  const b = new ModelBuilder();
-  // Lower body (classic green)
-  b.box([-1.2, 1.2], [0.35, 1.0], [-0.65, 0.65], '#1d7335');
-  b.box([0.5, 1.3], [0.4, 0.95], [-0.4, 0.4], '#1d7335'); // front tapered nose
-  // Yellow upper frame & canvas canopy
-  b.box([-1.22, 0.6], [1.0, 1.72], [-0.65, 0.65], '#f0be18');
-  b.cylinder({ radius: 0.65, length: 0.6, axis: 'x', position: [0.9, 1.15, 0], color: '#f0be18' });
-  // Windscreen
-  b.box([0.7, 0.74], [1.05, 1.55], [-0.5, 0.5], '#152028', { mat: 'glass' });
-  // Black canvas roof top
-  b.box([-1.25, 0.8], [1.72, 1.78], [-0.68, 0.68], '#222528');
-  // Wheels (1 front, 2 rear)
-  b.cylinder({ radius: 0.24, length: 0.12, axis: 'z', position: [0.9, 0.24, 0], color: '#1a1a1a' });
-  for (const z of [-0.6, 0.6]) {
-    b.cylinder({ radius: 0.24, length: 0.12, axis: 'z', position: [-0.65, 0.24, z], color: '#1a1a1a' });
-  }
-  // Headlamp
-  b.cylinder({ radius: 0.08, length: 0.06, axis: 'x', position: [1.32, 0.75, 0], color: '#fffbe6', mat: 'lamp' });
-  return b.build();
+const ROAD_END_VEER = 420; // metres over which the highway curves away at each end
+const CROSS_FROM = 300; // cross road: village side (lateral +)
+const CROSS_TO = -260; // far side
+const LANE = 1.8;
+
+const smoothstep = (a, b, x) => {
+  const t = Math.min(Math.max((x - a) / (b - a), 0), 1);
+  return t * t * (3 - 2 * t);
+};
+
+/** Highway centre-line offset from the track: 32 m, curving away at the ends. */
+function highwayOffset(s) {
+  return ROAD.lateral + 360 * (smoothstep(ROAD.from, ROAD.from - ROAD_END_VEER, s) + smoothstep(ROAD.to, ROAD.to + ROAD_END_VEER, s));
 }
 
-function buildBus() {
-  const b = new ModelBuilder();
-  const L = 10.2;
-  const W = 2.5;
-  const H = 3.1;
-  const HL = L / 2;
-  const HW = W / 2;
-
-  // Body: Indian State Transport red/orange with cream upper
-  b.box([-HL, HL], [0.55, 1.8], [-HW, HW], '#b8321d');
-  b.box([-HL, HL], [1.8, 2.7], [-HW, HW], '#e8dfcc');
-  b.box([-HL, HL], [2.7, H], [-HW, HW], '#d5cdb8'); // roof
-  // Window strip along both sides (dark tinted glass)
-  for (const z of [-HW - 0.01, HW + 0.01]) {
-    b.box([-HL + 0.8, HL - 0.8], [1.85, 2.55], [z - 0.01, z + 0.01], '#19242d', { mat: 'glass' });
-    // Passenger window pillars
-    for (let x = -HL + 1.8; x <= HL - 1.8; x += 1.4) {
-      b.box([x - 0.06, x + 0.06], [1.85, 2.55], [z - 0.02, z + 0.02], '#b8321d');
+/** A polyline with cumulative length and fast sampling. */
+function makePath(points) {
+  const n = points.length;
+  const x = new Float64Array(n);
+  const z = new Float64Array(n);
+  const cum = new Float64Array(n);
+  points.forEach((p, i) => {
+    x[i] = p[0];
+    z[i] = p[1];
+    if (i) cum[i] = cum[i - 1] + Math.hypot(x[i] - x[i - 1], z[i] - z[i - 1]);
+  });
+  const length = cum[n - 1];
+  function sample(d, out) {
+    d = Math.min(Math.max(d, 0), length);
+    let lo = 0;
+    let hi = n - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (cum[mid] <= d) lo = mid;
+      else hi = mid;
     }
+    const t = (d - cum[lo]) / Math.max(1e-9, cum[hi] - cum[lo]);
+    out.x = x[lo] + (x[hi] - x[lo]) * t;
+    out.z = z[lo] + (z[hi] - z[lo]) * t;
+    out.yaw = Math.atan2(-(z[hi] - z[lo]), x[hi] - x[lo]); // rotation that turns local +X along the path
+    return out;
   }
-  // Front split windscreen & destination board
-  b.box([HL - 0.02, HL + 0.02], [1.75, 2.55], [-HW + 0.1, HW - 0.1], '#19242d', { mat: 'glass' });
-  b.box([HL - 0.03, HL + 0.03], [2.62, 2.88], [-0.8, 0.8], '#f3c623'); // yellow destination board
-  // Bumper
-  b.box([HL, HL + 0.12], [0.45, 0.75], [-HW, HW], '#33373b');
-  // Wheels (4 large bus wheels)
-  for (const x of [-HL + 2.2, HL - 2.4]) {
-    for (const z of [-HW + 0.1, HW - 0.1]) {
-      b.cylinder({ radius: 0.48, length: 0.28, axis: 'z', position: [x, 0.48, z], color: '#1a1a1a' });
-    }
-  }
-  // Headlights
-  for (const z of [-0.85, 0.85]) {
-    b.cylinder({ radius: 0.12, length: 0.06, axis: 'x', position: [HL + 0.05, 0.85, z], color: '#fffbe6', mat: 'lamp' });
-  }
-  return b.build();
+  return { length, sample, points };
 }
 
-function buildTruck() {
-  const b = new ModelBuilder();
-  const L = 8.4;
-  const HL = L / 2;
-  // Chassis
-  b.box([-HL, HL], [0.55, 0.95], [-1.05, 1.05], '#25272a');
-  // Driver's Cabin (Tata 1613 style, colourful painted front)
-  b.box([HL - 2.4, HL], [0.95, 2.85], [-1.15, 1.15], '#1d6aa3');
-  b.box([HL - 0.1, HL + 0.05], [0.95, 1.45], [-1.2, 1.2], '#e8aa12'); // yellow decorative bumper
-  // Cab windscreen
-  b.box([HL - 0.4, HL + 0.02], [1.85, 2.55], [-1.05, 1.05], '#19242d', { mat: 'glass' });
-  // High wooden cargo bed (green/yellow painted slats)
-  b.box([-HL, HL - 2.5], [0.95, 2.75], [-1.22, 1.22], '#2e7a48');
-  b.box([-HL - 0.02, HL - 2.48], [1.75, 1.85], [-1.24, 1.24], '#f0c018'); // yellow waist stripe
-  // Wheels (6 wheels: 2 front, 4 rear dual)
-  for (const z of [-1.1, 1.1]) {
-    b.cylinder({ radius: 0.48, length: 0.26, axis: 'z', position: [HL - 1.2, 0.48, z], color: '#1a1a1a' });
-    b.cylinder({ radius: 0.48, length: 0.45, axis: 'z', position: [-HL + 1.8, 0.48, z], color: '#1a1a1a' });
-  }
-  // Headlamps
-  for (const z of [-0.8, 0.8]) {
-    b.cylinder({ radius: 0.11, length: 0.06, axis: 'x', position: [HL + 0.03, 1.05, z], color: '#fffbe6', mat: 'lamp' });
-  }
-  return b.build();
+/** Offset a polyline sideways (positive = to the left of its direction of travel). */
+function offsetPath(points, off) {
+  return points.map((p, i) => {
+    const a = points[Math.max(0, i - 1)];
+    const b = points[Math.min(points.length - 1, i + 1)];
+    const dx = b[0] - a[0];
+    const dz = b[1] - a[1];
+    const len = Math.hypot(dx, dz) || 1;
+    // left of travel direction (dx, dz) is (dz, −dx)/len
+    return [p[0] + (dz / len) * off, p[1] + (-dx / len) * off];
+  });
 }
 
-function buildCar() {
-  const b = new ModelBuilder();
-  // Lower body
-  b.box([-1.9, 1.9], [0.32, 0.85], [-0.85, 0.85], '#d8dde2');
-  // Cabin greenhouse
-  b.box([-0.9, 0.8], [0.85, 1.45], [-0.75, 0.75], '#d8dde2');
-  b.box([-0.85, 0.75], [0.88, 1.4], [-0.78, 0.78], '#152028', { mat: 'glass' });
-  // Wheels
-  for (const x of [-1.15, 1.15]) {
-    for (const z of [-0.82, 0.82]) {
-      b.cylinder({ radius: 0.3, length: 0.18, axis: 'z', position: [x, 0.3, z], color: '#1a1a1a' });
+function ribbon(points, halfWidth, yFn) {
+  const left = offsetPath(points, halfWidth);
+  const right = offsetPath(points, -halfWidth);
+  const pos = [];
+  const idx = [];
+  points.forEach((p, i) => {
+    const y = yFn ? yFn(i) : 0.05;
+    pos.push(left[i][0], y, left[i][1], right[i][0], y, right[i][1]);
+    if (i) {
+      const a = (i - 1) * 2;
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
     }
+  });
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  // make sure faces point up whatever the winding
+  const n = geo.attributes.normal;
+  if (n.count && n.getY(0) < 0) {
+    for (let i = 0; i < idx.length; i += 3) [idx[i + 1], idx[i + 2]] = [idx[i + 2], idx[i + 1]];
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
   }
-  // Lights
-  for (const z of [-0.6, 0.6]) {
-    b.cylinder({ radius: 0.08, length: 0.05, axis: 'x', position: [1.92, 0.65, z], color: '#fffbe6', mat: 'lamp' });
-    b.cylinder({ radius: 0.07, length: 0.05, axis: 'x', position: [-1.92, 0.65, z], color: '#d21a1a' });
+  return geo;
+}
+
+/** Dashed centre line as thin quads. */
+function dashes(points, dash = 3, gap = 6) {
+  const path = makePath(points);
+  const geos = [];
+  const o = {};
+  for (let d = 0; d < path.length - dash; d += dash + gap) {
+    const seg = [];
+    for (let k = 0; k <= 2; k++) {
+      path.sample(d + (dash * k) / 2, o);
+      seg.push([o.x, o.z]);
+    }
+    geos.push(ribbon(seg, 0.07, () => 0.065));
   }
+  return geos;
+}
+
+function buildStreetlight() {
+  const b = new ModelBuilder();
+  b.cylinder({ radius: 0.09, radiusTop: 0.06, length: 8, position: [0, 4, 0], color: '#8a9096', segments: 8 });
+  b.add(new THREE.BoxGeometry(2.6, 0.08, 0.08), { color: '#8a9096', position: [1.2, 7.9, 0], rotation: [0, 0, 0.08] });
+  b.box([2.2, 2.9], [7.72, 7.9], [-0.18, 0.18], '#5c6167');
+  b.box([2.25, 2.85], [7.7, 7.73], [-0.15, 0.15], '#ffd18a', { mat: 'lamp' });
+  b.box([-0.25, 0.25], [0, 0.4], [-0.25, 0.25], '#9c978d');
   return b.build();
 }
 
@@ -209,146 +227,210 @@ function buildSignalPost() {
   return b.build().body;
 }
 
+/** Lanes (India drives on the left) and the road surfaces built from them. */
+function buildRoadNetwork() {
+  const p = {};
+  const centre = [];
+  for (let s = ROAD.from - ROAD_END_VEER; s <= ROAD.to + ROAD_END_VEER; s += 8) {
+    mainLine.sample(s, p);
+    const o = highwayOffset(s);
+    centre.push([p.x + p.lx * o, p.z + p.lz * o]);
+  }
+  mainLine.sample(LEVEL_CROSSING.s, p);
+  const cross = [];
+  for (let lat = CROSS_FROM; lat >= CROSS_TO; lat -= 4) cross.push([p.x + p.lx * lat, p.z + p.lz * lat]);
+  const crossLat = (i) => CROSS_FROM - i * 4;
+  const lanes = {
+    up: makePath(offsetPath(centre, LANE)),
+    down: makePath(offsetPath([...centre].reverse(), LANE)),
+    xA: makePath(offsetPath(cross, LANE)), // village side → across the tracks
+    xB: makePath(offsetPath([...cross].reverse(), LANE)),
+  };
+  // Over the tracks the road rises to rail level
+  const crossY = (i) => {
+    const lat = crossLat(i);
+    return lat < 3.5 && lat > -9 ? TRACK.railTop - 0.01 : lat < 6 && lat > -11.5 ? 0.35 : 0.06;
+  };
+  const surfaces = [ribbon(centre, ROAD.width / 2), ribbon(cross, 3.8, crossY)];
+  const markings = [...dashes(centre), ...dashes(cross.filter((_, i) => Math.abs(crossLat(i)) > 14))];
+  // where traffic must wait while the gates are down
+  const stops = {
+    xA: [CROSS_FROM - (4.6 + 3.2)],
+    xB: [-(10.2 + 3.2) - CROSS_TO],
+  };
+  // streetlights on the track side of the highway, arm reaching over the road
+  const lights = [];
+  for (let s = ROAD.from + 20; s <= ROAD.to; s += 45) {
+    mainLine.sample(s, p);
+    const lat = highwayOffset(s) - ROAD.width / 2 - 1.1;
+    lights.push({ x: p.x + p.lx * lat, z: p.z + p.lz * lat, yaw: Math.atan2(-p.lz, p.lx), lx: p.lx, lz: p.lz });
+  }
+  return { lanes, surfaces, markings, stops, lights };
+}
+
+function buildFleet(lanes, density) {
+  const rand = seededRandom(91);
+  const types = Object.entries(VEHICLE_TYPES);
+  const total = types.reduce((n, [, t]) => n + t.weight, 0);
+  const pickType = () => {
+    let r = rand() * total;
+    for (const [id, t] of types) if ((r -= t.weight) <= 0) return id;
+    return 'car';
+  };
+  const vehicles = [];
+  const add = (lane, count) => {
+    for (const d of placeAlongLane(lanes[lane].length, count, rand)) {
+      const type = pickType();
+      const t = VEHICLE_TYPES[type];
+      vehicles.push({
+        lane,
+        d,
+        type,
+        length: t.length,
+        v0: (t.speed[0] + rand() * (t.speed[1] - t.speed[0])) / 3.6,
+        color: t.colors[Math.floor(rand() * t.colors.length)],
+      });
+    }
+  };
+  add('up', Math.round(44 * density));
+  add('down', Math.round(44 * density));
+  add('xA', Math.max(4, Math.round(10 * density)));
+  add('xB', Math.max(4, Math.round(10 * density)));
+  return createTraffic(
+    Object.entries(lanes).map(([id, l]) => ({ id, length: l.length })),
+    vehicles,
+  );
+}
+
 export default function Road() {
   const quality = useQuality();
 
-  // Create road geometries & materials
   const assets = useMemo(() => {
-    const std = (o) => new THREE.MeshStandardMaterial({ vertexColors: true, ...o });
+    const vc = (o) => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, ...o });
     const mats = {
-      road: new THREE.MeshStandardMaterial({ color: '#2b2d30', roughness: 0.95 }),
-      whiteMarking: new THREE.MeshStandardMaterial({ color: '#f0ece2', roughness: 0.8 }),
-      yellowMarking: new THREE.MeshStandardMaterial({ color: '#e6af1a', roughness: 0.8 }),
-      woodPanel: new THREE.MeshStandardMaterial({ color: '#524538', roughness: 0.9 }),
-      lamp: new THREE.MeshStandardMaterial({ emissive: '#fff6dd', emissiveIntensity: 0.8 }),
+      road: new THREE.MeshStandardMaterial({ color: '#2f3134', roughness: 0.92, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
+      marking: new THREE.MeshStandardMaterial({ color: '#ece8dc', roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+      vc: vc(),
+      vehicle: createVehicleMaterial(),
+      lamp: new THREE.MeshBasicMaterial({ vertexColors: true }),
       greenSignal: new THREE.MeshStandardMaterial({ emissive: '#00e676', emissiveIntensity: 3.5, color: '#00e676' }),
       yellowSignal: new THREE.MeshStandardMaterial({ emissive: '#ffab00', emissiveIntensity: 3.5, color: '#ffab00' }),
       redSignal: new THREE.MeshStandardMaterial({ emissive: '#ff1744', emissiveIntensity: 3.5, color: '#ff1744' }),
     };
-
+    const vehicles = Object.fromEntries(Object.entries(VEHICLE_TYPES).map(([id, t]) => [id, t.build()]));
+    const streetlight = buildStreetlight();
     return {
       mats,
-      auto: buildAutoRickshaw(),
-      bus: buildBus(),
-      truck: buildTruck(),
-      car: buildCar(),
+      vehicles,
+      streetlight,
       gateCabin: buildGateCabin(),
       gateBoom: buildGateBoom(),
       gatePost: buildGatePost(),
       whistleBoard: buildWhistleBoard(),
       signalPost: buildSignalPost(),
-      unitBox: new THREE.BoxGeometry(1, 1, 1),
     };
   }, []);
 
+  const net = useMemo(buildRoadNetwork, []);
+  const traffic = useMemo(() => buildFleet(net.lanes, quality.sceneryDensity), [net, quality.sceneryDensity]);
+
+  // per-type instance slots + paint colours
+  const fleet = useMemo(() => {
+    const byType = {};
+    traffic.vehicles.forEach((veh) => {
+      byType[veh.type] ??= [];
+      veh.slot = byType[veh.type].length;
+      byType[veh.type].push(veh);
+    });
+    const meshes = {};
+    const c = new THREE.Color();
+    for (const [type, list] of Object.entries(byType)) {
+      const geos = assets.vehicles[type];
+      const body = new THREE.InstancedMesh(geos.body, assets.mats.vehicle, list.length);
+      list.forEach((veh, i) => body.setColorAt(i, c.set(veh.color)));
+      body.instanceColor.needsUpdate = true;
+      body.castShadow = true;
+      body.receiveShadow = true;
+      body.frustumCulled = false;
+      const lamp = geos.lamp ? new THREE.InstancedMesh(geos.lamp, assets.mats.lamp, list.length) : null;
+      if (lamp) lamp.frustumCulled = false;
+      meshes[type] = { body, lamp, list };
+    }
+    return meshes;
+  }, [traffic, assets]);
+
+  // night: streetlight glows + pools, and one dynamic glow layer for vehicle lamps
+  const night = useMemo(() => {
+    const glowMat = createGlowMaterial();
+    const poolMat = createPoolMaterial({ strength: 0.6 });
+    const glowItems = [];
+    const poolItems = [];
+    for (const l of net.lights) {
+      const hx = l.x + l.lx * 2.55;
+      const hz = l.z + l.lz * 2.55;
+      glowItems.push({ x: hx, y: 7.6, z: hz, size: 4.5, color: '#ffb766' });
+      poolItems.push({ x: hx, y: 0.08, z: hz, size: 16, color: '#ffb05a' });
+    }
+    const vehMat = createGlowMaterial({ day: 0.0, night: 1.1 });
+    return {
+      glows: makeGlowMesh(glowItems, glowMat),
+      pools: makeGlowMesh(poolItems, poolMat, { ground: true }),
+      veh: makeGlowMesh([], vehMat, { maxCount: traffic.vehicles.length * 4 }),
+    };
+  }, [net, traffic]);
+
   useEffect(
-    () => () => {
-      Object.values(assets.mats).forEach((m) => m.dispose());
-      assets.unitBox.dispose();
-      assets.gateCabin.dispose();
-      assets.gateBoom.dispose();
-      assets.gatePost.dispose();
-      assets.whistleBoard.dispose();
-      assets.signalPost.dispose();
-    },
+    () =>
+      onEnvironmentChange((env) => {
+        // lamps look "off" by day and blaze at night
+        assets.mats.lamp.color.setScalar(0.55 + 1.9 * env.lamps);
+      }),
     [assets],
   );
 
-  // Parallel road surface & markings
-  const roadRibbon = useMemo(() => {
-    const pts = [];
-    const step = 20;
-    const p = {};
-    for (let s = ROAD.from; s <= ROAD.to; s += step) {
-      mainLine.sample(s, p);
-      pts.push({
-        s,
-        x: p.x + p.lx * ROAD.lateral,
-        z: p.z + p.lz * ROAD.lateral,
-        heading: p.heading,
-        lx: p.lx,
-        lz: p.lz,
-      });
-    }
+  useEffect(
+    () => () => {
+      for (const m of Object.values(assets.mats)) m.dispose();
+      for (const g of Object.values(assets.vehicles)) Object.values(g).forEach((x) => x.dispose());
+      Object.values(assets.streetlight).forEach((x) => x.dispose());
+      [assets.gateCabin, assets.gateBoom, assets.gatePost, assets.whistleBoard, assets.signalPost].forEach((g) => g.dispose());
+    },
+    [assets],
+  );
+  useEffect(
+    () => () => {
+      net.surfaces.forEach((g) => g.dispose());
+      net.markings.forEach((g) => g.dispose());
+    },
+    [net],
+  );
+  useEffect(
+    () => () => {
+      for (const m of [night.glows, night.pools, night.veh]) {
+        disposeGlowMaterial(m.material);
+        m.dispose();
+      }
+    },
+    [night],
+  );
+  useEffect(
+    () => () => {
+      for (const f of Object.values(fleet)) {
+        f.body.dispose();
+        f.lamp?.dispose();
+      }
+    },
+    [fleet],
+  );
 
-    // Build road quad strip
-    const geom = new THREE.BufferGeometry();
-    const pos = [];
-    const halfW = ROAD.width / 2;
-    for (const pt of pts) {
-      pos.push(pt.x + pt.lx * halfW, 0.05, pt.z + pt.lz * halfW);
-      pos.push(pt.x - pt.lx * halfW, 0.05, pt.z - pt.lz * halfW);
-    }
-    const idx = [];
-    for (let i = 0; i < pts.length - 1; i++) {
-      const a = i * 2;
-      const b = a + 1;
-      const c = a + 2;
-      const d = a + 3;
-      idx.push(a, b, c, b, d, c);
-    }
-    geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geom.setIndex(idx);
-    geom.computeVertexNormals();
-    return geom;
-  }, []);
-
-  // Level crossing cross-road geometry
-  const crossingRoadGeom = useMemo(() => {
-    const p = {};
-    mainLine.sample(LEVEL_CROSSING.s, p);
-    const geom = new THREE.BufferGeometry();
-    const W = 8;
-    const HW = W / 2;
-    const latStart = ROAD.lateral + 3.5;
-    const latEnd = LEVEL_CROSSING.farLateral;
-    const steps = 30;
-    const pos = [];
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const lat = latStart + (latEnd - latStart) * t;
-      const cx = p.x + p.lx * lat;
-      const cz = p.z + p.lz * lat;
-      // perpendicular to road = along track direction (cos/sin heading)
-      const dx = Math.cos(p.heading) * HW;
-      const dz = Math.sin(p.heading) * HW;
-      const y = Math.abs(lat) < 8 ? TRACK.railTop - 0.01 : 0.06;
-      pos.push(cx - dx, y, cz - dz);
-      pos.push(cx + dx, y, cz + dz);
-    }
-    const idx = [];
-    for (let i = 0; i < steps; i++) {
-      const a = i * 2;
-      const b = a + 1;
-      const c = a + 2;
-      const d = a + 3;
-      idx.push(a, b, c, b, d, c);
-    }
-    geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geom.setIndex(idx);
-    geom.computeVertexNormals();
-    return geom;
-  }, []);
-
-  // Static roadside items: gatekeeper cabin, gate posts, whistle boards, signals
   const staticItems = useMemo(() => {
     const p = {};
-    // Level crossing cabin
     mainLine.sample(LEVEL_CROSSING.s - 14, p);
-    const cabin = {
-      x: p.x + p.lx * 10.5,
-      y: 0,
-      z: p.z + p.lz * 10.5,
-      yaw: -p.heading + Math.PI / 2,
-    };
-
-    // Whistle boards
+    const cabin = { x: p.x + p.lx * 10.5, y: 0, z: p.z + p.lz * 10.5, yaw: -p.heading + Math.PI / 2 };
     mainLine.sample(LEVEL_CROSSING.s - LEVEL_CROSSING.whistleBoard, p);
     const wbUp = { x: p.x + p.lx * 3.8, y: 0, z: p.z + p.lz * 3.8, yaw: -p.heading };
     mainLine.sample(LEVEL_CROSSING.s + LEVEL_CROSSING.whistleBoard, p);
     const wbDown = { x: p.x + p.lx * -9.2, y: 0, z: p.z + p.lz * -9.2, yaw: -p.heading + Math.PI };
-
-    // Signals along the line
     const signalDefs = [
       { s: 460, lat: 3.8, rev: false },
       { s: 920, lat: 3.8, rev: false },
@@ -356,7 +438,6 @@ export default function Road() {
       { s: 4120, lat: 3.8, rev: false },
       { s: 6550, lat: 3.8, rev: false },
       { s: 7120, lat: 3.8, rev: false },
-      // Down line signals (opposing direction)
       { s: 7100, lat: -9.2, rev: true },
       { s: 4300, lat: -9.2, rev: true },
       { s: 2500, lat: -9.2, rev: true },
@@ -364,221 +445,129 @@ export default function Road() {
     ];
     const signals = signalDefs.map((def) => {
       mainLine.sample(def.s, p);
-      return {
-        s: def.s,
-        x: p.x + p.lx * def.lat,
-        y: 0,
-        z: p.z + p.lz * def.lat,
-        yaw: -p.heading + (def.rev ? Math.PI : 0),
-        rev: def.rev,
-      };
+      return { s: def.s, x: p.x + p.lx * def.lat, y: 0, z: p.z + p.lz * def.lat, yaw: -p.heading + (def.rev ? Math.PI : 0), rev: def.rev };
     });
+    mainLine.sample(LEVEL_CROSSING.s, p);
+    const lc = { ...p };
+    const lights = net.lights.map((l) => ({ x: l.x, y: 0, z: l.z, yaw: l.yaw }));
+    return { cabin, wbUp, wbDown, signals, lc, lights };
+  }, [net]);
 
-    return { cabin, wbUp, wbDown, signals };
-  }, []);
-
-  // Road vehicles state pool (16 parallel vehicles + 4 crossing vehicles)
-  const traffic = useRef(null);
-  if (!traffic.current) {
-    const rand = seededRandom(77);
-    const vehicles = [];
-    const types = ['car', 'auto', 'bus', 'truck'];
-
-    // 16 parallel road vehicles
-    for (let i = 0; i < 16; i++) {
-      const isUp = i % 2 === 0;
-      const type = types[Math.floor(rand() * types.length)];
-      const speedKmh = 35 + rand() * 30; // 35 - 65 km/h
-      const s = ROAD.from + rand() * (ROAD.to - ROAD.from);
-      vehicles.push({
-        id: i,
-        type,
-        mode: 'parallel',
-        isUp,
-        s,
-        speedMps: (speedKmh / 3.6) * (isUp ? 1 : -1),
-        lat: ROAD.lateral + (isUp ? 1.8 : -1.8),
-      });
-    }
-
-    // 4 crossing vehicles
-    for (let i = 0; i < 4; i++) {
-      const type = i % 2 === 0 ? 'auto' : 'car';
-      const dir = i < 2 ? 1 : -1; // 1 = approaching from far lateral towards road, -1 = towards far lateral
-      const lat = dir > 0 ? -120 + i * 25 : 25 - i * 15;
-      vehicles.push({
-        id: 16 + i,
-        type,
-        mode: 'crossing',
-        dir,
-        lat,
-        speedMps: 9 * dir, // ~32 km/h
-        currentSpeed: 9 * dir,
-      });
-    }
-
-    traffic.current = { vehicles, gateAngle: 1.35, flasherOn: false };
-  }
-
-  // Refs for animated gate booms & flashers
   const boomUpRef = useRef();
   const boomDownRef = useRef();
-  const flasherRef = useRef();
-  const vehicleRefs = useRef({});
-
-  const registerVeh = (name) => (el) => {
-    if (el) vehicleRefs.current[name] = el;
-    else delete vehicleRefs.current[name];
-  };
+  const gate = useRef({ angle: 1.35 });
+  const o = useMemo(() => ({}), []);
 
   useFrame((state, delta) => {
     const dt = Math.min(delta, 0.1);
-    const tr = traffic.current;
     const playerS = game.renderDistance;
 
-    // Check if any train is approaching the level crossing
+    // Is any train approaching or on the level crossing?
     let trainClosing = false;
-    // 1. Player train
     const playerDist = LEVEL_CROSSING.s - playerS;
-    if (playerDist > -40 && playerDist < LEVEL_CROSSING.closeAhead) {
-      trainClosing = true;
-    }
-    // 2. AI trains
+    if (playerDist > -40 && playerDist < LEVEL_CROSSING.closeAhead) trainClosing = true;
     if (game.aiTrains) {
       for (const ai of game.aiTrains) {
         if (ai.state !== 'running') continue;
         const aiDist = ai.front - LEVEL_CROSSING.s;
-        if (aiDist > -ai.length - 30 && aiDist < LEVEL_CROSSING.closeAhead) {
-          trainClosing = true;
-        }
+        if (aiDist > -ai.length - 30 && aiDist < LEVEL_CROSSING.closeAhead) trainClosing = true;
       }
     }
-
-    // Animate gate boom angle: 0 = closed (horizontal), 1.35 = open (upright)
-    const targetGate = trainClosing ? 0.0 : 1.35;
-    tr.gateAngle += (targetGate - tr.gateAngle) * Math.min(1, dt * 1.8);
-    const gatesClosed = tr.gateAngle < 0.25;
-
-    // Twin red flasher timer
-    tr.flasherOn = trainClosing && Math.floor(state.clock.elapsedTime * 3) % 2 === 0;
-
-    // Update gate boom transforms
-    const p = {};
+    sceneRefs.lcClosing = trainClosing; // the audio engine rings the crossing bell
+    const g = gate.current;
+    g.angle += ((trainClosing ? 0 : 1.35) - g.angle) * Math.min(1, dt * 1.8);
+    const lc = staticItems.lc;
     if (boomUpRef.current) {
-      mainLine.sample(LEVEL_CROSSING.s + 3.5, p);
-      _pos.set(p.x + p.lx * 4.6, 1.25, p.z + p.lz * 4.6);
-      _quat.setFromAxisAngle(_up, -p.heading + Math.PI / 2);
-      const qRot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), tr.gateAngle);
-      _quat.multiply(qRot);
-      boomUpRef.current.position.copy(_pos);
-      boomUpRef.current.quaternion.copy(_quat);
+      _pos.set(lc.x + lc.lx * 4.6, 1.25, lc.z + lc.lz * 4.6);
+      // boom pivots on the post beside the cross road, swinging across it
+      _quat.setFromAxisAngle(_up, -lc.heading + Math.PI / 2 + Math.PI / 2);
+      _qRot.setFromAxisAngle(_zAxis, g.angle);
+      boomUpRef.current.position.copy(_pos).addScaledVector(_v.set(Math.cos(lc.heading), 0, Math.sin(lc.heading)), 3.5);
+      boomUpRef.current.quaternion.copy(_quat).multiply(_qRot);
     }
     if (boomDownRef.current) {
-      mainLine.sample(LEVEL_CROSSING.s - 3.5, p);
-      _pos.set(p.x + p.lx * -10.2, 1.25, p.z + p.lz * -10.2);
-      _quat.setFromAxisAngle(_up, -p.heading - Math.PI / 2);
-      const qRot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -tr.gateAngle);
-      _quat.multiply(qRot);
-      boomDownRef.current.position.copy(_pos);
-      boomDownRef.current.quaternion.copy(_quat);
+      _pos.set(lc.x + lc.lx * -10.2, 1.25, lc.z + lc.lz * -10.2);
+      _quat.setFromAxisAngle(_up, -lc.heading - Math.PI / 2 + Math.PI / 2);
+      _qRot.setFromAxisAngle(_zAxis, -g.angle);
+      boomDownRef.current.position.copy(_pos).addScaledVector(_v.set(Math.cos(lc.heading), 0, Math.sin(lc.heading)), -3.5);
+      boomDownRef.current.quaternion.copy(_quat).multiply(_qRot);
     }
 
-    // Update vehicles
-    const counts = { car: 0, auto: 0, bus: 0, truck: 0 };
-    for (const v of tr.vehicles) {
-      if (v.mode === 'parallel') {
-        v.s += v.speedMps * dt;
-        // Loop when reaching ends of road
-        if (v.s > ROAD.to) v.s = ROAD.from;
-        if (v.s < ROAD.from) v.s = ROAD.to;
+    // Traffic: gates count as a red light from the moment they start closing
+    const gatesShut = trainClosing || g.angle < 1.2;
+    stepTraffic(traffic, dt, gatesShut ? net.stops : undefined);
 
-        mainLine.sample(v.s, p);
-        const vx = p.x + p.lx * v.lat;
-        const vz = p.z + p.lz * v.lat;
-        const yaw = -p.heading + (v.isUp ? 0 : Math.PI);
-
-        _pos.set(vx, 0.05, vz);
-        _quat.setFromAxisAngle(_up, yaw);
-        _mat.compose(_pos, _quat, _scale);
-
-        const mesh = vehicleRefs.current[v.type];
-        if (mesh) {
-          mesh.setMatrixAt(counts[v.type]++, _mat);
-        }
-      } else {
-        // Crossing vehicle: stops at gates if closed/closing
-        const nearStop = v.dir > 0 ? (v.lat > -18 && v.lat < -10) : (v.lat < 14 && v.lat > 5);
-        if (nearStop && (trainClosing || !gatesClosed && tr.gateAngle < 1.1)) {
-          v.currentSpeed += (0 - v.currentSpeed) * Math.min(1, dt * 3);
-        } else {
-          v.currentSpeed += (v.speedMps - v.currentSpeed) * Math.min(1, dt * 1.5);
-        }
-
-        v.lat += v.currentSpeed * dt;
-        if (v.dir > 0 && v.lat > ROAD.lateral + 2) v.lat = LEVEL_CROSSING.farLateral + 5;
-        if (v.dir < 0 && v.lat < LEVEL_CROSSING.farLateral) v.lat = ROAD.lateral;
-
-        mainLine.sample(LEVEL_CROSSING.s, p);
-        const vx = p.x + p.lx * v.lat;
-        const vz = p.z + p.lz * v.lat;
-        // Travelling across tracks = along lx, lz vector
-        const yaw = -p.heading + (v.dir > 0 ? Math.PI / 2 : -Math.PI / 2);
-
-        _pos.set(vx, Math.abs(v.lat) < 8 ? TRACK.railTop : 0.06, vz);
-        _quat.setFromAxisAngle(_up, yaw);
-        _mat.compose(_pos, _quat, _scale);
-
-        const mesh = vehicleRefs.current[v.type];
-        if (mesh) {
-          mesh.setMatrixAt(counts[v.type]++, _mat);
+    // Draw every vehicle; lamps glow at night
+    const lit = envState.lamps > 0.05;
+    let gi = 0;
+    const cam = state.camera.position;
+    for (const f of Object.values(fleet)) {
+      for (const veh of f.list) {
+        const lane = net.lanes[veh.lane];
+        const visible = veh.active && veh.d - veh.length / 2 <= lane.length;
+        lane.sample(veh.d, o);
+        const y = veh.lane.startsWith('x') && o.x !== undefined ? crossingHeight(veh, lane, o) : 0.05;
+        _pos.set(o.x, y, o.z);
+        _quat.setFromAxisAngle(_up, o.yaw);
+        _mat.compose(_pos, _quat, visible ? _scale : _zero);
+        f.body.setMatrixAt(veh.slot, _mat);
+        f.lamp?.setMatrixAt(veh.slot, _mat);
+        if (lit && visible && gi < night.veh.instanceMatrix.count - 4 && Math.abs(o.x - cam.x) + Math.abs(o.z - cam.z) < 1400) {
+          const half = veh.length / 2;
+          const c = Math.cos(o.yaw);
+          const sn = -Math.sin(o.yaw); // local +X in world = (cos yaw, 0, -sin yaw)
+          const sideX = -sn; // local +Z in world = (sin yaw, 0, cos yaw)
+          const sideZ = c;
+          const wide = veh.type === 'bike' || veh.type === 'auto' ? 0 : 0.7;
+          for (const side of wide ? [-1, 1] : [0]) {
+            setGlow(night.veh, gi++, o.x + c * (half + 0.1) + sideX * side * wide, y + 0.8, o.z + sn * (half + 0.1) + sideZ * side * wide, 1.6, '#fff1cf');
+            setGlow(night.veh, gi++, o.x - c * (half + 0.1) + sideX * side * wide, y + 0.85, o.z - sn * (half + 0.1) + sideZ * side * wide, 0.7, '#ff2a14');
+          }
         }
       }
+      f.body.instanceMatrix.needsUpdate = true;
+      if (f.lamp) f.lamp.instanceMatrix.needsUpdate = true;
     }
-
-    for (const type of ['car', 'auto', 'bus', 'truck']) {
-      const mesh = vehicleRefs.current[type];
-      if (mesh) {
-        mesh.instanceMatrix.needsUpdate = true;
-      }
+    if (lit || night.veh.count) {
+      night.veh.count = gi;
+      night.veh.instanceMatrix.needsUpdate = true;
+      night.veh.instanceColor.needsUpdate = true;
+      night.veh.frustumCulled = false;
     }
   });
 
-  const { cabin, wbUp, wbDown, signals } = staticItems;
-  const p = {};
-  mainLine.sample(LEVEL_CROSSING.s, p);
+  const { cabin, wbUp, wbDown, signals, lc } = staticItems;
+  const far = quality.sceneryDistance;
 
   return (
     <group>
-      {/* Parallel highway road surface */}
-      <mesh geometry={roadRibbon} material={assets.mats.road} receiveShadow />
+      {net.surfaces.map((geo, i) => (
+        <mesh key={`road${i}`} geometry={geo} material={assets.mats.road} receiveShadow />
+      ))}
+      {net.markings.map((geo, i) => (
+        <mesh key={`mk${i}`} geometry={geo} material={assets.mats.marking} />
+      ))}
+      <ChunkedInstances items={staticItems.lights} geometry={assets.streetlight.body} material={assets.mats.vc} cellSize={600} maxDistance={far} />
+      <ChunkedInstances items={staticItems.lights} geometry={assets.streetlight.lamp} material={assets.mats.lamp} cellSize={600} maxDistance={far} />
+      <primitive object={night.glows} />
+      <primitive object={night.pools} />
+      <primitive object={night.veh} />
 
-      {/* Level crossing perpendicular cross-road */}
-      <mesh geometry={crossingRoadGeom} material={assets.mats.road} receiveShadow />
-
-      {/* Gatekeeper Cabin (Gumti) */}
-      <mesh position={[cabin.x, cabin.y, cabin.z]} rotation={[0, cabin.yaw, 0]} geometry={assets.gateCabin} material={assets.mats.road} receiveShadow castShadow />
-
-      {/* Whistle Boards ("W/L" / "सी/फा") */}
-      <mesh position={[wbUp.x, wbUp.y, wbUp.z]} rotation={[0, wbUp.yaw, 0]} geometry={assets.whistleBoard} material={assets.mats.yellowMarking} />
-      <mesh position={[wbDown.x, wbDown.y, wbDown.z]} rotation={[0, wbDown.yaw, 0]} geometry={assets.whistleBoard} material={assets.mats.yellowMarking} />
-
-      {/* Animated Level Crossing Barrier Booms */}
+      <mesh position={[cabin.x, cabin.y, cabin.z]} rotation={[0, cabin.yaw, 0]} geometry={assets.gateCabin} material={assets.mats.vc} receiveShadow castShadow />
+      <mesh position={[wbUp.x, wbUp.y, wbUp.z]} rotation={[0, wbUp.yaw, 0]} geometry={assets.whistleBoard} material={assets.mats.vc} />
+      <mesh position={[wbDown.x, wbDown.y, wbDown.z]} rotation={[0, wbDown.yaw, 0]} geometry={assets.whistleBoard} material={assets.mats.vc} />
       <group ref={boomUpRef}>
-        <mesh geometry={assets.gateBoom} material={assets.mats.road} />
+        <mesh geometry={assets.gateBoom} material={assets.mats.vc} castShadow />
       </group>
       <group ref={boomDownRef}>
-        <mesh geometry={assets.gateBoom} material={assets.mats.road} />
+        <mesh geometry={assets.gateBoom} material={assets.mats.vc} castShadow />
       </group>
+      <mesh position={[lc.x + lc.lx * 4.6 + Math.cos(lc.heading) * 3.5, 0, lc.z + lc.lz * 4.6 + Math.sin(lc.heading) * 3.5]} rotation={[0, -lc.heading, 0]} geometry={assets.gatePost} material={assets.mats.vc} />
+      <mesh position={[lc.x + lc.lx * -10.2 - Math.cos(lc.heading) * 3.5, 0, lc.z + lc.lz * -10.2 - Math.sin(lc.heading) * 3.5]} rotation={[0, -lc.heading + Math.PI, 0]} geometry={assets.gatePost} material={assets.mats.vc} />
 
-      {/* Gate Posts */}
-      <mesh position={[p.x + p.lx * 4.6, 0, p.z + p.lz * 4.6]} rotation={[0, -p.heading, 0]} geometry={assets.gatePost} material={assets.mats.road} />
-      <mesh position={[p.x + p.lx * -10.2, 0, p.z + p.lz * -10.2]} rotation={[0, -p.heading + Math.PI, 0]} geometry={assets.gatePost} material={assets.mats.road} />
-
-      {/* Trackside Multi-Aspect Colour Light Signals (MACLS) */}
       {signals.map((sig, i) => (
         <group key={`sig_${i}`} position={[sig.x, sig.y, sig.z]} rotation={[0, sig.yaw, 0]}>
-          <mesh geometry={assets.signalPost} material={assets.mats.road} />
-          {/* Signal Aspect Light: Green when line is clear, Double Yellow approaching turnouts, Red near buffer */}
+          <mesh geometry={assets.signalPost} material={assets.mats.vc} />
           <mesh position={[0.22, sig.s > 7500 ? 3.5 : sig.s === 6550 || sig.s === 7120 ? 3.9 : 4.7, 0]}>
             <sphereGeometry args={[0.08, 12, 12]} />
             <primitive object={sig.s > 7500 ? assets.mats.redSignal : sig.s === 6550 || sig.s === 7120 ? assets.mats.yellowSignal : assets.mats.greenSignal} attach="material" />
@@ -586,12 +575,20 @@ export default function Road() {
         </group>
       ))}
 
-      {/* Road traffic vehicle instances */}
-      <instancedMesh ref={registerVeh('auto')} args={[assets.auto.body, assets.mats.road, 8]} castShadow receiveShadow />
-      <instancedMesh ref={registerVeh('bus')} args={[assets.bus.body, assets.mats.road, 6]} castShadow receiveShadow />
-      <instancedMesh ref={registerVeh('truck')} args={[assets.truck.body, assets.mats.road, 6]} castShadow receiveShadow />
-      <instancedMesh ref={registerVeh('car')} args={[assets.car.body, assets.mats.road, 8]} castShadow receiveShadow />
+      {Object.entries(fleet).map(([type, f]) => (
+        <group key={type}>
+          <primitive object={f.body} />
+          {f.lamp && <primitive object={f.lamp} />}
+        </group>
+      ))}
     </group>
   );
 }
 
+/** Height of a cross-road vehicle: up the ramp and over the rails at the crossing. */
+function crossingHeight(veh, lane, o) {
+  const lat = veh.lane === 'xA' ? CROSS_FROM - veh.d : CROSS_TO + veh.d;
+  if (lat < 3.5 && lat > -9) return TRACK.railTop - 0.01;
+  if (lat < 6 && lat > -11.5) return 0.35;
+  return 0.05;
+}

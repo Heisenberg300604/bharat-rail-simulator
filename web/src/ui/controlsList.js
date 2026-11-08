@@ -7,7 +7,7 @@ export const CONTROLS = [
   ['F', 'Reverser: Forward / Neutral / Reverse'],
   ['H', 'Horn (hold)'],
   ['L', 'Headlight on/off'],
-  ['C / 1–5', 'Camera: cab, coach interior, chase, orbit, trackside'],
+  ['C / 1–6', 'Camera: cab, coach interior, door, last coach, orbit, trackside'],
   ['Mouse', 'Drag to look / orbit, wheel to zoom, double-click resets'],
   ['Esc', 'Pause menu'],
   ['R', 'Restart journey'],

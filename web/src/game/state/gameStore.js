@@ -27,6 +27,7 @@ import {
 } from '../simulation/journeyManager.js';
 import { audioEngine } from '../audio/audioEngine.js';
 import { detectQuality } from './detectQuality.js';
+import { TIME_OF_DAY, WEATHER } from '../world/environment.js';
 
 export const route = createRoute(ROUTE_SEGMENTS);
 export const formation = computeFormation(FORMATION);
@@ -53,11 +54,25 @@ function newTrain() {
 }
 
 function loadSettings() {
-  const defaults = { volume: 0.8, muted: false, quality: detectQuality(), showFps: false, fov: 65, coachLivery: 'red' };
+  const defaults = {
+    volume: 0.8,
+    muted: false,
+    quality: detectQuality(),
+    showFps: false,
+    fov: 65,
+    coachLivery: 'red',
+    timeOfDay: 'noon',
+    weather: 'clear',
+    kavach: true,
+    crowd: true,
+    ambience: 'occasional', // background sounds: 'occasional' | 'always' | 'off'
+  };
   try {
     const saved = JSON.parse(localStorage.getItem('brs-settings') || '{}');
     const merged = { ...defaults, ...saved };
     if (!QUALITY_PRESETS[merged.quality]) merged.quality = 'high';
+    if (!TIME_OF_DAY[merged.timeOfDay]) merged.timeOfDay = defaults.timeOfDay;
+    if (!WEATHER[merged.weather]) merged.weather = defaults.weather;
     return merged;
   } catch {
     return defaults;
@@ -132,6 +147,7 @@ function buildSnapshot() {
     settings: { ...game.settings },
     fps: game.fps,
     renderScale: game.renderScale,
+    resetVersion: game.resetVersion,
   };
 }
 
@@ -233,7 +249,7 @@ export function completeJourney() {
   setScreen('completed');
 }
 
-const CAMERA_ORDER = ['cab', 'interior', 'chase', 'orbit', 'trackside'];
+const CAMERA_ORDER = ['cab', 'interior', 'door', 'rear', 'orbit', 'trackside'];
 export function toggleCamera() {
   game.cameraMode = CAMERA_ORDER[(CAMERA_ORDER.indexOf(game.cameraMode) + 1) % CAMERA_ORDER.length];
   publish();
@@ -247,18 +263,21 @@ export function setCamera(mode) {
 
 export function toggleHeadlight() {
   game.headlight = !game.headlight;
+  audioEngine.playClick('switch');
   publish();
 }
 
 export function emergencyBrake() {
   if (!game.train.emergency) {
     applyEmergency(game.train);
+    audioEngine.playClick('heavy');
     showToast('EMERGENCY BRAKE — brake pipe vented. Stop, then hold X to reset.', 3500);
   }
 }
 
 export function cycleDirection() {
   const res = simCycleDirection(game.train, TRAIN);
+  if (res.ok) audioEngine.playClick('heavy');
   showToast(res.message);
 }
 

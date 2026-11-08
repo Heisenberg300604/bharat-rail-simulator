@@ -9,7 +9,10 @@ import { useMemo, useRef } from 'react';
 import { game, publish, completeJourney, sceneReady, showToast, route, currentSpeedLimit, formation } from './state/gameStore.js';
 import { stepTrain, createFixedStepper } from './simulation/trainSimulation.js';
 import { updateJourney, JOURNEY_STATE } from './simulation/journeyManager.js';
-import { TRAIN, JOURNEY, FIXED_TIMESTEP, MAX_FRAME_DELTA, STATIONS, SPEED_LIMITS, LEVEL_CROSSING } from './config/gameConfig.js';
+import { TRAIN, JOURNEY, FIXED_TIMESTEP, MAX_FRAME_DELTA, STATIONS, SPEED_LIMITS, LEVEL_CROSSING, ROAD } from './config/gameConfig.js';
+import { sceneRefs } from './state/sceneRefs.js';
+import { envState } from './world/environment.js';
+import { KID_SPOTS } from './components/People/Crowds.jsx';
 import { stepAiTrains } from './simulation/aiTraffic.js';
 import { audioEngine } from './audio/audioEngine.js';
 
@@ -26,15 +29,37 @@ function stationProximity(s) {
 }
 const MAX_SPEED_MPS = TRAIN.sectionalSpeedKmh / 3.6;
 
+function nearestStationId(s) {
+  let best = null;
+  let bestD = Infinity;
+  for (const st of STATIONS) {
+    const d = Math.abs(s - (st.platformStart + st.platformEnd) / 2);
+    if (d < bestD) {
+      bestD = d;
+      best = st.id;
+    }
+  }
+  return best;
+}
+
+/** 0..1: how close the highway (lateral 32 m) is to the train. */
+function roadProximity(s) {
+  const out = Math.max(0, ROAD.from - s, s - ROAD.to);
+  return 0.75 * (1 - Math.min(1, out / 250));
+}
+
 export default function SimulationDriver() {
   const stepper = useMemo(() => createFixedStepper(FIXED_TIMESTEP, MAX_FRAME_DELTA), []);
-  const timers = useRef({ hud: 0, fpsTime: 0, fpsFrames: 0, frames: 0, resetVersion: game.resetVersion });
+  const timers = useRef({ hud: 0, fpsTime: 0, fpsFrames: 0, frames: 0, resetVersion: game.resetVersion, playing: 0, whistled: false, kids: new Set() });
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const t = timers.current;
     if (t.resetVersion !== game.resetVersion) {
       t.resetVersion = game.resetVersion;
       stepper.reset();
+      t.playing = 0;
+      t.whistled = false;
+      t.kids.clear();
     }
 
     const train = game.train;
@@ -75,15 +100,39 @@ export default function SimulationDriver() {
       }
     }
 
-    const distToCrossing = Math.abs(train.routeDistance - LEVEL_CROSSING.s);
-    const crossingProximity = distToCrossing < 450 ? 1 - distToCrossing / 450 : 0;
+    const front = train.routeDistance;
+    if (game.screen === 'playing') {
+      t.playing += delta;
+      // the guard's "right away" whistle from the rear, shortly after the start
+      if (!t.whistled && t.playing > 2.5) {
+        t.whistled = true;
+        audioEngine.playGuardWhistle(game.cameraMode === 'cab' ? 0.45 : 0.8);
+      }
+      // village children shouting as the train goes by
+      for (const ks of KID_SPOTS) {
+        if (!t.kids.has(ks) && train.speedMps > 4 && Math.abs(front - 30 - ks) < 25) {
+          t.kids.add(ks);
+          audioEngine.playKids(game.cameraMode === 'interior' && game.settings.coachLivery !== 'icfBlue' ? 0.25 : 0.8);
+        }
+      }
+    }
 
+    const k = Math.abs(route.curvatureAt(front - 60));
     audioEngine.update(train, game.input, MAX_SPEED_MPS, {
-      stationProximity: stationProximity(train.routeDistance),
-      crossingProximity,
+      route,
+      camera: state.camera,
+      stationProximity: stationProximity(front),
+      stationId: nearestStationId(front),
+      roadProximity: roadProximity(front),
+      lcBell: !!sceneRefs.lcClosing,
+      lcDistance: Math.abs(front - LEVEL_CROSSING.s),
       passingAiTrain,
       cameraMode: game.cameraMode,
-      coachLivery: game.settings.coachLivery,
+      coachType: game.settings.coachLivery === 'icfBlue' ? 'icf' : 'lhb',
+      coachEyeX: sceneRefs.coachEye?.eye[0] ?? 0,
+      curveRadius: k > 0 ? 1 / k : Infinity,
+      env: envState,
+      ambienceMode: game.settings.ambience,
     });
 
     // FPS counter (cheap)
