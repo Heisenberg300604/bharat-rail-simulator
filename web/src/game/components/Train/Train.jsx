@@ -33,6 +33,15 @@ const MARKERS = [
 ];
 const _v = new THREE.Vector3();
 
+/** Retro-reflective paint (the X and the LV board): a little glow in its own colour. */
+function makeReflectiveMaterial() {
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, emissive: '#ffffff', emissiveIntensity: 0 });
+  m.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance *= diffuseColor.rgb;');
+  };
+  return m;
+}
+
 // Licensed WAP-7 model (CC-BY-4.0, see docs/ASSET_CREDITS.md). Until it has
 // loaded — or if it fails — the procedural locomotive is shown instead.
 const WAP7_URL = `${import.meta.env.BASE_URL}assets/models/locomotive/wap7.glb`;
@@ -192,7 +201,7 @@ export default function Train() {
       icfExtras: buildCoachExtras(COACH_TYPES.icf.gap, COACH_TYPES.icf.length, 'icf'),
       rearEnds: { lhb: buildRearEndIndicators('lhb'), icf: buildRearEndIndicators('icf') },
       doorways: { lhb: buildDoorway('lhb'), icf: buildDoorway('icf') },
-      reflectMat: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, emissive: '#ffffff', emissiveIntensity: 0 }),
+      reflectMat: makeReflectiveMaterial(),
       mats: makeMaterials(),
       locoMats: makeMaterials(),
       interiorMats: makeMaterials(),
@@ -564,7 +573,7 @@ export default function Train() {
     if (coachInteriorGroup.current) coachInteriorGroup.current.visible = isInterior;
     if (doorGroup.current) doorGroup.current.visible = mode === 'door' && isPlaying;
     // retro-reflective X and LV board light up in headlights / station lights at night
-    assets.reflectMat.emissiveIntensity = 0.35 * envState.lamps * envState.night;
+    assets.reflectMat.emissiveIntensity = 0.12 + 0.55 * envState.lamps * envState.night;
     if (isInterior) {
       const u = assets.personMat.userData.uniforms;
       u.uTime.value = state.clock.elapsedTime;

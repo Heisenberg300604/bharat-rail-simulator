@@ -11,7 +11,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { game, route, useGameValue, useQuality } from '../../state/gameStore.js';
 import { sceneRefs } from '../../state/sceneRefs.js';
-import { STATIONS, PLATFORMS, DOWN_LINE_OFFSET, STATION_TRACKS, LEVEL_CROSSING } from '../../config/gameConfig.js';
+import { STATIONS, PLATFORMS, DOWN_LINE_OFFSET, STATION_TRACKS, LEVEL_CROSSINGS } from '../../config/gameConfig.js';
 import { mainLine } from '../../world/trackLayout.js';
 import { seededRandom } from '../../world/geometry.js';
 import { onEnvironmentChange } from '../../world/environment.js';
@@ -122,13 +122,17 @@ function tracksidePeople(density) {
     const dz = -p.lz * Math.sign(lat);
     out.push({ x, y: 0, z, yaw: Math.atan2(-dz, dx) + (rand() - 0.5) * 0.5, person, anim, phase: rand() });
   };
-  // waiting at both gates of the level crossing, on both sides of the road
-  for (const lat of [8.5, -14]) {
-    for (const ds of [-5.5, 5.5]) {
-      const n = 1 + Math.floor(rand() * 2 * density + 0.5);
-      for (let k = 0; k < n; k++) at(LEVEL_CROSSING.s + ds + (rand() - 0.5) * 2, lat + Math.sign(lat) * rand() * 2.5, randomPerson(rand), ANIM.stand);
+  for (const lc of LEVEL_CROSSINGS) {
+    // waiting at both gates, on both sides of the road
+    for (const lat of [8.5, -14]) {
+      for (const ds of [-5.5, 5.5]) {
+        const n = 1 + Math.floor(rand() * 2 * density + 0.5);
+        for (let k = 0; k < n; k++) at(lc.s + ds + (rand() - 0.5) * 2, lat + Math.sign(lat) * rand() * 2.5, randomPerson(rand), ANIM.stand);
+      }
+      at(lc.s + 7.5, lat, randomPerson(rand, 'child'), ANIM.wave);
     }
-    at(LEVEL_CROSSING.s + 7.5, lat, randomPerson(rand, 'child'), ANIM.wave);
+    // the gateman in his blue uniform, standing by the lodge facing the track
+    at(lc.s - 9, 6.8, { top: '#2f4a7a', bottom: '#2f4a7a', skin: '#8d5524', sari: 0, headLoad: 0, bag: 0, scale: 1 }, ANIM.stand);
   }
   // village children by the line
   const spots = Math.round(7 * Math.max(0.5, density));

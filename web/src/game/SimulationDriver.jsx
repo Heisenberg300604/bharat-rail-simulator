@@ -9,7 +9,7 @@ import { useMemo, useRef } from 'react';
 import { game, publish, completeJourney, sceneReady, showToast, route, currentSpeedLimit, formation } from './state/gameStore.js';
 import { stepTrain, createFixedStepper } from './simulation/trainSimulation.js';
 import { updateJourney, JOURNEY_STATE } from './simulation/journeyManager.js';
-import { TRAIN, JOURNEY, FIXED_TIMESTEP, MAX_FRAME_DELTA, STATIONS, SPEED_LIMITS, LEVEL_CROSSING, ROAD } from './config/gameConfig.js';
+import { TRAIN, JOURNEY, FIXED_TIMESTEP, MAX_FRAME_DELTA, STATIONS, SPEED_LIMITS, ROAD } from './config/gameConfig.js';
 import { sceneRefs } from './state/sceneRefs.js';
 import { envState } from './world/environment.js';
 import { KID_SPOTS } from './components/People/Crowds.jsx';
@@ -117,6 +117,16 @@ export default function SimulationDriver() {
       }
     }
 
+    // nearest level crossing (its bell rings while its gates are closing/closed)
+    let lcBell = false;
+    let lcDistance = Infinity;
+    for (const lc of sceneRefs.lcState ?? []) {
+      const d = Math.abs(front - lc.s);
+      if (d < lcDistance) {
+        lcDistance = d;
+        lcBell = lc.closing;
+      }
+    }
     const k = Math.abs(route.curvatureAt(front - 60));
     audioEngine.update(train, game.input, MAX_SPEED_MPS, {
       route,
@@ -124,8 +134,8 @@ export default function SimulationDriver() {
       stationProximity: stationProximity(front),
       stationId: nearestStationId(front),
       roadProximity: roadProximity(front),
-      lcBell: !!sceneRefs.lcClosing,
-      lcDistance: Math.abs(front - LEVEL_CROSSING.s),
+      lcBell,
+      lcDistance,
       passingAiTrain,
       cameraMode: game.cameraMode,
       coachType: game.settings.coachLivery === 'icfBlue' ? 'icf' : 'lhb',

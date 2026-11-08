@@ -58,7 +58,9 @@ export default function StartScreen({ settings }) {
           <a href="https://freesound.org/s/248229/" target="_blank" rel="noreferrer">
             “Train Horn”
           </a>{' '}
-          by CouleurCasquette, CC BY 3.0. Other sounds CC0 from Freesound; full list in docs/ASSET_CREDITS.md.
+          by CouleurCasquette, CC BY 3.0. Sounds also by Calcuttan (birds), Zabuhailo, KrystofJakobe, Anton and Garuda1982 on
+          Freesound (CC BY 4.0/3.0), and Village Regional and Vijay Singh Choudhary on Wikimedia Commons (CC BY 3.0); all other
+          sounds CC0. Full list in docs/ASSET_CREDITS.md.
         </p>
       </div>
     </div>

@@ -17,7 +17,8 @@ import * as THREE from 'three';
 import { game, useQuality } from '../../state/gameStore.js';
 import { sceneRefs } from '../../state/sceneRefs.js';
 import { mainLine } from '../../world/trackLayout.js';
-import { ROAD, LEVEL_CROSSING, TRACK } from '../../config/gameConfig.js';
+import { ROAD, LEVEL_CROSSINGS, TRACK, STATIONS, PLATFORMS } from '../../config/gameConfig.js';
+import { highwayOffset, crossRoadSpan, ROAD_END_VEER } from '../../world/roadLayout.js';
 import { ModelBuilder } from '../../world/modelBuilder.js';
 import { seededRandom } from '../../world/geometry.js';
 import ChunkedInstances from '../../world/ChunkedInstances.jsx';
@@ -36,20 +37,9 @@ const _up = new THREE.Vector3(0, 1, 0);
 const _zAxis = new THREE.Vector3(0, 0, 1);
 const _v = new THREE.Vector3();
 
-const ROAD_END_VEER = 420; // metres over which the highway curves away at each end
-const CROSS_FROM = 300; // cross road: village side (lateral +)
-const CROSS_TO = -260; // far side
 const LANE = 1.8;
-
-const smoothstep = (a, b, x) => {
-  const t = Math.min(Math.max((x - a) / (b - a), 0), 1);
-  return t * t * (3 - 2 * t);
-};
-
-/** Highway centre-line offset from the track: 32 m, curving away at the ends. */
-function highwayOffset(s) {
-  return ROAD.lateral + 360 * (smoothstep(ROAD.from, ROAD.from - ROAD_END_VEER, s) + smoothstep(ROAD.to, ROAD.to + ROAD_END_VEER, s));
-}
+const GATE_UP = 4.6; // boom post lateral on the up (left) side
+const GATE_DOWN = -10.2; // and beyond the down line
 
 /** A polyline with cumulative length and fast sampling. */
 function makePath(points) {
@@ -236,36 +226,51 @@ function buildRoadNetwork() {
     const o = highwayOffset(s);
     centre.push([p.x + p.lx * o, p.z + p.lz * o]);
   }
-  mainLine.sample(LEVEL_CROSSING.s, p);
-  const cross = [];
-  for (let lat = CROSS_FROM; lat >= CROSS_TO; lat -= 4) cross.push([p.x + p.lx * lat, p.z + p.lz * lat]);
-  const crossLat = (i) => CROSS_FROM - i * 4;
   const lanes = {
     up: makePath(offsetPath(centre, LANE)),
     down: makePath(offsetPath([...centre].reverse(), LANE)),
-    xA: makePath(offsetPath(cross, LANE)), // village side → across the tracks
-    xB: makePath(offsetPath([...cross].reverse(), LANE)),
   };
-  // Over the tracks the road rises to rail level
-  const crossY = (i) => {
-    const lat = crossLat(i);
-    return lat < 3.5 && lat > -9 ? TRACK.railTop - 0.01 : lat < 6 && lat > -11.5 ? 0.35 : 0.06;
-  };
-  const surfaces = [ribbon(centre, ROAD.width / 2), ribbon(cross, 3.8, crossY)];
-  const markings = [...dashes(centre), ...dashes(cross.filter((_, i) => Math.abs(crossLat(i)) > 14))];
-  // where traffic must wait while the gates are down
-  const stops = {
-    xA: [CROSS_FROM - (4.6 + 3.2)],
-    xB: [-(10.2 + 3.2) - CROSS_TO],
-  };
+  const surfaces = [ribbon(centre, ROAD.width / 2)];
+  const markings = [...dashes(centre)];
+  const stops = {};
+  const crossings = LEVEL_CROSSINGS.map((lc, i) => {
+    const [lo, hi] = crossRoadSpan(lc);
+    mainLine.sample(lc.s, p);
+    const pts = [];
+    const lats = [];
+    for (let lat = hi; lat >= lo; lat -= 4) {
+      pts.push([p.x + p.lx * lat, p.z + p.lz * lat]);
+      lats.push(lat);
+    }
+    const a = `x${i}A`; // from the village side (hi) across the tracks
+    const b = `x${i}B`;
+    lanes[a] = makePath(offsetPath(pts, LANE));
+    lanes[a].crossing = { lo, hi, dir: -1 };
+    lanes[b] = makePath(offsetPath([...pts].reverse(), LANE));
+    lanes[b].crossing = { lo, hi, dir: 1 };
+    surfaces.push(ribbon(pts, 3.8, (k) => crossingY(lats[k])));
+    markings.push(...dashes(pts.filter((_, k) => Math.abs(lats[k]) > 14)));
+    // stop lines in front of each boom while the gates are down
+    stops[a] = [hi - (GATE_UP + 3.2)];
+    stops[b] = [-(GATE_DOWN - 3.2) + lo];
+    return { ...lc, index: i, x: p.x, z: p.z, lx: p.lx, lz: p.lz, heading: p.heading };
+  });
   // streetlights on the track side of the highway, arm reaching over the road
   const lights = [];
   for (let s = ROAD.from + 20; s <= ROAD.to; s += 45) {
+    if (LEVEL_CROSSINGS.some((lc) => Math.abs(lc.s - s) < 10)) continue;
     mainLine.sample(s, p);
     const lat = highwayOffset(s) - ROAD.width / 2 - 1.1;
     lights.push({ x: p.x + p.lx * lat, z: p.z + p.lz * lat, yaw: Math.atan2(-p.lz, p.lx), lx: p.lx, lz: p.lz });
   }
-  return { lanes, surfaces, markings, stops, lights };
+  return { lanes, surfaces, markings, stops, lights, crossings };
+}
+
+/** Road height across a level crossing: ramps up so the road meets the rail tops. */
+function crossingY(lat) {
+  if (lat < 3.5 && lat > -9) return TRACK.railTop - 0.01;
+  if (lat < 6 && lat > -11.5) return 0.35;
+  return 0.06;
 }
 
 function buildFleet(lanes, density) {
@@ -294,12 +299,40 @@ function buildFleet(lanes, density) {
   };
   add('up', Math.round(44 * density));
   add('down', Math.round(44 * density));
-  add('xA', Math.max(4, Math.round(10 * density)));
-  add('xB', Math.max(4, Math.round(10 * density)));
+  for (const id of Object.keys(lanes)) {
+    if (!lanes[id].crossing) continue;
+    const short = lanes[id].length < 400;
+    add(id, Math.max(3, Math.round((short ? 6 : 10) * density)));
+  }
   return createTraffic(
     Object.entries(lanes).map(([id, l]) => ({ id, length: l.length })),
     vehicles,
   );
+}
+
+/** Static parts of every level crossing: lodge, whistle boards, boom posts. */
+function crossingFurniture(crossings) {
+  const p = {};
+  const onPlatform = (s, lat) =>
+    STATIONS.some((st) => s > st.platformStart - 5 && s < st.platformEnd + 5 && PLATFORMS.some((pf) => lat <= Math.max(...pf.lat) + 1 && lat >= Math.min(...pf.lat) - 1));
+  return crossings.map((lc) => {
+    mainLine.sample(lc.s - 14, p);
+    const cabin = { x: p.x + p.lx * 10.5, z: p.z + p.lz * 10.5, yaw: -p.heading + Math.PI / 2 };
+    const boards = [];
+    if (!onPlatform(lc.s - lc.whistleBoard, 3.8)) {
+      mainLine.sample(lc.s - lc.whistleBoard, p);
+      boards.push({ x: p.x + p.lx * 3.8, z: p.z + p.lz * 3.8, yaw: -p.heading });
+    }
+    if (!onPlatform(lc.s + lc.whistleBoard, -9.2)) {
+      mainLine.sample(lc.s + lc.whistleBoard, p);
+      boards.push({ x: p.x + p.lx * -9.2, z: p.z + p.lz * -9.2, yaw: -p.heading + Math.PI });
+    }
+    const fx = Math.cos(lc.heading);
+    const fz = Math.sin(lc.heading);
+    const postUp = { x: lc.x + lc.lx * GATE_UP + fx * 3.5, z: lc.z + lc.lz * GATE_UP + fz * 3.5, yaw: -lc.heading };
+    const postDown = { x: lc.x + lc.lx * GATE_DOWN - fx * 3.5, z: lc.z + lc.lz * GATE_DOWN - fz * 3.5, yaw: -lc.heading + Math.PI };
+    return { cabin, boards, postUp, postDown };
+  });
 }
 
 export default function Road() {
@@ -318,11 +351,10 @@ export default function Road() {
       redSignal: new THREE.MeshStandardMaterial({ emissive: '#ff1744', emissiveIntensity: 3.5, color: '#ff1744' }),
     };
     const vehicles = Object.fromEntries(Object.entries(VEHICLE_TYPES).map(([id, t]) => [id, t.build()]));
-    const streetlight = buildStreetlight();
     return {
       mats,
       vehicles,
-      streetlight,
+      streetlight: buildStreetlight(),
       gateCabin: buildGateCabin(),
       gateBoom: buildGateBoom(),
       gatePost: buildGatePost(),
@@ -332,6 +364,7 @@ export default function Road() {
   }, []);
 
   const net = useMemo(buildRoadNetwork, []);
+  const furniture = useMemo(() => crossingFurniture(net.crossings), [net]);
   const traffic = useMemo(() => buildFleet(net.lanes, quality.sceneryDensity), [net, quality.sceneryDensity]);
 
   // per-type instance slots + paint colours
@@ -359,10 +392,8 @@ export default function Road() {
     return meshes;
   }, [traffic, assets]);
 
-  // night: streetlight glows + pools, and one dynamic glow layer for vehicle lamps
+  // night: streetlight glows + pools, flashing LC lamps, vehicle lamps
   const night = useMemo(() => {
-    const glowMat = createGlowMaterial();
-    const poolMat = createPoolMaterial({ strength: 0.6 });
     const glowItems = [];
     const poolItems = [];
     for (const l of net.lights) {
@@ -371,13 +402,24 @@ export default function Road() {
       glowItems.push({ x: hx, y: 7.6, z: hz, size: 4.5, color: '#ffb766' });
       poolItems.push({ x: hx, y: 0.08, z: hz, size: 16, color: '#ffb05a' });
     }
-    const vehMat = createGlowMaterial({ day: 0.0, night: 1.1 });
+    // twin red flashers on each boom post (visible by day too)
+    const flashItems = [];
+    for (const f of furniture) {
+      for (const post of [f.postUp, f.postDown]) {
+        const c = Math.cos(post.yaw);
+        const sn = -Math.sin(post.yaw);
+        for (const z of [-0.35, 0.35]) flashItems.push({ x: post.x + sn * 0 + Math.sin(post.yaw) * z, y: 2.25, z: post.z + Math.cos(post.yaw) * z, size: 1.4, color: '#ff2a1a' });
+        void c;
+      }
+    }
+    const flashMat = createGlowMaterial({ manual: true });
     return {
-      glows: makeGlowMesh(glowItems, glowMat),
-      pools: makeGlowMesh(poolItems, poolMat, { ground: true }),
-      veh: makeGlowMesh([], vehMat, { maxCount: traffic.vehicles.length * 4 }),
+      glows: makeGlowMesh(glowItems, createGlowMaterial()),
+      pools: makeGlowMesh(poolItems, createPoolMaterial({ strength: 0.6 }), { ground: true }),
+      veh: makeGlowMesh([], createGlowMaterial({ day: 0.0, night: 1.1 }), { maxCount: traffic.vehicles.length * 4 }),
+      flash: makeGlowMesh(flashItems, flashMat),
     };
-  }, [net, traffic]);
+  }, [net, traffic, furniture]);
 
   useEffect(
     () =>
@@ -406,7 +448,7 @@ export default function Road() {
   );
   useEffect(
     () => () => {
-      for (const m of [night.glows, night.pools, night.veh]) {
+      for (const m of Object.values(night)) {
         disposeGlowMaterial(m.material);
         m.dispose();
       }
@@ -423,15 +465,9 @@ export default function Road() {
     [fleet],
   );
 
-  const staticItems = useMemo(() => {
+  const signals = useMemo(() => {
     const p = {};
-    mainLine.sample(LEVEL_CROSSING.s - 14, p);
-    const cabin = { x: p.x + p.lx * 10.5, y: 0, z: p.z + p.lz * 10.5, yaw: -p.heading + Math.PI / 2 };
-    mainLine.sample(LEVEL_CROSSING.s - LEVEL_CROSSING.whistleBoard, p);
-    const wbUp = { x: p.x + p.lx * 3.8, y: 0, z: p.z + p.lz * 3.8, yaw: -p.heading };
-    mainLine.sample(LEVEL_CROSSING.s + LEVEL_CROSSING.whistleBoard, p);
-    const wbDown = { x: p.x + p.lx * -9.2, y: 0, z: p.z + p.lz * -9.2, yaw: -p.heading + Math.PI };
-    const signalDefs = [
+    const defs = [
       { s: 460, lat: 3.8, rev: false },
       { s: 920, lat: 3.8, rev: false },
       { s: 2600, lat: 3.8, rev: false },
@@ -443,59 +479,84 @@ export default function Road() {
       { s: 2500, lat: -9.2, rev: true },
       { s: 950, lat: -9.2, rev: true },
     ];
-    const signals = signalDefs.map((def) => {
+    return defs.map((def) => {
       mainLine.sample(def.s, p);
       return { s: def.s, x: p.x + p.lx * def.lat, y: 0, z: p.z + p.lz * def.lat, yaw: -p.heading + (def.rev ? Math.PI : 0), rev: def.rev };
     });
-    mainLine.sample(LEVEL_CROSSING.s, p);
-    const lc = { ...p };
-    const lights = net.lights.map((l) => ({ x: l.x, y: 0, z: l.z, yaw: l.yaw }));
-    return { cabin, wbUp, wbDown, signals, lc, lights };
-  }, [net]);
+  }, []);
+  const lightItems = useMemo(() => net.lights.map((l) => ({ x: l.x, y: 0, z: l.z, yaw: l.yaw })), [net]);
 
-  const boomUpRef = useRef();
-  const boomDownRef = useRef();
-  const gate = useRef({ angle: 1.35 });
+  const booms = useRef([]);
+  const gates = useRef(net.crossings.map(() => ({ angle: 1.35, closing: false })));
   const o = useMemo(() => ({}), []);
 
   useFrame((state, delta) => {
     const dt = Math.min(delta, 0.1);
     const playerS = game.renderDistance;
-
-    // Is any train approaching or on the level crossing?
-    let trainClosing = false;
-    const playerDist = LEVEL_CROSSING.s - playerS;
-    if (playerDist > -40 && playerDist < LEVEL_CROSSING.closeAhead) trainClosing = true;
-    if (game.aiTrains) {
-      for (const ai of game.aiTrains) {
-        if (ai.state !== 'running') continue;
-        const aiDist = ai.front - LEVEL_CROSSING.s;
-        if (aiDist > -ai.length - 30 && aiDist < LEVEL_CROSSING.closeAhead) trainClosing = true;
+    const lcState = [];
+    let anyShut = false;
+    const stops = {};
+    net.crossings.forEach((lc, i) => {
+      // Is any train approaching or on this level crossing?
+      let closing = false;
+      const playerDist = lc.s - playerS;
+      if (playerDist > -40 && playerDist < lc.closeAhead) closing = true;
+      if (game.aiTrains) {
+        for (const ai of game.aiTrains) {
+          if (ai.state !== 'running') continue;
+          const aiDist = ai.front - lc.s;
+          if (aiDist > -ai.length - 30 && aiDist < lc.closeAhead) closing = true;
+        }
       }
-    }
-    sceneRefs.lcClosing = trainClosing; // the audio engine rings the crossing bell
-    const g = gate.current;
-    g.angle += ((trainClosing ? 0 : 1.35) - g.angle) * Math.min(1, dt * 1.8);
-    const lc = staticItems.lc;
-    if (boomUpRef.current) {
-      _pos.set(lc.x + lc.lx * 4.6, 1.25, lc.z + lc.lz * 4.6);
-      // boom pivots on the post beside the cross road, swinging across it
-      _quat.setFromAxisAngle(_up, -lc.heading + Math.PI / 2 + Math.PI / 2);
-      _qRot.setFromAxisAngle(_zAxis, g.angle);
-      boomUpRef.current.position.copy(_pos).addScaledVector(_v.set(Math.cos(lc.heading), 0, Math.sin(lc.heading)), 3.5);
-      boomUpRef.current.quaternion.copy(_quat).multiply(_qRot);
-    }
-    if (boomDownRef.current) {
-      _pos.set(lc.x + lc.lx * -10.2, 1.25, lc.z + lc.lz * -10.2);
-      _quat.setFromAxisAngle(_up, -lc.heading - Math.PI / 2 + Math.PI / 2);
-      _qRot.setFromAxisAngle(_zAxis, -g.angle);
-      boomDownRef.current.position.copy(_pos).addScaledVector(_v.set(Math.cos(lc.heading), 0, Math.sin(lc.heading)), -3.5);
-      boomDownRef.current.quaternion.copy(_quat).multiply(_qRot);
+      const g = gates.current[i];
+      g.closing = closing;
+      g.angle += ((closing ? 0 : 1.35) - g.angle) * Math.min(1, dt * 1.8);
+      lcState.push({ s: lc.s, closing });
+      // gates count as a red light for road traffic from the moment they start to close
+      if (closing || g.angle < 1.2) {
+        anyShut = true;
+        stops[`x${i}A`] = net.stops[`x${i}A`];
+        stops[`x${i}B`] = net.stops[`x${i}B`];
+      }
+      const fx = Math.cos(lc.heading);
+      const fz = Math.sin(lc.heading);
+      const up = booms.current[i * 2];
+      if (up) {
+        up.position.set(lc.x + lc.lx * GATE_UP + fx * 3.5, 1.25, lc.z + lc.lz * GATE_UP + fz * 3.5);
+        _quat.setFromAxisAngle(_up, -lc.heading + Math.PI);
+        _qRot.setFromAxisAngle(_zAxis, g.angle);
+        up.quaternion.copy(_quat).multiply(_qRot);
+      }
+      const down = booms.current[i * 2 + 1];
+      if (down) {
+        down.position.set(lc.x + lc.lx * GATE_DOWN - fx * 3.5, 1.25, lc.z + lc.lz * GATE_DOWN - fz * 3.5);
+        _quat.setFromAxisAngle(_up, -lc.heading);
+        _qRot.setFromAxisAngle(_zAxis, -g.angle);
+        down.quaternion.copy(_quat).multiply(_qRot);
+      }
+    });
+    sceneRefs.lcState = lcState; // the audio engine rings the nearest crossing's bell
+    // alternating red flashers while any gate is closing/closed
+    const blink = Math.floor(state.clock.elapsedTime * 2.5) % 2;
+    night.flash.material.uniforms.uIntensity.value = 0;
+    if (anyShut) {
+      // per-crossing on/off by scaling the sprites (cheap: few instances)
+      let k = 0;
+      net.crossings.forEach((lc, i) => {
+        const on = gates.current[i].closing || gates.current[i].angle < 1.2;
+        for (let j = 0; j < 4; j++) {
+          night.flash.getMatrixAt(k, _mat);
+          _mat.decompose(_pos, _quat, _v);
+          const lit = on && (j % 2 === blink);
+          _v.setScalar(lit ? 1.4 : 0.0001);
+          night.flash.setMatrixAt(k++, _mat.compose(_pos, _quat, _v));
+        }
+      });
+      night.flash.instanceMatrix.needsUpdate = true;
+      night.flash.material.uniforms.uIntensity.value = 0.9 + 1.2 * envState.lamps;
     }
 
-    // Traffic: gates count as a red light from the moment they start closing
-    const gatesShut = trainClosing || g.angle < 1.2;
-    stepTraffic(traffic, dt, gatesShut ? net.stops : undefined);
+    stepTraffic(traffic, dt, anyShut ? stops : undefined);
 
     // Draw every vehicle; lamps glow at night
     const lit = envState.lamps > 0.05;
@@ -506,7 +567,11 @@ export default function Road() {
         const lane = net.lanes[veh.lane];
         const visible = veh.active && veh.d - veh.length / 2 <= lane.length;
         lane.sample(veh.d, o);
-        const y = veh.lane.startsWith('x') && o.x !== undefined ? crossingHeight(veh, lane, o) : 0.05;
+        let y = 0.05;
+        if (lane.crossing) {
+          const cr = lane.crossing;
+          y = crossingY(cr.dir < 0 ? cr.hi - veh.d : cr.lo + veh.d);
+        }
         _pos.set(o.x, y, o.z);
         _quat.setFromAxisAngle(_up, o.yaw);
         _mat.compose(_pos, _quat, visible ? _scale : _zero);
@@ -515,7 +580,7 @@ export default function Road() {
         if (lit && visible && gi < night.veh.instanceMatrix.count - 4 && Math.abs(o.x - cam.x) + Math.abs(o.z - cam.z) < 1400) {
           const half = veh.length / 2;
           const c = Math.cos(o.yaw);
-          const sn = -Math.sin(o.yaw); // local +X in world = (cos yaw, 0, -sin yaw)
+          const sn = -Math.sin(o.yaw); // local +X in world = (cos yaw, 0, −sin yaw)
           const sideX = -sn; // local +Z in world = (sin yaw, 0, cos yaw)
           const sideZ = c;
           const wide = veh.type === 'bike' || veh.type === 'auto' ? 0 : 0.7;
@@ -536,9 +601,7 @@ export default function Road() {
     }
   });
 
-  const { cabin, wbUp, wbDown, signals, lc } = staticItems;
   const far = quality.sceneryDistance;
-
   return (
     <group>
       {net.surfaces.map((geo, i) => (
@@ -547,23 +610,27 @@ export default function Road() {
       {net.markings.map((geo, i) => (
         <mesh key={`mk${i}`} geometry={geo} material={assets.mats.marking} />
       ))}
-      <ChunkedInstances items={staticItems.lights} geometry={assets.streetlight.body} material={assets.mats.vc} cellSize={600} maxDistance={far} />
-      <ChunkedInstances items={staticItems.lights} geometry={assets.streetlight.lamp} material={assets.mats.lamp} cellSize={600} maxDistance={far} />
-      <primitive object={night.glows} />
-      <primitive object={night.pools} />
-      <primitive object={night.veh} />
+      <ChunkedInstances items={lightItems} geometry={assets.streetlight.body} material={assets.mats.vc} cellSize={600} maxDistance={far} />
+      <ChunkedInstances items={lightItems} geometry={assets.streetlight.lamp} material={assets.mats.lamp} cellSize={600} maxDistance={far} />
+      {Object.values(night).map((m, i) => (
+        <primitive key={`n${i}`} object={m} />
+      ))}
 
-      <mesh position={[cabin.x, cabin.y, cabin.z]} rotation={[0, cabin.yaw, 0]} geometry={assets.gateCabin} material={assets.mats.vc} receiveShadow castShadow />
-      <mesh position={[wbUp.x, wbUp.y, wbUp.z]} rotation={[0, wbUp.yaw, 0]} geometry={assets.whistleBoard} material={assets.mats.vc} />
-      <mesh position={[wbDown.x, wbDown.y, wbDown.z]} rotation={[0, wbDown.yaw, 0]} geometry={assets.whistleBoard} material={assets.mats.vc} />
-      <group ref={boomUpRef}>
-        <mesh geometry={assets.gateBoom} material={assets.mats.vc} castShadow />
-      </group>
-      <group ref={boomDownRef}>
-        <mesh geometry={assets.gateBoom} material={assets.mats.vc} castShadow />
-      </group>
-      <mesh position={[lc.x + lc.lx * 4.6 + Math.cos(lc.heading) * 3.5, 0, lc.z + lc.lz * 4.6 + Math.sin(lc.heading) * 3.5]} rotation={[0, -lc.heading, 0]} geometry={assets.gatePost} material={assets.mats.vc} />
-      <mesh position={[lc.x + lc.lx * -10.2 - Math.cos(lc.heading) * 3.5, 0, lc.z + lc.lz * -10.2 - Math.sin(lc.heading) * 3.5]} rotation={[0, -lc.heading + Math.PI, 0]} geometry={assets.gatePost} material={assets.mats.vc} />
+      {furniture.map((f, i) => (
+        <group key={`lc${i}`}>
+          <mesh position={[f.cabin.x, 0, f.cabin.z]} rotation={[0, f.cabin.yaw, 0]} geometry={assets.gateCabin} material={assets.mats.vc} receiveShadow castShadow />
+          {f.boards.map((wb, k) => (
+            <mesh key={k} position={[wb.x, 0, wb.z]} rotation={[0, wb.yaw, 0]} geometry={assets.whistleBoard} material={assets.mats.vc} />
+          ))}
+          <mesh position={[f.postUp.x, 0, f.postUp.z]} rotation={[0, f.postUp.yaw, 0]} geometry={assets.gatePost} material={assets.mats.vc} castShadow />
+          <mesh position={[f.postDown.x, 0, f.postDown.z]} rotation={[0, f.postDown.yaw, 0]} geometry={assets.gatePost} material={assets.mats.vc} castShadow />
+          {[0, 1].map((k) => (
+            <group key={`b${k}`} ref={(el) => (booms.current[i * 2 + k] = el)}>
+              <mesh geometry={assets.gateBoom} material={assets.mats.vc} castShadow />
+            </group>
+          ))}
+        </group>
+      ))}
 
       {signals.map((sig, i) => (
         <group key={`sig_${i}`} position={[sig.x, sig.y, sig.z]} rotation={[0, sig.yaw, 0]}>
@@ -583,12 +650,4 @@ export default function Road() {
       ))}
     </group>
   );
-}
-
-/** Height of a cross-road vehicle: up the ramp and over the rails at the crossing. */
-function crossingHeight(veh, lane, o) {
-  const lat = veh.lane === 'xA' ? CROSS_FROM - veh.d : CROSS_TO + veh.d;
-  if (lat < 3.5 && lat > -9) return TRACK.railTop - 0.01;
-  if (lat < 6 && lat > -11.5) return 0.35;
-  return 0.05;
 }

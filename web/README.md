@@ -46,13 +46,53 @@ npm run preview    # serve the production build locally
 | F | Reverser Forward / Neutral / Reverse (only when stopped, lever at 0) |
 | H | Horn (hold) |
 | L | Headlight |
-| C or 1–4 | Camera: cab, chase, orbit, trackside |
+| C or 1–6 | Camera: cab, coach interior, door, last coach, orbit, trackside |
 | Mouse | Drag to look around (cab) or orbit; wheel to zoom; double-click resets |
-| Esc | Pause menu: volume, mute, graphics quality, field of view, FPS counter |
+| Esc | Pause menu: time of day, weather, volume, background sounds, people, graphics, coaches, field of view, FPS |
 | R | Restart journey (asks to confirm) |
 
 The physics, with real WAP-7 and LHB numbers, is explained in
 [docs/SIMULATION.md](docs/SIMULATION.md).
+
+## World and atmosphere
+
+- **Time of day and weather** (title screen or pause menu): Morning, Afternoon,
+  Evening or Night; Clear, Dense fog or Monsoon rain. At night the coach windows,
+  building windows, station tube lights, sodium streetlights, signals and
+  vehicle headlights all light up, with stars and a moon overhead. Fog shrinks
+  visibility to about 200 m. Rain falls as GPU streaks that slant with the
+  train's speed, with lightning and thunder.
+- **People**: waiting passengers, walkers, porters with head-loads, people on
+  benches, chai-stall customers, gatemen and level-crossing bystanders, plus
+  village children who wave and shout as you pass. They are animated entirely on
+  the GPU, so each crowd costs one draw call.
+- **Road traffic**: hatchbacks, SUVs, CNG autos, motorbikes, state buses,
+  painted trucks and tractor-trolleys, driven by the Intelligent Driver Model.
+  They keep their distance and queue at closed level-crossing gates.
+- **Three manned level crossings** (LC-41 near New Delhi, LC-42, LC-43 on the
+  Ghaziabad approach) with booms, flashers, a gumti, whistle boards, check
+  rails and a bell.
+- **Cameras**: driver's cab; seated in the coach by the window (LHB AC 3-tier
+  or ICF sleeper, full-length interior with passengers); standing in the
+  open door; the back of the last coach (turn round to see the "X", the LV
+  board and the flashing tail lamp); orbit; trackside.
+
+## Sound
+
+- The wheel-on-rail sound is built per axle. Every one of the train's 38
+  wheelsets triggers a real recorded wheel-over-joint impact at every rail
+  joint, scheduled sample-accurately. That gives the WAP-7 Co-Co bogie its
+  "da-da-dak" and each coach bogie its "da-dak". Turnouts at the station
+  throats clank, and the long-welded stretch goes quiet.
+- Rolling-noise recordings are crossfaded by speed band, with separate sets
+  for inside and outside the train. The AC LHB coach is sealed and muffled; the
+  ICF has open windows, so it is louder and brighter.
+- Loco: transformer hum, blowers, compressor cycle, and the three-phase
+  converter's stepping "song" as you notch up.
+- World: birds by day and crickets at night (they come and go; see *Background
+  sounds* in the pause menu), rain, road traffic and horns, crossing bells,
+  stations, thunder, the guard's whistle.
+- Sources and licences: `docs/ASSET_CREDITS.md`.
 
 ## Performance (Mac and Windows laptops)
 

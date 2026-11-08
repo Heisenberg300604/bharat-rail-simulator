@@ -40,31 +40,56 @@ the date it was checked.
   photographs can't be verified. Before sharing publicly, decide whether to
   keep it or repaint the livery texture.
 
-### Sounds (Freesound; licence read on each sound's own page on 2026-11-07)
-All files are in `public/assets/audio/`. Each was trimmed or looped, made mono,
-and re-encoded to MP3.
+### Sounds
+Three groups, each with its own detailed credits file (source page, creator,
+licence checked on the asset page, excerpt, processing, and quality-check
+measurements in the matching `sounds.json`):
 
-| File | Sound | Creator | Licence | Notes |
-| --- | --- | --- | --- | --- |
-| `horn-india.mp3` | "Train Horn", https://freesound.org/people/CouleurCasquette/sounds/248229/ | CouleurCasquette | **CC BY 3.0** | Recorded at Haridwar, India. First 8.2 s used; the steady part loops while H is held. |
-| `rolling-coach-india.mp3` | "commuter train open air int riding between stops breathy tone more track rumble wobbly2 movement clacking India.flac", https://freesound.org/people/kyles/sounds/451342/ | kyles | **CC0** | Authentic Indian open-air coach interior recording: passenger cabin resonance, air rush, coach body sway/wobble and broad-gauge track clatter. |
-| `brake-release.mp3` | "Train Air Brake 01.wav", https://freesound.org/people/totalcult/sounds/388568/ | totalcult | CC0 | Generic, not specifically Indian |
-| `station-new-delhi.mp3` | "delhi station", https://freesound.org/people/thma/sounds/797578/ | thma | CC0 | 60 s loop with crowd and announcements |
-| `track-clacks-india.mp3` | "commuter train open air int riding between stops breathy tone more track rumble wobbly2 movement clacking India.flac", https://freesound.org/people/kyles/sounds/451342/ | kyles | **CC0** | Recorded in India. Authentic Indian Railways coach movement, track rumble and broad-gauge clickety-clack cadence. |
-| `icf-track-sound.wav` | "commuter train open air int riding between stops (Seamless Loop)", https://freesound.org/people/kyles/sounds/451342/ | kyles / Bharat Rail Simulator | **CC0** | 23.8 s equal-power seamless loop of authentic Indian open-air coach interior broad-gauge rail clacking and rumble. |
-| `lhb-track-sound.wav` | "Train Sound Indian Railways (FIAT Bogie Acoustic Profile)", https://soundbible.com/1812-Train-Sound-Indian-Railways.html | Satish Madiwale / Bharat Rail Simulator | **Public Domain** / CC0 | 17.25 s seamless loop of real Indian Railways track run conditioned for modern FIAT bogie acoustics and air-suspension damping. |
-| `clack-0.wav` to `clack-3.wav` | "Train Sound Indian Railways (Fishplate Joint Transients)", https://soundbible.com/1812-Train-Sound-Indian-Railways.html | Satish Madiwale / Bharat Rail Simulator | **Public Domain** | 4 distinct broad-gauge rail expansion joint impact transients extracted from real IR recording. |
-| `announcement-india.mp3` | "Indian Railway Train Arriving Announcement", https://freesound.org/people/chhavi/sounds/566505/ | chhavi | CC0 / Public Domain | Platform PA announcement with chime in Hindi and English. |
-| `train-passby-india.mp3` | "Sound of passing train", https://freesound.org/people/arundasstp/sounds/413629/ | arundasstp | CC0 | High-speed express train rush and wheel roar recorded in India. |
+- **Rail sounds**: `public/assets/audio/rail/` (35 files: rolling beds per speed
+  band, single wheel-over-joint impacts, turnout, flange and brake squeal,
+  passbys, loco machinery, onboard horn). Full list:
+  [`public/assets/audio/rail/CREDITS.md`](../public/assets/audio/rail/CREDITS.md).
+  Licences checked 2026-11-08.
+- **Ambience**: `public/assets/audio/ambience/` (26 files: birds, night
+  insects, rain, thunder, Indian road traffic and horns, level-crossing bell,
+  guard whistle, station crowds, cab clicks, buzzer, wind, children). Full
+  list: [`public/assets/audio/ambience/CREDITS.md`](../public/assets/audio/ambience/CREDITS.md).
+  Licences checked 2026-11-08.
+- **Original files** in `public/assets/audio/`:
 
-Required attribution (CC BY 3.0): "Train Horn" by CouleurCasquette,
-https://freesound.org/s/248229/, licensed under CC BY 3.0
-(https://creativecommons.org/licenses/by/3.0/). Trimmed, looped and re-encoded.
+| File | Sound | Creator | Licence |
+| --- | --- | --- | --- |
+| `horn-india.mp3` | "Train Horn", https://freesound.org/people/CouleurCasquette/sounds/248229/ (recorded at Haridwar) | CouleurCasquette | **CC BY 3.0** |
+| `brake-release.mp3` | "Train Air Brake 01.wav", https://freesound.org/people/totalcult/sounds/388568/ | totalcult | CC0 |
+| `station-new-delhi.mp3` | "delhi station", https://freesound.org/people/thma/sounds/797578/ | thma | CC0 |
+| `announcement-india.mp3` | "Indian Railway Train Arriving Announcement", https://freesound.org/people/chhavi/sounds/566505/ | chhavi | CC0 |
+| `train-passby-india.mp3` | "Sound of passing train", https://freesound.org/people/arundasstp/sounds/413629/ | arundasstp | CC0 |
 
-None of the freely licensed recordings found name the locomotive class.
-Recordings explicitly labelled WAP-7 exist only as Wikimedia Commons videos,
-which would need manual extraction. The WAP-7 traction-motor whine and blowers
-are therefore still synthesized.
+Removed on 2026-11-08 (no longer used): `rolling-coach-india.mp3` and
+`track-clacks-india.mp3` (byte-identical copies of kyles 451342),
+`icf-track-sound.wav`, `lhb-track-sound.wav` and `clack-0…3.wav`. The
+soundbible.com source of the last three had no licence that could be
+verified.
+
+**Required attributions (CC BY / CC BY-SA), also shown on the title screen:**
+- "Train Horn" by CouleurCasquette, https://freesound.org/s/248229/, CC BY 3.0.
+- "Tropical Orchard in Spring" by Calcuttan, https://freesound.org/people/Calcuttan/sounds/184798/, CC BY 4.0 (`ambience/day-birds.mp3`).
+- "High Speed Train, Samsung C9 - Non Stop Train" by Village Regional (Wikimedia Commons), CC BY 3.0 (`rail/roll-ext-fast.mp3`).
+- "12479 Suryanagari Express … passing Basni railway station" by My Family by Vijay Singh Choudhary (Wikimedia Commons), CC BY 3.0 (`rail/roll-ext-fast-b.mp3`, `rail/passby-1.mp3`).
+- "passengerWagonColdTambour.flac" by Zabuhailo (Freesound 194164), CC BY 4.0 (`rail/roll-ext-vestibule.mp3`).
+- "switch_turnout_and_its_crossing.wav" by KrystofJakobe (Freesound 499128), CC BY 3.0 (`rail/turnout-*.mp3`).
+- "train_breaking_outside.WAV" by Anton (Freesound 23641), CC BY 4.0 (`rail/brake-squeal-2.mp3`).
+- "electric train engine sound effect" by Garuda1982 (Freesound 559381), CC BY 4.0 (`rail/loco-aux-hum.mp3`).
+All were excerpted, mixed to mono, filtered, loudness-normalised and re-encoded.
+The exact wording for each is in the two CREDITS.md files.
+
+**Caveat:** the two Wikimedia Commons sources are re-uploads of YouTube videos
+marked CC BY 3.0. The licence is shown on Commons, but whether the uploader
+owns the footage can't be verified further.
+
+No licence-clean recording of an Indian three-phase loco (WAP-7/WAP-5/WAG-9)
+exists, so the converter "singing" is synthesized from the real pulse-mode
+behaviour (`src/game/audio/railAcoustics.js`).
 
 ## Original assets (this project)
 
@@ -79,7 +104,8 @@ are therefore still synthesized.
 | Cab interior | 3D, procedural | `src/game/components/Train/CabInterior.jsx` | Original |
 | Track, OHE, stations, scenery | 3D, procedural | `src/game/components/**` | Original |
 | Ground, ballast, platform, facade textures; station boards | Canvas-drawn | `src/game/world/textures.js` | Original |
-| Traction-motor whine, blowers/compressor, wind, rail-joint clacks; fallbacks for every recording | Synthesized audio (Web Audio API) | `src/game/audio/audioEngine.js` | Original |
+| Three-phase converter tone, transformer hum, fallbacks for every recording | Synthesized audio (Web Audio API) | `src/game/audio/audioEngine.js`, `railAcoustics.js` | Original |
+| People (platform crowds, passengers), road vehicles, streetlights, coach interiors, door view, last-vehicle "X" and LV board | 3D, procedural | `src/game/world/models/people.js`, `roadVehicles.js`, `src/game/components/**` | Original |
 
 ## Candidates found but not used (owner can download them manually)
 

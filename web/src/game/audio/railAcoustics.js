@@ -10,7 +10,7 @@
 //   • 13 m rails (fishplated) vs. long welded rail (joints only every ~250 m)
 // The audio engine asks this module "when does each axle reach its next
 // joint?" and schedules a single wheel-impact sample for each, sample-exact.
-import { FORMATION, COACH_TYPES } from '../config/gameConfig.js';
+import { FORMATION, COACH_TYPES, LEVEL_CROSSINGS } from '../config/gameConfig.js';
 
 /**
  * Rail joints along the player's line.
@@ -33,7 +33,7 @@ export const RAIL_JOINTS = {
     [6930, 6952],
     [7010, 7032],
   ],
-  levelCrossings: [4200],
+  levelCrossings: LEVEL_CROSSINGS.map((lc) => lc.s), // check rails and road timbers: an extra knock each side
 };
 
 /** Every special (non-grid) joint, sorted: { s, kind: 'heel' | 'frog' | 'lc' }. */
@@ -157,7 +157,7 @@ export function bandWeights(bands, kmh) {
     const a = bands[i].speed;
     const b = bands[i + 1].speed;
     if (kmh >= a && kmh <= b) {
-      const t = (Math.log(kmh) - Math.log(a)) / (Math.log(b) - Math.log(a));
+      const t = b > a ? (Math.log(kmh) - Math.log(a)) / (Math.log(b) - Math.log(a)) : 1;
       w[i] = Math.cos((t * Math.PI) / 2);
       w[i + 1] = Math.sin((t * Math.PI) / 2);
     }

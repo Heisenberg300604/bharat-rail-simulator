@@ -377,18 +377,26 @@ class AudioEngine {
           else if (name.startsWith('turnout')) r.turnout.push(buf);
           else if (name.startsWith('brake-squeal')) r.brakeSqueal ??= makeSeamless(this.ctx, buf, 0.3);
           else if (name.startsWith('squeal')) r.squeal ??= makeSeamless(this.ctx, buf, 0.4);
-          else if (name.startsWith('passby')) this.buffers.passby2 ??= buf;
-          else if (/^loco-.*(idle|hum|transformer)/.test(name)) r.locoIdle ??= makeSeamless(this.ctx, buf, 0.6);
-          else if (/^loco-.*(blower|fan)/.test(name)) r.locoBlower ??= makeSeamless(this.ctx, buf, 0.6);
+          else if (name.startsWith('passby')) (r.passby ??= []).push({ name, buf });
+          else if (name.startsWith('horn-alt-onboard')) this.buffers.hornOnboard = buf;
+          else if (/^loco-.*(traction-idle|transformer)/.test(name)) r.locoIdle ??= makeSeamless(this.ctx, buf, 0.6);
+          else if (/^loco-.*(aux|blower|fan)/.test(name)) r.locoBlower ??= makeSeamless(this.ctx, buf, 0.6);
           else if (/^loco-.*compressor/.test(name)) r.locoCompressor ??= makeSeamless(this.ctx, buf, 0.4);
         } catch (err) {
           console.warn(`Rail sound "${file}" unavailable:`, err.message);
         }
       }),
     );
-    const sortBands = (list) => list.sort((a, b) => a.speed - b.speed);
+    // one bed per speed band (alphabetically first wins a tie, e.g. roll-ext-fast over -fast-b)
+    const sortBands = (list) => {
+      list.sort((a, b) => a.speed - b.speed || a.name.localeCompare(b.name));
+      for (let i = list.length - 1; i > 0; i--) if (list[i].speed === list[i - 1].speed) list.splice(i, 1);
+      return list;
+    };
     sortBands(r.rollExt);
     sortBands(r.rollInt);
+    // Indian passby recordings first
+    r.passby?.sort((a, b) => a.name.localeCompare(b.name));
     // one looping voice per bed band, all running, crossfaded by speed
     const mk = (list) => list.map((band) => ({ ...band, voice: this.loopVoice(band.buffer, this.trainBus.in) }));
     this.bedsExt = mk(r.rollExt);
@@ -424,6 +432,22 @@ class AudioEngine {
 
   // ----------------------------------------------------------- public events
   hornStart(now) {
+    // inside the coach you hear the loco's horn far ahead, through the body
+    if (this.perspectiveKey.startsWith('interior') && this.buffers.hornOnboard) {
+      const buf = this.buffers.hornOnboard;
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      src.loopStart = Math.min(1.2, buf.duration * 0.2);
+      src.loopEnd = Math.max(src.loopStart + 0.5, buf.duration - 1.0);
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(MIX.horn * 1.4, now + 0.08);
+      src.connect(g).connect(this.master);
+      src.start(now);
+      this.hornSource = { src, g };
+      return;
+    }
     if (!this.buffers.horn) {
       this.hornGain.gain.setTargetAtTime(MIX.hornSynth, now, 0.03);
       return;
@@ -493,7 +517,8 @@ class AudioEngine {
   }
 
   playPassby(level = 1) {
-    const buf = this.buffers.passby2 ?? this.buffers.passby;
+    const list = this.rail.passby;
+    const buf = list?.length ? list[Math.floor(Math.random() * list.length)].buf : this.buffers.passby;
     if (!this.ready || !buf) return;
     const now = this.ctx.currentTime;
     if (now - this.lastPassbyTime < 12) return;
@@ -599,7 +624,8 @@ class AudioEngine {
         if (g < 0.012 || this.voices >= MAX_VOICES) continue;
         const delay = L.ext ? d / SPEED_OF_SOUND : 0;
         const buf = j.kind === 'frog' ? rand(frogs) : rand(joints);
-        const rate = (ax.kind === 'loco' ? 0.9 : 1) * (0.94 + Math.random() * 0.1);
+        // loco axles are heavier (20.5 t vs ~13 t); the turnout recording is a tram, so lower it
+        const rate = (ax.kind === 'loco' ? 0.9 : 1) * (j.kind === 'frog' && r.turnout.length ? 0.85 : 1) * (0.94 + Math.random() * 0.1);
         const pan = L.ext ? panFn(j.s) : 0;
         const src = this.playOneShot(buf, g, this.trainBus.in, { when: now + t + delay, rate, pan });
         if (src) {

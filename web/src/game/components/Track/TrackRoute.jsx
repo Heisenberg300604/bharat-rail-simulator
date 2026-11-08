@@ -4,7 +4,7 @@
 // handful of draw calls no matter how many tracks there are.
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
-import { TRACK, JOURNEY, STATIONS, PLATFORMS } from '../../config/gameConfig.js';
+import { TRACK, JOURNEY, STATIONS, PLATFORMS, LEVEL_CROSSINGS } from '../../config/gameConfig.js';
 import { buildRibbonGeometry, mergeGeometries } from '../../world/geometry.js';
 import { makeBallastTexture } from '../../world/textures.js';
 import { lines, mainLine } from '../../world/trackLayout.js';
@@ -68,6 +68,14 @@ export default function TrackRoute() {
       heads.push(buildRibbonGeometry(line, railHeadProfile(-half), { ...opts, step: 3 }));
       wires.push(buildRibbonGeometry(line, wireProfile(CONTACT_WIRE_HEIGHT), { ...opts, step: 10 }));
       wires.push(buildRibbonGeometry(line, wireProfile(MESSENGER_HEIGHT), { ...opts, step: 10 }));
+      // level crossings: check rails inside each running rail (51 mm flangeway) under the road
+      if (line.id === 'main' || line.id === 'down') {
+        for (const lc of LEVEL_CROSSINGS) {
+          for (const c of [half - 0.12, -(half - 0.12)]) {
+            rails.push(buildRibbonGeometry(line, railProfile(c), { from: lc.s - 6.5, to: lc.s + 6.5, step: 1 }));
+          }
+        }
+      }
     }
     return {
       ballast: mergeGeometries(ballast),
