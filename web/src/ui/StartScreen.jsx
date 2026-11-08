@@ -1,5 +1,5 @@
 import { startJourney, updateSettings, origin, destination } from '../game/state/gameStore.js';
-import { QUALITY_PRESETS } from '../game/config/gameConfig.js';
+import { QUALITY_PRESETS, LOCOMOTIVES, CONSISTS } from '../game/config/gameConfig.js';
 import ControlsTable from './ControlsTable.jsx';
 import EnvironmentPicker from './EnvironmentPicker.jsx';
 
@@ -31,11 +31,23 @@ export default function StartScreen({ settings }) {
             </select>
           </label>
           <label>
+            Locomotive
+            <select value={settings.locomotive} onChange={(e) => updateSettings({ locomotive: e.target.value })}>
+              {Object.entries(LOCOMOTIVES).map(([id, l]) => (
+                <option key={id} value={id}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
             Coaches
             <select value={settings.coachLivery} onChange={(e) => updateSettings({ coachLivery: e.target.value })}>
-              <option value="icfBlue">Classic Blue ICF (Mail/Express)</option>
-              <option value="red">Red-grey LHB (standard)</option>
-              <option value="blue">Blue-grey LHB</option>
+              {Object.entries(CONSISTS).map(([id, c]) => (
+                <option key={id} value={id}>
+                  {c.label}
+                </option>
+              ))}
             </select>
           </label>
         </div>
@@ -54,7 +66,11 @@ export default function StartScreen({ settings }) {
           <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">
             CC BY 4.0
           </a>{' '}
-          (optimised for the web). Horn:{' '}
+          (optimised for the web). WAG-9 3D model:{' '}
+          <a href="https://sketchfab.com/3d-models/wag-9-indian-locomotive-lowpoly-count-665150d63c6146e0b361c1020a87074e" target="_blank" rel="noreferrer">
+            “Wag 9 Indian Locomotive Lowpoly count”
+          </a>{' '}
+          by knitro_vedant, CC BY 4.0 (optimised). Horn:{' '}
           <a href="https://freesound.org/s/248229/" target="_blank" rel="noreferrer">
             “Train Horn”
           </a>{' '}

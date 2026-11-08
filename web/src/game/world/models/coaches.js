@@ -87,6 +87,57 @@ function icfGeometry() {
   });
 }
 
+/**
+ * BOXN open wagon (the commonest Indian freight wagon, for coal and ore):
+ * 10.713 m over couplers, open-top steel box with vertical stanchions and a
+ * top chord, rust-brown and weathered, loaded with coal.
+ * Parts: body (vertex colours), load.
+ */
+function boxnGeometry() {
+  const L = COACH_TYPES.boxn.length - 0.6; // body length (couplers excluded)
+  const HL = L / 2;
+  const W = 1.6; // half width (3.2 m)
+  const y0 = 1.12; // floor
+  const y1 = 3.2; // top of the sides
+  const RUST = '#6a3a25';
+  const RUST_D = '#552c1c';
+  const b = new ModelBuilder();
+  b.box([-HL, HL], [y0 - 0.25, y0], [-W + 0.1, W - 0.1], '#2a2420'); // underframe
+  b.box([-HL - 0.25, HL + 0.25], [y0 - 0.35, y0 - 0.1], [-0.45, 0.45], '#262220'); // centre sill + headstocks
+  for (const z of [-W, W]) {
+    b.box([-HL, HL], [y0, y1], z > 0 ? [W - 0.05, W] : [-W, -W + 0.05], RUST);
+    b.box([-HL, HL], [y1 - 0.12, y1], z > 0 ? [W - 0.02, W + 0.06] : [-W - 0.06, -W + 0.02], RUST_D); // top chord
+    // vertical stanchions on the outside
+    for (let x = -HL + 0.35; x <= HL - 0.3; x += (L - 0.7) / 8) {
+      b.box([x - 0.06, x + 0.06], [y0 - 0.05, y1 - 0.12], z > 0 ? [W, W + 0.07] : [-W - 0.07, -W], RUST_D);
+    }
+    b.box([-HL, HL], [y0 + 0.05, y0 + 0.17], z > 0 ? [W, W + 0.08] : [-W - 0.08, -W], RUST_D); // bottom rail
+  }
+  for (const x of [-HL, HL]) {
+    b.box(x > 0 ? [HL - 0.05, HL] : [-HL, -HL + 0.05], [y0, y1], [-W, W], RUST);
+    for (const z of [-0.8, 0, 0.8]) b.box(x > 0 ? [HL, HL + 0.06] : [-HL - 0.06, -HL], [y0, y1 - 0.12], [z - 0.06, z + 0.06], RUST_D);
+  }
+  // CBC coupler heads at both ends
+  for (const e of [-1, 1]) b.box(e > 0 ? [HL + 0.05, HL + 0.32] : [-HL - 0.32, -HL - 0.05], [0.95, 1.18], [-0.18, 0.18], '#1d1d1d');
+  // white wagon number panel
+  for (const z of [-W - 0.08, W + 0.08]) b.box([-1.1, 0.4], [2.1, 2.55], z > 0 ? [W + 0.07, W + 0.085] : [-W - 0.085, -W - 0.07], '#d9d2c2');
+  const load = new ModelBuilder();
+  // heaped coal: a flat bed plus a low ridge
+  load.box([-HL + 0.08, HL - 0.08], [y1 - 0.35, y1 - 0.15], [-W + 0.08, W - 0.08], '#191818');
+  load.prism(
+    [
+      [-HL + 0.4, y1 - 0.16],
+      [HL - 0.4, y1 - 0.16],
+      [HL - 1.2, y1 + 0.18],
+      [-HL + 1.2, y1 + 0.18],
+    ],
+    -W + 0.3,
+    W - 0.3,
+    '#141313',
+  );
+  return { body: b.build().body, load: load.build().body };
+}
+
 let shared = null;
 
 /** Coach side panel. Its windows glow (emissive mask) when the lights come on at dusk. */
@@ -126,11 +177,17 @@ export function getCoachVariants() {
     'lhb-blue': make('lhb', 'lhbBlue', makeLhbSideTexture({ primary: LIVERIES.lhbBlue.paint, secondary: LIVERIES.lhbBlue.paint2, label: 'AC CHAIR CAR' })),
     'icf-blue': make('icf', 'icfBlue', makeIcfSideTexture({ primary: LIVERIES.icfBlue.paint, band: LIVERIES.icfBlue.paint2 })),
   };
+  const boxn = boxnGeometry();
+  shared['boxn'] = [
+    { geometry: boxn.body, material: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.2 }) },
+    { geometry: boxn.load, material: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 }) },
+  ];
   return shared;
 }
 
 /** Which variant key a vehicle uses. */
 export function coachVariantKey(type, livery) {
+  if (type === 'boxn' || livery === 'boxn') return 'boxn';
   if (type === 'icf' || livery === 'icfBlue') return 'icf-blue';
   return livery === 'lhbBlue' || livery === 'blue' ? 'lhb-blue' : 'lhb-red';
 }

@@ -5,11 +5,12 @@
 // immutable *snapshot* that we publish only when needed — ~10×/s for the HUD,
 // immediately for menu/screen changes.
 import { useSyncExternalStore } from 'react';
-import { TRAIN, JOURNEY, ROUTE_SEGMENTS, FORMATION, COACH_TYPES, AI_TRAINS, STATIONS, QUALITY_PRESETS, SPEED_LIMITS } from '../config/gameConfig.js';
+import { JOURNEY, ROUTE_SEGMENTS, FORMATION, COACH_TYPES, AI_TRAINS, STATIONS, QUALITY_PRESETS, SPEED_LIMITS, LOCOMOTIVES, CONSISTS, consistFor, trainConfigFor } from '../config/gameConfig.js';
 import { createRoute, computeFormation } from '../simulation/routeMath.js';
 import { createAiTrains } from '../simulation/aiTraffic.js';
 import {
   createTrainState,
+  trainMass,
   cycleDirection as simCycleDirection,
   applyEmergency,
   DIRECTION_LABEL,
@@ -30,7 +31,14 @@ import { detectQuality } from './detectQuality.js';
 import { TIME_OF_DAY, WEATHER } from '../world/environment.js';
 
 export const route = createRoute(ROUTE_SEGMENTS);
-export const formation = computeFormation(FORMATION);
+/** Length/offsets of the player's train for a consist (passenger rake or freight). */
+function formationFor(consistId) {
+  const c = consistFor(consistId);
+  const ct = COACH_TYPES[c.type] ?? COACH_TYPES.lhb;
+  return computeFormation({ locomotive: FORMATION.locomotive, coach: ct, coachCount: c.count, couplingGap: ct.gap ?? FORMATION.couplingGap });
+}
+// `let`: an ES-module live binding, so importers see the new value when the consist changes
+export let formation = formationFor('red');
 export const origin = STATIONS.find((s) => s.id === JOURNEY.originId);
 export const destination = STATIONS.find((s) => s.id === JOURNEY.destinationId);
 
@@ -43,13 +51,13 @@ export function initAiTrains() {
   return createAiTrains(AI_TRAINS, lengthOfAiTrain);
 }
 
-function newTrain() {
+function newTrain(cfg = game.trainCfg, consistId = game.settings.coachLivery) {
   return createTrainState({
     startDistance: JOURNEY.startDistance,
     minDistance: formation.totalLength + 5, // rear of the train can't pass the route start
     maxDistance: JOURNEY.bufferStop,
-    coachCount: FORMATION.coachCount,
-    cfg: TRAIN,
+    coachCount: consistFor(consistId).count,
+    cfg,
   });
 }
 
@@ -66,6 +74,8 @@ function loadSettings() {
     kavach: true,
     crowd: true,
     ambience: 'occasional', // background sounds: 'occasional' | 'always' | 'off'
+    locomotive: 'wap7',
+    horn: 'auto', // 'auto' = the locomotive's own horns, or a horn id from horns/horns.json
   };
   try {
     const saved = JSON.parse(localStorage.getItem('brs-settings') || '{}');
@@ -73,6 +83,8 @@ function loadSettings() {
     if (!QUALITY_PRESETS[merged.quality]) merged.quality = 'high';
     if (!TIME_OF_DAY[merged.timeOfDay]) merged.timeOfDay = defaults.timeOfDay;
     if (!WEATHER[merged.weather]) merged.weather = defaults.weather;
+    if (!LOCOMOTIVES[merged.locomotive]) merged.locomotive = defaults.locomotive;
+    if (!CONSISTS[merged.coachLivery]) merged.coachLivery = defaults.coachLivery; // e.g. the retired blue LHB option
     return merged;
   } catch {
     return defaults;
@@ -86,17 +98,22 @@ function saveSettings() {
   }
 }
 
+const initialSettings = loadSettings();
+const initialTrainCfg = trainConfigFor(initialSettings.locomotive, initialSettings.coachLivery);
+formation = formationFor(initialSettings.coachLivery);
+
 export const game = {
   // 'loading' | 'title' | 'playing' | 'paused' | 'confirmRestart' | 'completed'
   screen: 'loading',
-  train: newTrain(),
+  trainCfg: initialTrainCfg, // TRAIN + the chosen locomotive's figures
+  train: newTrain(initialTrainCfg, initialSettings.coachLivery),
   journey: createJourney(),
   aiTrains: initAiTrains(),
   renderDistance: JOURNEY.startDistance, // smoothed distance used for drawing
   input: { leverUp: false, leverDown: false, brakeApply: false, brakeRelease: false, horn: false },
   cameraMode: 'cab', // 'cab' | 'chase' | 'orbit' | 'trackside'
   headlight: true,
-  settings: loadSettings(),
+  settings: initialSettings,
   toast: null, // { text, until }
   fps: 0,
   renderScale: 1,
@@ -107,8 +124,10 @@ export const game = {
 const listeners = new Set();
 let snapshot = buildSnapshot();
 
+/** Route speed limit over the whole train, capped by the locomotive's own maximum. */
 export function currentSpeedLimit(train = game.train) {
-  return speedLimitFor(SPEED_LIMITS, train.routeDistance - formation.totalLength, train.routeDistance);
+  const route = speedLimitFor(SPEED_LIMITS, train.routeDistance - formation.totalLength, train.routeDistance);
+  return Math.min(route, game.trainCfg?.locoMaxKmh ?? Infinity);
 }
 
 function buildSnapshot() {
@@ -126,7 +145,7 @@ function buildSnapshot() {
     tractionCut: t.tractionCut && t.lever > 0,
     speedLimit: limit,
     nextLimit: nextSpeedLimit(SPEED_LIMITS, t.routeDistance, limit),
-    stoppingDistance: estimateStoppingDistance(t, TRAIN),
+    stoppingDistance: estimateStoppingDistance(t, game.trainCfg),
     screen: game.screen,
     speedKmh: t.speedMps * 3.6,
     throttle: t.throttle,
@@ -250,12 +269,19 @@ export function completeJourney() {
 }
 
 const CAMERA_ORDER = ['cab', 'interior', 'door', 'rear', 'orbit', 'trackside'];
+/** Cameras available with the current consist (no coach interior/doorway on a freight train). */
+function cameraAvailable(mode) {
+  return consistFor(game.settings.coachLivery).passenger || (mode !== 'interior' && mode !== 'door');
+}
 export function toggleCamera() {
-  game.cameraMode = CAMERA_ORDER[(CAMERA_ORDER.indexOf(game.cameraMode) + 1) % CAMERA_ORDER.length];
+  let i = CAMERA_ORDER.indexOf(game.cameraMode);
+  do i = (i + 1) % CAMERA_ORDER.length;
+  while (!cameraAvailable(CAMERA_ORDER[i]));
+  game.cameraMode = CAMERA_ORDER[i];
   publish();
 }
 export function setCamera(mode) {
-  if (CAMERA_ORDER.includes(mode)) {
+  if (CAMERA_ORDER.includes(mode) && cameraAvailable(mode)) {
     game.cameraMode = mode;
     publish();
   }
@@ -276,13 +302,26 @@ export function emergencyBrake() {
 }
 
 export function cycleDirection() {
-  const res = simCycleDirection(game.train, TRAIN);
+  const res = simCycleDirection(game.train, game.trainCfg);
   if (res.ok) audioEngine.playClick('heavy');
   showToast(res.message);
 }
 
 export function updateSettings(patch) {
+  const prev = game.settings;
   game.settings = { ...game.settings, ...patch };
+  // driving physics follow the chosen loco and what it hauls
+  game.trainCfg = trainConfigFor(game.settings.locomotive, game.settings.coachLivery);
+  if (prev.coachLivery !== game.settings.coachLivery) {
+    formation = formationFor(game.settings.coachLivery);
+    const c = consistFor(game.settings.coachLivery);
+    game.train.mass = trainMass(game.trainCfg, c.count);
+    game.train.minDistance = formation.totalLength + 5;
+    // a freight train has no coach to sit in or doorway to stand in
+    if (!c.passenger && (game.cameraMode === 'interior' || game.cameraMode === 'door')) game.cameraMode = 'cab';
+  } else if (prev.locomotive !== game.settings.locomotive) {
+    game.train.mass = trainMass(game.trainCfg, consistFor(game.settings.coachLivery).count);
+  }
   audioEngine.setVolume(game.settings.volume, game.settings.muted);
   saveSettings();
   publish();

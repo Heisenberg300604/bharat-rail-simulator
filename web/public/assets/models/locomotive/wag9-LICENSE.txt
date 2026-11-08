@@ -1,0 +1,16 @@
+Model Information:
+* title:	Wag 9 Indian Locomotive Lowpoly count
+* source:	https://sketchfab.com/3d-models/wag-9-indian-locomotive-lowpoly-count-665150d63c6146e0b361c1020a87074e
+* author:	knitro_vedant (https://sketchfab.com/knitro_vedant)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+* verified:	Sketchfab API (/v3/models/665150d63c6146e0b361c1020a87074e) on 2026-11-08: license "CC Attribution", isDownloadable: true
+
+Credit:
+This work is based on "Wag 9 Indian Locomotive Lowpoly count" (https://sketchfab.com/3d-models/wag-9-indian-locomotive-lowpoly-count-665150d63c6146e0b361c1020a87074e) by knitro_vedant (https://sketchfab.com/knitro_vedant) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+Modifications: optimised with @gltf-transform/cli optimize (meshes joined and
+simplified 290k → ~105k triangles, meshopt compression, textures resized to
+1024 px WebP): 23.8 MB → 1.74 MB.

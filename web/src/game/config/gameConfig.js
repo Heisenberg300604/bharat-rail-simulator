@@ -109,9 +109,52 @@ export const TRAIN = {
   // Limits
   sectionalSpeedKmh: 110,
   designMaxKmh: 140,
+  locoMaxKmh: 140, // traction cuts off above the loco's maximum service speed
   directionChangeMaxSpeed: 0.1,
   stopSnapSpeed: 0.03,
 };
+
+// Locomotives the player can drive. Both are Indian three-phase electric
+// locos built by CLW on the same body (21 m, 123 t, Co-Co); they differ in
+// gearing: the WAP-7 is geared for 140 km/h passenger work, the WAG-9 for
+// heavy freight (much more pulling force, but only 100 km/h).
+// `physics` overrides values in TRAIN.
+export const LOCOMOTIVES = {
+  wap7: {
+    label: 'WAP-7 · passenger',
+    model: 'wap7.glb',
+    horn: null, // default horn id from public/assets/audio/horns/horns.json
+    physics: {},
+  },
+  wag9: {
+    label: 'WAG-9 · freight',
+    model: 'wag9.glb',
+    horn: null,
+    physics: { startingTE_kN: 460, power_kW: 4350, regenMax_kN: 260, locoMaxKmh: 100, teRamp_kNps: 70 },
+  },
+};
+
+/**
+ * What the player's locomotive hauls (the "Coaches" picker). `massT` is per
+ * vehicle, loaded: a BOXN full of coal weighs ~81 t against ~50 t for a
+ * passenger coach, so the freight train is three times heavier.
+ */
+export const CONSISTS = {
+  icfBlue: { label: 'Classic Blue ICF (Mail/Express)', type: 'icf', livery: 'icfBlue', count: 8, massT: 50, passenger: true },
+  red: { label: 'Red-grey LHB (standard)', type: 'lhb', livery: 'lhb', count: 8, massT: 50, passenger: true },
+  freight: { label: 'Freight: BOXN coal wagons', type: 'boxn', livery: 'boxn', count: 20, massT: 81, passenger: false },
+};
+/** The consist for a picker value; unknown/retired values (e.g. old 'blue') fall back to LHB. */
+export function consistFor(id) {
+  return CONSISTS[id] ?? CONSISTS.red;
+}
+
+/** TRAIN with the chosen locomotive's figures (and the consist's vehicle mass) applied. */
+export function trainConfigFor(locoId, consistId) {
+  const cfg = { ...TRAIN, ...(LOCOMOTIVES[locoId]?.physics ?? {}) };
+  if (consistId) cfg.coach = { ...cfg.coach, massT: consistFor(consistId).massT };
+  return cfg;
+}
 
 // Permanent speed restrictions (route distance ranges). Like the real railway,
 // a restriction applies until the REAR of the train has passed it.
@@ -140,6 +183,8 @@ export const FORMATION = {
 export const COACH_TYPES = {
   lhb: { length: 23.54, bogieSpacing: 14.9, wheelRadius: 0.4575, axleOffsets: [-1.28, 1.28], gap: 0.5 },
   icf: { length: 21.337, bogieSpacing: 14.783, wheelRadius: 0.4575, axleOffsets: [-1.448, 1.448], gap: 0.7 },
+  // BOXN open wagon (bulk coal/ore), CASNUB bogies, centre-buffer couplers
+  boxn: { length: 10.713, bogieSpacing: 6.524, wheelRadius: 0.5, axleOffsets: [-1.0, 1.0], gap: 0.3 },
 };
 
 // Trains on the DOWN main (running towards New Delhi). They depart Ghaziabad
@@ -148,6 +193,9 @@ export const COACH_TYPES = {
 export const AI_TRAINS = [
   { id: 'icf-express', type: 'icf', livery: 'icfBlue', coaches: 10, departAt: 12, startFront: 7880, stopFront: 120, maxKmh: 100 },
   { id: 'lhb-rajdhani', type: 'lhb', livery: 'lhb', coaches: 9, departAt: 230, startFront: 7880, stopFront: 520, maxKmh: 110 },
+  // A goods train: WAG-9 + BOXN open wagons. It is held at New Delhi's outer
+  // signal (it can't take a platform), so it stops short of the station.
+  { id: 'goods-boxn', type: 'boxn', livery: 'boxn', loco: 'wag9', coaches: 28, departAt: 330, startFront: 7880, stopFront: 960, maxKmh: 65 },
 ];
 
 // Road beside the line (left side) and a manned level crossing over both tracks.

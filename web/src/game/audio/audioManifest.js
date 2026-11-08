@@ -15,6 +15,9 @@ export const AUDIO_BASE = A;
 
 export const RAIL_INDEX_URL = `${A}rail/sounds.json`;
 
+/** Horn library: player horns (high/low tone) and distant horns, with loop points. */
+export const HORN_INDEX_URL = `${A}horns/horns.json`;
+
 /** Fixed files (always the same name). */
 export const AUDIO_FILES = {
   horn: `${A}horn-india.mp3`,

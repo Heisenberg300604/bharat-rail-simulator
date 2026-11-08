@@ -150,7 +150,9 @@ export function stepTrain(train, input, dt, cfg, env = {}) {
   train.tractionCut = train.emergency || train.bp < cfg.tractionCutBp;
   let teTarget = 0;
   if (train.direction !== DIRECTION.NEUTRAL) {
-    if (train.lever > 0 && !train.tractionCut) teTarget = train.lever * maxTractiveEffort(v, cfg);
+    // traction also cuts out above the loco's maximum speed (WAG-9: 100 km/h)
+    const overMax = cfg.locoMaxKmh && v * 3.6 >= cfg.locoMaxKmh;
+    if (train.lever > 0 && !train.tractionCut && !overMax) teTarget = train.lever * maxTractiveEffort(v, cfg);
     if (train.lever < 0) teTarget = train.lever * maxRegenEffort(v, cfg);
   }
   const ramp = cfg.teRamp_kNps * dt * (teTarget === 0 ? 2 : 1);

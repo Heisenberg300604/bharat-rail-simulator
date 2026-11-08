@@ -40,6 +40,29 @@ the date it was checked.
   photographs can't be verified. Before sharing publicly, decide whether to
   keep it or repaint the livery texture.
 
+### WAG-9 locomotive 3D model
+- **File(s):** `public/assets/models/locomotive/wag9.glb`, licence copy `wag9-LICENSE.txt`.
+- **Title:** "Wag 9 Indian Locomotive Lowpoly count"
+- **Source page:** https://sketchfab.com/3d-models/wag-9-indian-locomotive-lowpoly-count-665150d63c6146e0b361c1020a87074e
+- **Creator:** knitro_vedant (https://sketchfab.com/knitro_vedant), the same creator as the WAP-7.
+- **Licence:** CC BY 4.0. Verified via the Sketchfab API on 2026-11-08: license
+  `CC Attribution`, `isDownloadable: true`.
+- **Downloaded from:** the identical file mirrored at
+  https://github.com/madhavchaturvedi005/indian-raiilway-3D (`public/assets/wag_9_indian_locomotive_lowpoly_count.glb`).
+- **Attribution text (shown on the title screen):** This work is based on "Wag 9
+  Indian Locomotive Lowpoly count" by knitro_vedant, licensed under CC-BY-4.0.
+- **Modifications:** `@gltf-transform/cli optimize` (simplify, meshopt, 1024 px
+  WebP). Before: 23.8 MB, 290k triangles. After: 1.74 MB, about 105k triangles.
+- Used as a selectable player loco and on the AI goods train.
+
+### Other locomotive candidates (CC BY 4.0, need a Sketchfab login to download)
+| Model | Source page | Creator | Triangles |
+| --- | --- | --- | --- |
+| WDP 4D Indian Locomotive (diesel) | https://sketchfab.com/3d-models/wdp-4d-indian-locomotive-bbfe229747864a7e87d2a5645e3a599f | Dustycrate | 67k |
+| Indian Railways WAP 5 | https://sketchfab.com/3d-models/indian-railways-wap-5-46a321bb787541518b86eb634ce63cbe | idontknow23787 | 490k |
+| WAG-12 | https://sketchfab.com/models/3330081494cd436db99345ea7094caac | lakshyasharma1 | 90k |
+| WAP-4 | https://sketchfab.com/models/1fb7277488924e51b378090e229576a5 | murmuyash8 | 441k |
+
 ### Sounds
 Three groups, each with its own detailed credits file (source page, creator,
 licence checked on the asset page, excerpt, processing, and quality-check

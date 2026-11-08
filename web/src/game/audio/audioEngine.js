@@ -20,7 +20,7 @@
 //      the level-crossing bell, stations, thunder, waving kids, guard whistle.
 // Recordings load in the background after the Start click; anything that is
 // missing falls back to a synthesized version so the game is never silent.
-import { AUDIO_FILES, LOOPED, MIX, HORN, RAIL_INDEX_URL, AUDIO_BASE } from './audioManifest.js';
+import { AUDIO_FILES, LOOPED, MIX, HORN, RAIL_INDEX_URL, HORN_INDEX_URL, AUDIO_BASE } from './audioManifest.js';
 import { trainAxles, nextJoint, specialJoints, timeToJoint, inverterTone, bandWeights, RAIL_JOINTS } from './railAcoustics.js';
 
 const SPECIALS = specialJoints(RAIL_JOINTS);
@@ -133,7 +133,8 @@ class AudioEngine {
   lastDir = 1;
   coachType = null;
   hornOn = false;
-  hornSource = null;
+  hornVoice = null;
+  horns = {};
   lastBrake = 0;
   lastReleaseSound = -10;
   lastAnnouncementTime = -100;
@@ -321,7 +322,7 @@ class AudioEngine {
 
   /** Fetch + decode everything without blocking the game. Rail first (most important). */
   async loadSamples() {
-    await this.loadRail();
+    await Promise.all([this.loadRail(), this.loadHorns()]);
     const entries = Object.entries(AUDIO_FILES);
     await Promise.all(
       entries.map(async ([key, url]) => {
@@ -430,51 +431,132 @@ class AudioEngine {
     return src;
   }
 
-  // ----------------------------------------------------------- public events
+  // ----------------------------------------------------------- horns
+  /** Load the horn library (horns/horns.json): player horns + distant horns. */
+  async loadHorns() {
+    let index = [];
+    try {
+      const res = await fetch(HORN_INDEX_URL);
+      if (res.ok) index = await res.json();
+      if (!Array.isArray(index)) index = index.horns ?? [];
+    } catch {
+      index = [];
+    }
+    await Promise.all(
+      index.map(async (e) => {
+        try {
+          const buf = await this.fetchBuffer(`${AUDIO_BASE}horns/${String(e.file).replace(/^.*\//, '')}`);
+          const short = e.shortFile ? await this.fetchBuffer(`${AUDIO_BASE}horns/${String(e.shortFile).replace(/^.*\//, '')}`).catch(() => null) : null;
+          const loopStart = Number(e.loopStart);
+          const loopEnd = Number(e.loopEnd);
+          const ok = Number.isFinite(loopStart) && Number.isFinite(loopEnd) && loopEnd - loopStart > 0.2 && loopEnd < buf.duration;
+          this.horns[e.id] = { ...e, buf, short, loopStart: ok ? loopStart : buf.duration * 0.3, loopEnd: ok ? loopEnd : buf.duration * 0.7 };
+        } catch (err) {
+          console.warn(`Horn "${e.id}" unavailable:`, err.message);
+        }
+      }),
+    );
+  }
+
+  /** The player's horn recording: the chosen one, else the first library horn, else the original. */
+  hornRecording() {
+    const chosen = this.horns[this.hornChoice];
+    if (chosen) return chosen;
+    const player = Object.values(this.horns).find((h) => h.kind !== 'distant');
+    if (player) return player;
+    // the original recording: no measured release, so it simply fades out
+    return this.buffers.horn ? { buf: this.buffers.horn, loopStart: HORN.loopStart, loopEnd: HORN.loopEnd, releaseS: 0 } : null;
+  }
+
+  /**
+   * Start the horn. The recording plays its natural attack, then loops its
+   * steady part for as long as H is held (see hornStop for the release).
+   */
   hornStart(now) {
-    // inside the coach you hear the loco's horn far ahead, through the body
+    if (this.hornVoice) this.hornStop(now);
+    // inside the coach: the real recording of a loco horn heard from a coach
     if (this.perspectiveKey.startsWith('interior') && this.buffers.hornOnboard) {
       const buf = this.buffers.hornOnboard;
-      const src = this.ctx.createBufferSource();
-      src.buffer = buf;
-      src.loop = true;
-      src.loopStart = Math.min(1.2, buf.duration * 0.2);
-      src.loopEnd = Math.max(src.loopStart + 0.5, buf.duration - 1.0);
-      const g = this.ctx.createGain();
-      g.gain.setValueAtTime(0, now);
-      g.gain.linearRampToValueAtTime(MIX.horn * 1.4, now + 0.08);
-      src.connect(g).connect(this.master);
-      src.start(now);
-      this.hornSource = { src, g };
+      this.hornVoice = this.startHornVoice({ buf, loopStart: Math.min(1.2, buf.duration * 0.2), loopEnd: Math.max(1.7, buf.duration - 1.0), releaseS: 0 }, MIX.horn * 1.4, this.master, now);
       return;
     }
-    if (!this.buffers.horn) {
+    const h = this.hornRecording();
+    if (!h) {
       this.hornGain.gain.setTargetAtTime(MIX.hornSynth, now, 0.03);
       return;
     }
-    const src = this.ctx.createBufferSource();
-    src.buffer = this.buffers.horn;
-    src.loop = true;
-    src.loopStart = HORN.loopStart;
-    src.loopEnd = HORN.loopEnd;
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0, now);
-    g.gain.linearRampToValueAtTime(MIX.horn, now + 0.06);
-    src.connect(g).connect(this.locoBus.in);
-    src.start(now);
-    this.hornSource = { src, g };
+    this.hornVoice = this.startHornVoice(h, MIX.horn, this.locoBus.in, now);
   }
 
+  startHornVoice(h, level, dest, now) {
+    const src = this.ctx.createBufferSource();
+    src.buffer = h.buf;
+    src.loop = true;
+    src.loopStart = h.loopStart;
+    src.loopEnd = h.loopEnd;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(level, now);
+    src.connect(g).connect(dest);
+    src.start(now);
+    return { src, g, h, level, dest };
+  }
+
+  /**
+   * Release. A horn from the library has a measured natural decay right after
+   * its loop (releaseS): crossfade into exactly that much of it and stop —
+   * never into whatever else the recording contains. Otherwise a short fade.
+   */
   hornStop(now) {
     this.hornGain.gain.setTargetAtTime(0, now, 0.12);
-    if (this.hornSource) {
-      const { src, g } = this.hornSource;
-      g.gain.cancelScheduledValues(now);
-      g.gain.setValueAtTime(g.gain.value, now);
-      g.gain.setTargetAtTime(0, now, 0.1);
-      src.stop(now + 0.7);
-      this.hornSource = null;
+    const v = this.hornVoice;
+    if (!v) return;
+    this.hornVoice = null;
+    const release = Math.min(Number(v.h.releaseS) || 0, 1.5, v.h.buf.duration - v.h.loopEnd);
+    const X = release > 0.05 ? 0.045 : 0.12;
+    v.g.gain.cancelScheduledValues(now);
+    v.g.gain.setValueAtTime(v.g.gain.value, now);
+    v.g.gain.linearRampToValueAtTime(0, now + X);
+    v.src.stop(now + X + 0.02);
+    if (release > 0.05) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = v.h.buf;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(v.level, now + X);
+      g.gain.setValueAtTime(v.level, now + release * 0.8);
+      g.gain.linearRampToValueAtTime(0, now + release);
+      src.connect(g).connect(v.dest);
+      src.start(now, v.h.loopEnd);
+      src.stop(now + release + 0.02);
     }
+  }
+
+  /** Another train's horn: a distant recording when available. */
+  playAiHorn(level = 0.65) {
+    if (!this.ready) return;
+    const now = this.ctx.currentTime;
+    if (now - this.lastAiHornTime < 10) return;
+    this.lastAiHornTime = now;
+    const distant = Object.values(this.horns).filter((h) => h.kind === 'distant');
+    if (distant.length) {
+      const h = distant[Math.floor(Math.random() * distant.length)];
+      this.playOneShot(h.buf, level * 1.2, this.ambBus.in, { rate: 0.97 + Math.random() * 0.06 });
+      return;
+    }
+    const players = Object.values(this.horns).filter((h) => h.kind !== 'distant');
+    const buf = players.length ? players[Math.floor(Math.random() * players.length)].buf : this.buffers.horn;
+    if (!buf) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = 1.04;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0, now);
+    g.gain.linearRampToValueAtTime(level, now + 0.08);
+    g.gain.setValueAtTime(level, now + 1.2);
+    g.gain.linearRampToValueAtTime(0, now + 1.8);
+    src.connect(g).connect(this.ambBus.in);
+    src.start(now);
+    src.stop(now + 1.9);
   }
 
   /** Short "pssh" of air (brake release), also played when the journey starts. */
@@ -496,24 +578,6 @@ class AudioEngine {
     if (!this.ready) return;
     if (paused) this.ctx.suspend();
     else this.ctx.resume();
-  }
-
-  playAiHorn(level = 0.65) {
-    if (!this.ready || !this.buffers.horn) return;
-    const now = this.ctx.currentTime;
-    if (now - this.lastAiHornTime < 10) return;
-    this.lastAiHornTime = now;
-    const src = this.ctx.createBufferSource();
-    src.buffer = this.buffers.horn;
-    src.playbackRate.value = 1.06;
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0, now);
-    g.gain.linearRampToValueAtTime(level, now + 0.08);
-    g.gain.setValueAtTime(level, now + 1.2);
-    g.gain.linearRampToValueAtTime(0, now + 1.8);
-    src.connect(g).connect(this.ambBus.in);
-    src.start(now);
-    src.stop(now + 1.9);
   }
 
   playPassby(level = 1) {
@@ -580,10 +644,13 @@ class AudioEngine {
 
   // ----------------------------------------------------------- joints
   /** Rebuild the axle list when the coach type changes. */
-  setFormation(coachType) {
-    if (coachType === this.coachType) return;
+  setFormation(coachType, count) {
+    const key = `${coachType}:${count}`;
+    if (key === this.formationKey) return;
+    this.formationKey = key;
     this.coachType = coachType;
-    this.axles = trainAxles(coachType);
+    this.axles = trainAxles(coachType, count);
+    this.lastFront = null; // re-seed every axle's next joint
     this.axleState = this.axles.map(() => ({ next: null }));
     this.firstCoachCenter = this.axles.find((a) => a.vehicle === 1)?.vehicleCenter ?? 33;
   }
@@ -653,7 +720,7 @@ class AudioEngine {
     const dir = train.direction === -1 ? -1 : 1;
     const front = train.routeDistance;
     const coachType = env.coachType ?? 'lhb';
-    this.setFormation(coachType);
+    this.setFormation(coachType, env.coachCount);
 
     // ---- perspective & listener position (route coordinates)
     const mode = env.cameraMode;
@@ -766,7 +833,8 @@ class AudioEngine {
     if (notch !== this.lastLever && pKey === 'cab') this.playClick('lever');
     this.lastLever = notch;
 
-    // horn
+    // horn (H, held)
+    this.hornChoice = env.hornChoice ?? null;
     if (input.horn !== this.hornOn) {
       this.hornOn = input.horn;
       if (input.horn) this.hornStart(now);

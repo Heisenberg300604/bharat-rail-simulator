@@ -9,7 +9,7 @@ import { useMemo, useRef } from 'react';
 import { game, publish, completeJourney, sceneReady, showToast, route, currentSpeedLimit, formation } from './state/gameStore.js';
 import { stepTrain, createFixedStepper } from './simulation/trainSimulation.js';
 import { updateJourney, JOURNEY_STATE } from './simulation/journeyManager.js';
-import { TRAIN, JOURNEY, FIXED_TIMESTEP, MAX_FRAME_DELTA, STATIONS, SPEED_LIMITS, ROAD } from './config/gameConfig.js';
+import { TRAIN, JOURNEY, FIXED_TIMESTEP, MAX_FRAME_DELTA, STATIONS, SPEED_LIMITS, ROAD, LOCOMOTIVES, consistFor } from './config/gameConfig.js';
 import { sceneRefs } from './state/sceneRefs.js';
 import { envState } from './world/environment.js';
 import { KID_SPOTS } from './components/People/Crowds.jsx';
@@ -28,6 +28,11 @@ function stationProximity(s) {
   return best;
 }
 const MAX_SPEED_MPS = TRAIN.sectionalSpeedKmh / 3.6;
+
+/** Which horn recording plays: the player's pick, or the locomotive's own. */
+function hornChoice(settings) {
+  return settings.horn && settings.horn !== 'auto' ? settings.horn : LOCOMOTIVES[settings.locomotive]?.horn ?? null;
+}
 
 function nearestStationId(s) {
   let best = null;
@@ -67,7 +72,7 @@ export default function SimulationDriver() {
       const { alpha } = stepper.advance(delta, (dt) => {
         const speedBefore = train.speedMps;
         const k = Math.abs(route.curvatureAt(train.routeDistance - 100));
-        stepTrain(train, game.input, dt, TRAIN, { curveRadius: k > 0 ? 1 / k : Infinity });
+        stepTrain(train, game.input, dt, game.trainCfg, { curveRadius: k > 0 ? 1 / k : Infinity });
         updateJourney(game.journey, train, dt, JOURNEY, currentSpeedLimit(train));
         if (game.aiTrains) {
           stepAiTrains(game.aiTrains, dt, game.journey.elapsed, {
@@ -138,11 +143,13 @@ export default function SimulationDriver() {
       lcDistance,
       passingAiTrain,
       cameraMode: game.cameraMode,
-      coachType: game.settings.coachLivery === 'icfBlue' ? 'icf' : 'lhb',
+      coachType: consistFor(game.settings.coachLivery).type,
+      coachCount: consistFor(game.settings.coachLivery).count,
       coachEyeX: sceneRefs.coachEye?.eye[0] ?? 0,
       curveRadius: k > 0 ? 1 / k : Infinity,
       env: envState,
       ambienceMode: game.settings.ambience,
+      hornChoice: hornChoice(game.settings),
     });
 
     // FPS counter (cheap)

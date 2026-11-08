@@ -1,9 +1,29 @@
+import { useEffect, useState } from 'react';
+import { HORN_INDEX_URL } from '../game/audio/audioManifest.js';
 import { togglePause, requestRestart, returnToTitle, updateSettings } from '../game/state/gameStore.js';
-import { QUALITY_PRESETS } from '../game/config/gameConfig.js';
+import { QUALITY_PRESETS, LOCOMOTIVES, CONSISTS } from '../game/config/gameConfig.js';
 import ControlsTable from './ControlsTable.jsx';
 import EnvironmentPicker from './EnvironmentPicker.jsx';
 
+/** The horn library (public/assets/audio/horns/horns.json), loaded once for the picker. */
+let hornListCache = null;
+function useHornList() {
+  const [list, setList] = useState(hornListCache ?? []);
+  useEffect(() => {
+    if (hornListCache) return;
+    fetch(HORN_INDEX_URL)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => {
+        hornListCache = (Array.isArray(d) ? d : d.horns ?? []).filter((h) => h.kind !== 'distant');
+        setList(hornListCache);
+      })
+      .catch(() => setList([]));
+  }, []);
+  return list;
+}
+
 export default function PauseMenu({ settings }) {
+  const horns = useHornList();
   return (
     <div className="overlay">
       <div className="panel panel--menu" role="dialog" aria-label="Paused">
@@ -57,11 +77,34 @@ export default function PauseMenu({ settings }) {
             </select>
           </label>
           <label className="setting">
+            <span>Locomotive</span>
+            <select value={settings.locomotive} onChange={(e) => updateSettings({ locomotive: e.target.value })}>
+              {Object.entries(LOCOMOTIVES).map(([id, l]) => (
+                <option key={id} value={id}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="setting">
+            <span>Horn (H)</span>
+            <select value={settings.horn ?? 'auto'} onChange={(e) => updateSettings({ horn: e.target.value })}>
+              <option value="auto">Locomotive's own horns</option>
+              {horns.map((h) => (
+                <option key={h.id} value={h.id}>
+                  {h.label ?? `${h.loco ?? 'Horn'} · ${h.tone ?? ''}`.trim()}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="setting">
             <span>Coaches</span>
             <select value={settings.coachLivery} onChange={(e) => updateSettings({ coachLivery: e.target.value })}>
-              <option value="icfBlue">Classic Blue ICF</option>
-              <option value="red">Red-grey LHB</option>
-              <option value="blue">Blue-grey LHB</option>
+              {Object.entries(CONSISTS).map(([id, c]) => (
+                <option key={id} value={id}>
+                  {c.label}
+                </option>
+              ))}
             </select>
           </label>
           <label className="setting">

@@ -72,6 +72,10 @@ The physics, with real WAP-7 and LHB numbers, is explained in
 - **Three manned level crossings** (LC-41 near New Delhi, LC-42, LC-43 on the
   Ghaziabad approach) with booms, flashers, a gumti, whistle boards, check
   rails and a bell.
+- **Locomotives**: drive the WAP-7 (passenger, 140 km/h) or the WAG-9
+  (freight: 460 kN starting effort, so it pulls away faster, but it is limited
+  to 100 km/h). A WAG-9 hauls the AI goods train of BOXN coal wagons on the
+  down line.
 - **Cameras**: driver's cab; seated in the coach by the window (LHB AC 3-tier
   or ICF sleeper, full-length interior with passengers); standing in the
   open door; the back of the last coach (turn round to see the "X", the LV

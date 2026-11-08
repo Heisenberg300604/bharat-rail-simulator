@@ -12,7 +12,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { game, formation, useGameValue } from '../../state/gameStore.js';
 import { sceneRefs } from '../../state/sceneRefs.js';
-import { FORMATION, COACH_TYPES, LIVERIES, PARKED_TRAINS, AI_TRAINS, TRACK } from '../../config/gameConfig.js';
+import { FORMATION, COACH_TYPES, LIVERIES, PARKED_TRAINS, AI_TRAINS, TRACK, LOCOMOTIVES, consistFor } from '../../config/gameConfig.js';
 import { vehiclePose } from '../../simulation/routeMath.js';
 import { lines, mainLine, downLine } from '../../world/trackLayout.js';
 import { buildLocomotive, buildBogieFrame, buildWheelset, buildCoachExtras, buildRearEndIndicators, tailLampPosition } from '../../world/models/trainModels.js';
@@ -44,7 +44,7 @@ function makeReflectiveMaterial() {
 
 // Licensed WAP-7 model (CC-BY-4.0, see docs/ASSET_CREDITS.md). Until it has
 // loaded — or if it fails — the procedural locomotive is shown instead.
-const WAP7_URL = `${import.meta.env.BASE_URL}assets/models/locomotive/wap7.glb`;
+const locoUrl = (id) => `${import.meta.env.BASE_URL}assets/models/locomotive/${LOCOMOTIVES[id].model}`;
 
 export const FRAME_PRIORITY_TRAIN = -2; // after the simulation (-3), before cameras (-1)
 
@@ -63,10 +63,11 @@ const _c = new THREE.Color();
  * 2. Stationary parked trains at station platforms
  * 3. Dynamic AI trains operating on the DOWN main line
  */
-function buildVehicleList(coachSetting) {
+function buildVehicleList(coachSetting, playerLoco = 'wap7') {
   const list = [];
-  const playerType = coachSetting === 'icfBlue' ? 'icf' : 'lhb';
-  const playerLivery = coachSetting === 'icfBlue' ? 'icfBlue' : coachSetting === 'blue' ? 'lhbBlue' : 'lhb';
+  const consist = consistFor(coachSetting);
+  const playerType = consist.type;
+  const playerLivery = consist.livery;
 
   // 1. Player train on main line (locomotive + coaches with proper spacing per coach type)
   const L = FORMATION.locomotive.length;
@@ -78,13 +79,14 @@ function buildVehicleList(coachSetting) {
     dynamic: true,
     isPlayer: true,
     livery: 'wap7',
+    model: playerLoco,
     reverseHeading: false,
   });
 
   const playerSpec = COACH_TYPES[playerType] || COACH_TYPES.lhb;
   const playerGap = playerSpec.gap ?? FORMATION.couplingGap;
   let playerBack = L;
-  for (let i = 0; i < FORMATION.coachCount; i++) {
+  for (let i = 0; i < consist.count; i++) {
     playerBack += playerGap;
     list.push({
       kind: 'coach',
@@ -105,7 +107,7 @@ function buildVehicleList(coachSetting) {
     if (!line) continue;
     let back = 0;
     const L = FORMATION.locomotive.length;
-    list.push({ kind: 'locomotive', type: 'locomotive', line, centerS: pt.frontS - L / 2, livery: 'wap7', reverseHeading: false });
+    list.push({ kind: 'locomotive', type: 'locomotive', line, centerS: pt.frontS - L / 2, livery: 'wap7', model: 'wap7', reverseHeading: false });
     back = L;
     const ptType = pt.type || 'lhb';
     const ct = COACH_TYPES[ptType] || COACH_TYPES.lhb;
@@ -113,7 +115,7 @@ function buildVehicleList(coachSetting) {
     for (let i = 0; i < pt.coaches; i++) {
       back += gap;
       let livery = pt.livery;
-      if (livery === 'contrast') livery = playerLivery === 'lhbBlue' ? 'lhb' : 'lhbBlue';
+      if (livery === 'contrast') livery = playerLivery === 'lhb' ? 'lhbBlue' : 'lhb';
       list.push({
         kind: 'coach',
         type: ptType,
@@ -142,6 +144,7 @@ function buildVehicleList(coachSetting) {
       aiIndex: aiIdx,
       offsetFromFront: L / 2,
       livery: 'wap7',
+      model: def.loco ?? 'wap7',
       reverseHeading: true,
     });
 
@@ -181,7 +184,8 @@ function makeMaterials() {
 
 export default function Train() {
   const coachLivery = useGameValue((s) => s.settings.coachLivery);
-  const vehicles = useMemo(() => buildVehicleList(coachLivery), [coachLivery]);
+  const playerLoco = useGameValue((s) => s.settings.locomotive) ?? 'wap7';
+  const vehicles = useMemo(() => buildVehicleList(coachLivery, playerLoco), [coachLivery, playerLoco]);
 
   const assets = useMemo(() => {
     const loco = buildLocomotive();
@@ -199,7 +203,7 @@ export default function Train() {
       coachWheel: buildWheelset(COACH_TYPES.lhb.wheelRadius),
       lhbExtras: buildCoachExtras(COACH_TYPES.lhb.gap, COACH_TYPES.lhb.length, 'lhb'),
       icfExtras: buildCoachExtras(COACH_TYPES.icf.gap, COACH_TYPES.icf.length, 'icf'),
-      rearEnds: { lhb: buildRearEndIndicators('lhb'), icf: buildRearEndIndicators('icf') },
+      rearEnds: { lhb: buildRearEndIndicators('lhb'), icf: buildRearEndIndicators('icf'), boxn: buildRearEndIndicators('boxn') },
       doorways: { lhb: buildDoorway('lhb'), icf: buildDoorway('icf') },
       reflectMat: makeReflectiveMaterial(),
       mats: makeMaterials(),
@@ -259,6 +263,7 @@ export default function Train() {
         assets.personGeo,
         ...Object.values(assets.rearEnds.lhb),
         ...Object.values(assets.rearEnds.icf),
+        ...Object.values(assets.rearEnds.boxn),
         ...Object.values(assets.doorways.lhb),
         ...Object.values(assets.doorways.icf),
       ];
@@ -271,22 +276,29 @@ export default function Train() {
     [assets],
   );
 
-  const [glbLoco, setGlbLoco] = useState(null);
+  // Licensed GLB locomotives (see docs/ASSET_CREDITS.md). Until one has loaded
+  // — or if it fails — the procedural locomotive stands in for it.
+  const [glbModels, setGlbModels] = useState({});
   useEffect(() => {
     let alive = true;
-    loadMergedModel(WAP7_URL, { forwardAxis: 'z' })
-      .then((m) => alive && setGlbLoco(m))
-      .catch((err) => console.warn('WAP-7 model failed to load, using procedural loco:', err));
+    for (const id of Object.keys(LOCOMOTIVES)) {
+      loadMergedModel(locoUrl(id), { forwardAxis: 'z' })
+        .then((m) => alive && setGlbModels((prev) => ({ ...prev, [id]: m })))
+        .catch((err) => console.warn(`${id} model failed to load, using procedural loco:`, err));
+    }
     return () => {
       alive = false;
     };
   }, []);
+  const allLocosLoaded = Object.keys(LOCOMOTIVES).every((id) => glbModels[id]);
 
   const coachVariants = useMemo(getCoachVariants, []);
 
   // Inside the first coach: the interior for the chosen coach type, with
   // passengers sitting on the berths around you.
-  const playerCoachType = coachLivery === 'icfBlue' ? 'icf' : 'lhb';
+  const consist = consistFor(coachLivery);
+  const playerCoachType = consist.type === 'icf' ? 'icf' : 'lhb'; // which passenger interior to build
+  const lastVehicleType = consist.type; // what the X / LV board / tail lamp mount on
   const passengers = useMemo(() => {
     const c = COACH_LAYOUTS[playerCoachType];
     const rand = seededRandom(playerCoachType === 'icf' ? 71 : 72);
@@ -317,25 +329,30 @@ export default function Train() {
   useLayoutEffect(() => {
     sceneRefs.coachEye = coachEye(playerCoachType);
     sceneRefs.doorEye = doorEye(playerCoachType);
-    const [tx, ty, tz] = tailLampPosition(playerCoachType);
+    const [tx, ty, tz] = tailLampPosition(lastVehicleType);
     setGlow(lamps.tail, 0, tx - 0.05, ty, tz, 1.1, '#ff2a1a');
     lamps.tail.instanceMatrix.needsUpdate = true;
     if (tailLampRef.current) tailLampRef.current.position.set(tx + 0.03, ty, tz);
-  }, [playerCoachType, lamps]);
+  }, [playerCoachType, lastVehicleType, lamps]);
 
-  // Parts to draw for locomotives: GLB parts if loaded, else procedural groups
-  const locoParts = useMemo(
-    () =>
-      glbLoco
-        ? glbLoco.parts.map((p, i) => ({ key: `g${i}`, geometry: p.geometry, material: p.material, shared: p.material }))
-        : Object.entries(assets.loco).map(([key, geometry]) => ({ key, geometry, material: assets.locoMats[key], shared: assets.mats[key] })),
-    [glbLoco, assets],
-  );
+  // Parts to draw for each locomotive model: GLB parts if loaded, else procedural groups
+  const partsByModel = useMemo(() => {
+    const out = {};
+    for (const id of Object.keys(LOCOMOTIVES)) {
+      const glb = glbModels[id];
+      out[id] = glb
+        ? glb.parts.map((p, i) => ({ key: `g${i}`, geometry: p.geometry, material: p.material, shared: p.material }))
+        : Object.entries(assets.loco).map(([key, geometry]) => ({ key, geometry, material: assets.locoMats[key], shared: assets.mats[key] }));
+    }
+    return out;
+  }, [glbModels, assets]);
+  const locoParts = partsByModel[playerLoco] ?? partsByModel.wap7;
 
   const counts = useMemo(() => {
     const coaches = vehicles.filter((v) => v.kind === 'coach');
     const lhbCoaches = coaches.filter((v) => v.type === 'lhb');
     const icfCoaches = coaches.filter((v) => v.type === 'icf');
+    const boxnWagons = coaches.filter((v) => v.type === 'boxn');
 
     const variantCounts = {};
     for (const v of coaches) {
@@ -346,20 +363,19 @@ export default function Train() {
     }
 
     // Index coaches per type for extras and bogies
-    let lhbIdx = 0;
-    let icfIdx = 0;
-    for (const v of coaches) {
-      if (v.type === 'icf') v.typeIndex = icfIdx++;
-      else v.typeIndex = lhbIdx++;
-    }
+    const typeIdx = { lhb: 0, icf: 0, boxn: 0 };
+    for (const v of coaches) v.typeIndex = typeIdx[v.type in typeIdx ? v.type : 'lhb']++;
 
     const locos = vehicles.filter((v) => v.kind === 'locomotive');
     const otherLocos = locos.filter((v) => !v.isPlayer);
+    const modelCounts = {};
     otherLocos.forEach((v, i) => {
-      v.locoIndex = i;
+      v.locoIndex = i; // running gear slot (all locos share bogies/wheels)
+      modelCounts[v.model] = modelCounts[v.model] ?? 0;
+      v.modelIndex = modelCounts[v.model]++; // slot within this model's body meshes
     });
 
-    return { coaches, lhbCoaches, icfCoaches, locos, otherLocos, variantCounts };
+    return { coaches, lhbCoaches, icfCoaches, boxnWagons, locos, otherLocos, modelCounts, variantCounts };
   }, [vehicles]);
 
   const locoGroup = useRef();
@@ -396,15 +412,14 @@ export default function Train() {
 
   useLayoutEffect(() => {
     const r = refs.current;
-    if (!glbLoco) {
-      counts.otherLocos.forEach((v, i) => {
-        r.ploco_paint?.setColorAt(i, _c.set(LIVERIES[v.livery].paint));
-        r.ploco_paint2?.setColorAt(i, _c.set(LIVERIES[v.livery].paint2));
-      });
-      for (const key of ['ploco_paint', 'ploco_paint2']) if (r[key]?.instanceColor) r[key].instanceColor.needsUpdate = true;
+    for (const v of counts.otherLocos) {
+      if (glbModels[v.model]) continue; // procedural stand-in: paint it
+      r[`ploco_${v.model}_paint`]?.setColorAt(v.modelIndex, _c.set(LIVERIES[v.livery].paint));
+      r[`ploco_${v.model}_paint2`]?.setColorAt(v.modelIndex, _c.set(LIVERIES[v.livery].paint2));
     }
+    for (const id of Object.keys(LOCOMOTIVES)) for (const key of ['paint', 'paint2']) if (r[`ploco_${id}_${key}`]?.instanceColor) r[`ploco_${id}_${key}`].instanceColor.needsUpdate = true;
     updateAll(true);
-  }, [locoParts, coachVariants, counts]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [partsByModel, coachVariants, counts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pose = {};
   const pt = {};
@@ -496,7 +511,7 @@ export default function Train() {
         if (r.locoBogie) placeRunningGear(v, centerS, dist, r.locoBogie, 0, r.locoWheel, 0, spec, false);
       } else if (isLoco) {
         const pli = v.locoIndex;
-        for (const part of locoParts) r[`ploco_${part.key}`]?.setMatrixAt(pli, _m);
+        for (const part of partsByModel[v.model]) r[`ploco_${v.model}_${part.key}`]?.setMatrixAt(v.modelIndex, _m);
         if (lit) glowIdx = addLocoGlows(v, glowIdx);
         if (r.locoBogie) placeRunningGear(v, centerS, dist, r.locoBogie, (pli + 1) * 2, r.locoWheel, (pli + 1) * 6, spec, v.reverseHeading);
       } else {
@@ -505,8 +520,9 @@ export default function Train() {
         parts.forEach((_, k) => r[`cv_${v.variant}_${k}`]?.setMatrixAt(v.variantIndex, _m));
 
         const isIcf = v.type === 'icf';
-        const extrasMesh = isIcf ? r.icfCoachExtras : r.lhbCoachExtras;
-        const bogieMesh = isIcf ? r.icfCoachBogie : r.lhbCoachBogie;
+        const isBoxn = v.type === 'boxn';
+        const extrasMesh = isBoxn ? null : isIcf ? r.icfCoachExtras : r.lhbCoachExtras;
+        const bogieMesh = isBoxn ? r.boxnBogie : isIcf ? r.icfCoachBogie : r.lhbCoachBogie;
 
         extrasMesh?.setMatrixAt(v.typeIndex, _m);
         placeRunningGear(v, centerS, dist, bogieMesh, v.typeIndex * 2, r.coachWheel, coachWheelIdx * 4, spec, v.reverseHeading);
@@ -536,8 +552,8 @@ export default function Train() {
     }
 
     // Place LV board and flashing red tail lamp on the rear wall of the player train
-    if (rearEndGroup.current && vehicles[FORMATION.coachCount]) {
-      const lastCoach = vehicles[FORMATION.coachCount];
+    if (rearEndGroup.current && vehicles[consist.count]) {
+      const lastCoach = vehicles[consist.count];
       const coachSpec = COACH_TYPES[lastCoach.type] || COACH_TYPES.lhb;
       const rearS = d - (lastCoach.offset + coachSpec.length / 2);
       vehiclePose(mainLine, rearS, coachSpec.bogieSpacing, pose);
@@ -608,9 +624,9 @@ export default function Train() {
   };
 
   const nLocoAll = counts.locos.length;
-  const nOtherLocos = counts.otherLocos.length;
   const nLhb = counts.lhbCoaches.length;
   const nIcf = counts.icfCoaches.length;
+  const nBoxn = counts.boxnWagons.length;
   const nCoachAll = counts.coaches.length;
 
   return (
@@ -655,8 +671,8 @@ export default function Train() {
       </group>
 
       <group ref={rearEndGroup}>
-        {Object.entries(assets.rearEnds[playerCoachType]).map(([key, geo]) => (
-          <mesh key={`${playerCoachType}${key}`} geometry={geo} material={key === 'reflect' ? assets.reflectMat : assets.interiorMats.body} castShadow />
+        {Object.entries(assets.rearEnds[lastVehicleType]).map(([key, geo]) => (
+          <mesh key={`${lastVehicleType}${key}`} geometry={geo} material={key === 'reflect' ? assets.reflectMat : assets.interiorMats.body} castShadow />
         ))}
         <primitive object={lamps.tail} />
         <mesh ref={tailLampRef} position={[-0.04, 1.98, -0.8]}>
@@ -668,10 +684,11 @@ export default function Train() {
       <primitive object={lamps.others} />
 
       {/* Instanced meshes for all other locomotives (AI + parked) */}
-      {nOtherLocos > 0 &&
-        locoParts.map((p) => (
-          <instancedMesh key={p.key} ref={register(`ploco_${p.key}`, true)} args={[p.geometry, p.shared, nOtherLocos]} receiveShadow />
-        ))}
+      {Object.entries(counts.modelCounts).flatMap(([model, n]) =>
+        partsByModel[model].map((p) => (
+          <instancedMesh key={`${model}${p.key}`} ref={register(`ploco_${model}_${p.key}`, true)} args={[p.geometry, p.shared, n]} receiveShadow />
+        )),
+      )}
 
       {/* Instanced meshes for coach body shells by variant */}
       {Object.entries(counts.variantCounts).flatMap(([variant, n]) => {
@@ -697,10 +714,11 @@ export default function Train() {
       {/* Bogies */}
       {nLhb > 0 && <instancedMesh ref={register('lhbCoachBogie')} args={[assets.lhbBogie, assets.mats.running, nLhb * 2]} castShadow />}
       {nIcf > 0 && <instancedMesh ref={register('icfCoachBogie')} args={[assets.icfBogie, assets.mats.running, nIcf * 2]} castShadow />}
+      {nBoxn > 0 && <instancedMesh ref={register('boxnBogie')} args={[assets.icfBogie, assets.mats.running, nBoxn * 2]} castShadow />}
       <instancedMesh ref={register('locoBogie')} args={[assets.locoBogie, assets.mats.running, nLocoAll * 2]} castShadow />
 
       {/* Wheels */}
-      {!glbLoco && <instancedMesh ref={register('locoWheel')} args={[assets.locoWheel, assets.mats.running, nLocoAll * 6]} />}
+      {!allLocosLoaded && <instancedMesh ref={register('locoWheel')} args={[assets.locoWheel, assets.mats.running, nLocoAll * 6]} />}
       <instancedMesh ref={register('coachWheel')} args={[assets.coachWheel, assets.mats.running, nCoachAll * 4]} />
     </group>
   );

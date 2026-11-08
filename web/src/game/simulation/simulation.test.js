@@ -6,7 +6,7 @@ import { createRoute, vehiclePose, computeFormation } from './routeMath.js';
 import { createTrainState, stepTrain, cycleDirection, createFixedStepper, applyEmergency, speedLimitFor, DIRECTION } from './trainSimulation.js';
 import { createJourney, updateJourney, JOURNEY_STATE } from './journeyManager.js';
 import { createAiTrains, stepAiTrains } from './aiTraffic.js';
-import { TRAIN, ROUTE_SEGMENTS, JOURNEY, FORMATION, COACH_TYPES, AI_TRAINS, LEVEL_CROSSING, FIXED_TIMESTEP, SPEED_LIMITS } from '../config/gameConfig.js';
+import { TRAIN, ROUTE_SEGMENTS, JOURNEY, FORMATION, COACH_TYPES, AI_TRAINS, LEVEL_CROSSING, FIXED_TIMESTEP, SPEED_LIMITS, trainConfigFor } from '../config/gameConfig.js';
 import { coachVariantKey } from '../world/models/coaches.js';
 
 const DT = FIXED_TIMESTEP;
@@ -295,7 +295,7 @@ test('AI train formation lengths respect coach types (ICF vs LHB)', () => {
     return FORMATION.locomotive.length + def.coaches * (ct.length + (ct.gap ?? 0.5));
   };
   const aiTrains = createAiTrains(AI_TRAINS, lengthOf);
-  assert.equal(aiTrains.length, 2);
+  assert.equal(aiTrains.length, 3);
 
   // icf-express: WAP-7 (20.56) + 10 ICF (21.337 + 0.7 = 22.037) = 240.93 m
   const icfExpress = aiTrains.find((t) => t.id === 'icf-express');
@@ -306,6 +306,32 @@ test('AI train formation lengths respect coach types (ICF vs LHB)', () => {
   const lhbRajdhani = aiTrains.find((t) => t.id === 'lhb-rajdhani');
   assert.ok(lhbRajdhani);
   assert.ok(Math.abs(lhbRajdhani.length - (20.56 + 9 * (23.54 + 0.5))) < 1e-3);
+
+  // goods-boxn: WAG-9 (20.56) + 28 BOXN (10.713 + 0.3 = 11.013) = 328.92 m
+  const goods = aiTrains.find((t) => t.id === 'goods-boxn');
+  assert.ok(goods);
+  assert.ok(Math.abs(goods.length - (20.56 + 28 * (10.713 + 0.3))) < 1e-3);
+  // it waits outside New Delhi, clear of the passenger trains at the platforms
+  for (const other of aiTrains.filter((t) => t !== goods)) assert.ok(goods.stopFront > other.stopFront + other.length);
+});
+
+test('WAG-9 pulls harder than the WAP-7 but cuts traction at 100 km/h', () => {
+  const wap7 = trainConfigFor('wap7');
+  const wag9 = trainConfigFor('wag9');
+  const run = (cfg, seconds, startKmh = 0) => {
+    const t = createTrainState({ startDistance: 1000, minDistance: 0, maxDistance: 1e6, coachCount: FORMATION.coachCount, cfg });
+    t.brakeHandle = 0;
+    t.bp = cfg.bpNormal;
+    t.bc = 0;
+    t.brakeSignal = 0;
+    t.speedMps = startKmh / 3.6;
+    const input = { leverUp: true };
+    for (let i = 0; i < seconds / DT; i++) stepTrain(t, input, DT, cfg);
+    return t.speedMps * 3.6;
+  };
+  assert.ok(run(wag9, 30) > run(wap7, 30), 'more starting tractive effort → quicker start');
+  assert.ok(run(wag9, 240, 95) <= 101, 'WAG-9 cannot be driven past 100 km/h');
+  assert.ok(run(wap7, 240, 95) > 105, 'WAP-7 keeps accelerating');
 });
 
 test('level crossing gate timing correctly calculates closing window', () => {
