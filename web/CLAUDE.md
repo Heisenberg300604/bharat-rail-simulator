@@ -1,25 +1,26 @@
 # CLAUDE.md — Bharat Rail Simulator (web)
 
 Read this first and you should not need to explore the repo to start work.
-Everything here is current as of 2026-11-14. **If you change something this
+Everything here is current as of 2026-11-14 (refreshed after Wave 1). **If you change something this
 file describes, update this file in the same turn** — see §9.
 
 ---
 
 ## 1. What this is
 
-A browser Indian-railways driving sim: drive a WAP-7 (or WAG-9) with 8 LHB
-coaches over six condensed, fictional routes inspired by famous lines (Delhi
+A browser Indian-railways driving sim: drive a WAP-7, WAG-9, WAP-4 or WCAM-1
+with LHB/ICF coaches or BOXN/BCNA freight over six condensed, fictional routes inspired by famous lines (Delhi
 mainline, Bhor Ghat, Konkan, Pamban Bridge, Gatimaan corridor, Bengal
 suburban). Real physics numbers, gradients, multi-stop timetables, per-axle
-recorded rail audio, 60 FPS on cheap laptops.
+recorded rail audio, live signalling, Kavach, VCD, wheel slip, a driver school,
+run cards and local records, photo mode. 60 FPS on cheap laptops.
 
 Stack: **JavaScript (no TypeScript), React 19, Vite 8, Three.js 0.187,
 React Three Fiber 9.** No other dependencies, no backend, no paid services.
 
 ```bash
 npm run dev      # http://localhost:5173
-npm test         # node --test — 95 tests, all passing; run before claiming done
+npm test         # node --test — 96 tests, all passing; run before claiming done
 npm run build    # static dist/  (vite base: './' so it works in a sub-folder)
 ```
 
@@ -44,6 +45,12 @@ npm run build    # static dist/  (vite base: './' so it works in a sub-folder)
    (`ambience: 'occasional'` is the default and the intended feel).
 7. Keep simulation logic pure and unit-tested, separate from rendering (§4).
 8. Don't claim a feature works unless it was implemented and verified.
+9. **Ask before each feature.** When working through `docs/ENHANCEMENTS_PLAN.md`,
+   go easiest first, then medium. Before building each item, describe what you
+   plan to implement and wait for the owner's yes/no. "No" means skip it and
+   propose the next one. Never start the next feature without approval.
+10. Work goes on a feature branch (currently `wave1-driving-realism`), not
+   straight onto `main`.
 
 ## 3. Architecture in ten lines
 
@@ -165,7 +172,8 @@ can be unit-tested with `node --test`. Keep it that way.
 ## 6. Current state
 
 Milestones 0–6 done; milestone 7 (performance & release) partial. Six
-routes (routes plan steps 1–7 implemented). 66 tests pass. Measured on an M4: 46–88 draw calls, steady 60 FPS; 58–60 FPS on Low
+routes (routes plan steps 1–7 implemented). Wave 1 of ENHANCEMENTS_PLAN done,
+plus A1/A2/A3/A5 and the WAP-4/WCAM-1/BVZI/BCNA models. 96 tests pass. Measured on an M4: 46–88 draw calls, steady 60 FPS; 58–60 FPS on Low
 with the CPU throttled 4×.
 
 **Known limitations and quirks** (don't "fix" these by surprise):
@@ -181,20 +189,21 @@ with the CPU throttled 4×.
 - Adhesion coefficients are game assumptions (no official figures exist).
 - Single-line routes have no running opposing trains (they wait parked in
   crossing loops). Bankers on Bhor Ghat are physics + HUD only (not drawn).
-- No diesel/WAP-5 models yet, so every route is driven with WAP-7/WAG-9.
-- `settings.kavach` exists in `gameStore.js:74` but **nothing reads it** — a
-  placeholder for the planned ATP feature.
+- No diesel, EMU or WAP-5 models yet (electric locos only: WAP-7, WAG-9,
+  WAP-4, WCAM-1). The BCNA wagon is ~16.9 m (artist's proportions) vs 14.45 m.
 - `public/assets/audio/horns/` does not exist, so `horns.json` 404s and the
   single `horn-india.mp3` is used. Dropping that folder in enables the horn
   picker with no code change.
-- No licence-clear ICF model was found; the ICF and LHB coaches are **original
-  procedural** bodies built to real dimensions. The parked blue rake is a
-  recoloured LHB.
+- The ICF and LHB coaches are **original procedural** bodies built to real
+  dimensions (a CC BY ICF model is catalogued in ASSET_CREDITS but not yet
+  downloaded).
 - The WAP-7 traction-motor sound is synthesized; no licence-clean recording of
   an Indian three-phase loco exists.
 - The WAP-7 body texture carries real fleet numbers — see the open question in
   `docs/ASSET_CREDITS.md`.
-- Persistence: settings and best score per route only.
+- Persistence is localStorage only (settings, bests, records, school); no server yet.
+- `docs/ROUTES_PLAN.md` is deleted in the owner's working copy (still in git
+  history); the routes are documented in `src/game/routes/` and §3–§5 here.
 
 ## 7. Which doc to read, and when
 
