@@ -19,7 +19,7 @@ React Three Fiber 9.** No other dependencies, no backend, no paid services.
 
 ```bash
 npm run dev      # http://localhost:5173
-npm test         # node --test — 66 tests, all passing; run before claiming done
+npm test         # node --test — 95 tests, all passing; run before claiming done
 npm run build    # static dist/  (vite base: './' so it works in a sub-folder)
 ```
 
@@ -86,6 +86,12 @@ can be unit-tested with `node --test`. Keep it that way.
 | `simulation/routeMath.js` | `createRoute`, `sample(s)`, curve radius |
 | `simulation/journeyManager.js` | Multi-stop journey: stop zones, hold, dwell + guard's right-away, missed/early stops, punctuality, score, HUD hint |
 | `simulation/aiTraffic.js` | AI trains on the down line |
+| `simulation/signalling.js` | Live MACLS aspects (chain, starters held until right-away, held homes, AI occupancy on the down line), SPAD + passed events, `nextSignal` |
+| `simulation/kavach.js` | Simplified Kavach ATP: permitted speed, braking curve to EoA/PSR, warn/service/full/emergency/trip (RDSO defaults) |
+| `simulation/vcd.js` | Vigilance control device (60 s / 8 s / penalty / 160 s reset) |
+| `simulation/runStats.js` | Run-card stats: energy, regen, comfort (peak accel/jerk), safety counters |
+| `simulation/driverSchool.js` | Lessons (steps with checks) for the driver school |
+| `state/records.js` | Personal records + driving log (localStorage `brs-records`) |
 | `simulation/roadTraffic.js` | Intelligent Driver Model for road vehicles |
 | `simulation/simulation.test.js` | Physics / route / journey tests |
 | `state/gameStore.js` | `game` object, settings load/save, snapshot store, all actions (start, pause, restart, camera, settings) |
@@ -99,11 +105,11 @@ can be unit-tested with `node --test`. Keep it that way.
 | `components/Train/` | `Train.jsx` (the rake), `CabInterior`, `CoachInterior` |
 | `components/Track/TrackRoute.jsx` | Rails, sleepers, ballast, OHE |
 | `components/Stations/Station.jsx` | Platforms, buildings, boards, lighting |
-| `components/Environment/` | `Atmosphere` (sky/sun/moon/lighting, tunnel darkness), `Weather`, `Terrain` (chunked corridor mesh, far plane, water), `Structures` (bridges, tunnels), `Landmarks`, `Scenery` (biome-driven), `Road.jsx` (road, traffic, level crossings, **signal posts** from `SIGNALS`) |
+| `components/Environment/` | `Atmosphere` (sky/sun/moon/lighting, tunnel darkness), `Weather`, `Terrain` (chunked corridor mesh, far plane, water), `Structures` (bridges, tunnels), `Landmarks`, `Scenery` (biome-driven), `Road.jsx` (road, traffic, level crossings), `Signals` (instanced posts + live lamps, A/P plates), `SpeedBoards` |
 | `components/People/Crowds.jsx` | GPU-animated crowds; exports `KID_SPOTS` |
 | `components/Cameras/CameraRig.jsx` | Six camera modes + mouse look/orbit |
-| `src/ui/` | `StartScreen` (route list + detail, How-to-play/Settings/About modals), `RoutePicker` (`RouteList`, `RouteDetail`, `Profile`), `HUD`, `PauseMenu`, `LoadingScreen`, `JourneyComplete`, `RestartConfirm`, `ControlsTable`, `EnvironmentPicker` |
-| `public/assets/` | `models/locomotive/*.glb` (+ per-model LICENSE), `audio/rail/`, `audio/ambience/` (each with `CREDITS.md`) |
+| `src/ui/` | `StartScreen` (route list + detail, difficulty, Driver school/How-to-play/Settings/Records/About modals), `JourneyComplete` (run card + PNG), `PhotoMode`, `LessonPanel`, `RoutePicker` (`RouteList`, `RouteDetail`, `Profile`), `HUD`, `PauseMenu`, `LoadingScreen`, `JourneyComplete`, `RestartConfirm`, `ControlsTable`, `EnvironmentPicker` |
+| `public/assets/` | `models/locomotive/*.glb` (WAP-7, WAG-9, WAP-4, WCAM-1; + per-model LICENSE), `models/stock/` (`bvzi.glb` brake van, `bcna.glb` covered wagon — any `COACH_TYPES` entry with `model` is drawn from its GLB), `audio/rail/`, `audio/ambience/` (each with `CREDITS.md`) |
 
 ## 5. Invariants — breaking these breaks the game
 
@@ -122,6 +128,13 @@ can be unit-tested with `node --test`. Keep it that way.
   (`validateRoute` enforces it; the road group sits at `terrain.roadBase`).
 - Gradient force: `stepTrain(..., { grade, bankerTE_kN })`; no roll-back — a
   stopped train on a rising grade is held.
+- Protection inputs to `stepTrain`: `mu` (adhesion, Realistic), `extraBrake`
+  (Kavach/VCD brake demand), `cutTraction`. Kavach/VCD/adhesion are computed in
+  `SimulationDriver.protection()` each physics step, per `DIFFICULTY`.
+- Starters clear only on the guard's right-away (`journey.rightAway`); leaving
+  early means passing a red. SPAD handling follows `DIFFICULTY[x].spad`.
+- Locos with `standIn: true` (no GLB in the repo) are hidden from the pickers
+  until their model loads, unless `settings.showStandIns`.
 - **A speed restriction applies until the REAR of the train clears it**
   (`speedLimitFor(limits, rear, front)`), as on the real railway.
 - **Traction is cut below BP 4.75 kg/cm²**, and above the loco's max speed.
@@ -140,8 +153,10 @@ can be unit-tested with `node --test`. Keep it that way.
   Expected, not a leak.
 - When paused, `frameloop` becomes `'demand'` to save battery.
 - Settings live in `localStorage` under **`brs-settings`** (incl. `route`),
-  validated on load so retired values fall back safely. Best scores per route
-  live under **`brs-best`**.
+  validated on load so retired values fall back safely (incl. `difficulty`:
+  trainee|pilot|realistic, default pilot; `kavach`: auto|on|off). Best scores
+  per route: **`brs-best`**; records + driving log: **`brs-records`**; driver
+  school progress: **`brs-school`**.
 - `SimulationDriver` calls `gl.compile(scene, camera)` on its first frame so
   far-away/culled objects don't hitch when first seen; `ChunkedInstances`
   re-culls immediately after a camera jump > 150 m.
@@ -155,8 +170,15 @@ with the CPU throttled 4×.
 
 **Known limitations and quirks** (don't "fix" these by surprise):
 - Only tested in Chrome on macOS. Windows, Safari and Firefox unverified.
-- Signals are **decorative**: static aspects from route data (`SIGNALS`).
-  Nothing can change an aspect and nothing checks obedience.
+- Signals are live but there is no same-direction traffic, so automatic
+  signals never go to danger; GR 9.02 (pass an automatic red after waiting) is
+  not modelled. Kavach is Full Supervision only.
+- WAP-5 has physics but no model yet (stand-in body, hidden by default). The
+  WCAM-1 model is ~18.3 m (artist's proportions) vs the real 20.95 m.
+- Locos may set `length` (formation uses it) and `ownRunningGear` (procedural
+  bogies hidden). New GLBs are processed to the WAP-7 convention: metres, length
+  along z, centred, wheels at y=0, meshopt + WebP (see ASSET_CREDITS).
+- Adhesion coefficients are game assumptions (no official figures exist).
 - Single-line routes have no running opposing trains (they wait parked in
   crossing loops). Bankers on Bhor Ghat are physics + HUD only (not drawn).
 - No diesel/WAP-5 models yet, so every route is driven with WAP-7/WAG-9.
@@ -185,6 +207,7 @@ Don't read these speculatively — each costs real context. Read on demand:
 | `docs/SIMULATION.md` | Touching physics, braking or the force model |
 | `docs/ROUTES_PLAN.md` | Anything about new routes, the route data model, gradients, multi-stop |
 | `docs/ENHANCEMENTS_PLAN.md` | Anything about new features, new locos/stock, priorities, roadmap |
+| `docs/DRIVING_RULES.md` | Signals, SPAD, Kavach, VCD, adhesion, speed boards: the sourced rules and how the game implements them |
 | `docs/ASSET_CREDITS.md` | Sourcing, adding or crediting any asset; the loco candidate list |
 | `public/assets/audio/*/CREDITS.md` | Adding or checking a sound file |
 

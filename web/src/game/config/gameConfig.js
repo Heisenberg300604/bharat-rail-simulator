@@ -79,6 +79,41 @@ export const LOCOMOTIVES = {
     horn: null,
     physics: { startingTE_kN: 460, power_kW: 4350, regenMax_kN: 260, locoMaxKmh: 100, teRamp_kNps: 70 },
   },
+  // Wave 3 fleet. Figures from the IRFCA electric-loco FAQ and Wikipedia (see
+  // docs/ASSET_CREDITS.md). `standIn`: no licensed model in the repo yet, so
+  // the pickers hide them until the GLB is dropped into
+  // public/assets/models/locomotive/ — or the player ticks "show stand-in
+  // locos", which drives them with the procedural body in their livery.
+  wap5: {
+    label: 'WAP-5 · 160 km/h',
+    model: 'wap5.glb',
+    standIn: true, // hidden from the pickers until wap5.glb exists (or the player opts in)
+    livery: 'wap5',
+    horn: null,
+    // Bo-Bo, 78 t, 258 kN starting TE, 4,474 kW, 160 km/h, regen 160 kN
+    physics: { loco: { massT: 78, rotFactor: 1.15, axles: 4 }, startingTE_kN: 258, power_kW: 4474, regenMax_kN: 160, locoMaxKmh: 160, teRamp_kNps: 45 },
+  },
+  wap4: {
+    label: 'WAP-4 · classic DC, no regen',
+    model: 'wap4.glb', // "WAP-4 | Indian Electric Engine Locomotive" by Prabhu Ram (virtualmakes), CC BY 4.0
+    livery: 'wap4',
+    length: 18.75, // model scaled to the real 18,794 mm over buffers
+    ownRunningGear: true, // the model has its own bogies and wheels
+    horn: null,
+    // Co-Co, 112.8 t, 302 kN starting TE, 3,766 kW, 140 km/h, no regenerative braking
+    physics: { loco: { massT: 112.8, rotFactor: 1.15, axles: 6 }, startingTE_kN: 302, power_kW: 3766, regenMax_kN: 0, locoMaxKmh: 140, teRamp_kNps: 35 },
+  },
+  // Heritage dual-current loco (1500 V DC / 25 kV AC, CLW 1973–79, withdrawn 2015),
+  // driven here in AC mode. Figures: Wikipedia "Indian locomotive class WCAM-1".
+  wcam1: {
+    label: 'WCAM-1 · heritage dual-current (AC mode)',
+    model: 'wcam1.glb', // "WAM-4 | Indian Electric Engine Locomotive" (actually a WCAM-1) by Prabhu Ram (virtualmakes), CC BY 4.0
+    length: 18.28, // the artist's model is short for its width: scaled to the real width (3.055 m), so ~18.3 m vs 20.95 m over couplers
+    ownRunningGear: true,
+    horn: null,
+    // Co-Co, 112.8 t; AC: 331.9 kN starting TE, 2,714 kW continuous, 120 km/h; no dynamic brakes
+    physics: { loco: { massT: 112.8, rotFactor: 1.15, axles: 6 }, startingTE_kN: 331.9, power_kW: 2714, regenMax_kN: 0, locoMaxKmh: 120, teRamp_kNps: 35 },
+  },
 };
 
 /**
@@ -89,8 +124,23 @@ export const LOCOMOTIVES = {
 export const CONSISTS = {
   icfBlue: { label: 'Classic Blue ICF (Mail/Express)', type: 'icf', livery: 'icfBlue', count: 8, massT: 50, passenger: true },
   red: { label: 'Red-grey LHB (standard)', type: 'lhb', livery: 'lhb', count: 8, massT: 50, passenger: true },
-  freight: { label: 'Freight: BOXN coal wagons', type: 'boxn', livery: 'boxn', count: 20, massT: 81, passenger: false },
+  freight: { label: 'Freight: BOXN coal wagons + BVZI brake van', type: 'boxn', livery: 'boxn', count: 20, massT: 81, passenger: false, brakeVan: 'bvzi' },
+  // BCNA loaded: tare 24.55 t + payload 56.73 t = 81.28 t gross (IRIMEE wagon notes)
+  freightBcna: { label: 'Freight: BCNA covered wagons + BVZI brake van', type: 'bcna', livery: 'bcna', count: 20, massT: 81.28, passenger: false, brakeVan: 'bvzi' },
+  // new, additive: ICF rakes with a luggage-cum-guard's van (SLR) at the rear
+  icfBrick: { label: 'Heritage brick-red ICF (1955–1990s) + SLR', type: 'icf', livery: 'icfBrick', count: 8, massT: 50, passenger: true, slr: true },
+  icfUtkrisht: { label: 'Utkrisht ICF, beige & maroon (2018) + SLR', type: 'icf', livery: 'icfUtkrisht', count: 8, massT: 50, passenger: true, slr: true },
 };
+/** Length of a locomotive (its model's real length; the default body otherwise). */
+export function locoLength(id) {
+  return LOCOMOTIVES[id]?.length ?? FORMATION.locomotive.length;
+}
+
+/** Locos the pickers offer: every loco with its model, plus stand-ins if the player opted in. */
+export function pickableLocos(available = {}, showStandIns = false) {
+  return Object.entries(LOCOMOTIVES).filter(([id, l]) => !l.standIn || available[id] || showStandIns);
+}
+
 /** The consist for a picker value; unknown/retired values (e.g. old 'blue') fall back to LHB. */
 export function consistFor(id) {
   return CONSISTS[id] ?? CONSISTS.red;
@@ -101,6 +151,56 @@ export function trainConfigFor(locoId, consistId) {
   const cfg = { ...TRAIN, ...(LOCOMOTIVES[locoId]?.physics ?? {}) };
   if (consistId) cfg.coach = { ...cfg.coach, massT: consistFor(consistId).massT };
   return cfg;
+}
+
+/**
+ * Difficulty presets: one object of flags, so the same routes serve a first-
+ * time visitor and a sim driver. "pilot" is the default and is today's game.
+ *   stopZoneHalf  ± metres of the stop zone (null = the route's own, 30 m)
+ *   spad          passing a signal at danger: 'warn' | 'penalty' | 'end'
+ *   kavach        Kavach (ATP) when the player's setting is 'auto'
+ *   vcd           vigilance control device must be acknowledged
+ *   adhesion      wheel slip on poor rail (wet / gradient) — sand to recover
+ *   stoppingHud   show the full-service stopping distance readout
+ *   hints         one-line guidance on the HUD
+ */
+export const DIFFICULTY = {
+  trainee: {
+    label: 'Trainee',
+    blurb: 'Kavach guides you and brakes for you, a generous stop zone, and a red signal only warns.',
+    stopZoneHalf: 45,
+    spad: 'warn',
+    kavach: true,
+    vcd: false,
+    adhesion: false,
+    stoppingHud: true,
+    hints: true,
+  },
+  pilot: {
+    label: 'Loco Pilot',
+    blurb: 'The standard game. Passing a red signal costs 25 points.',
+    stopZoneHalf: null,
+    spad: 'penalty',
+    kavach: false,
+    vcd: false,
+    adhesion: false,
+    stoppingHud: true,
+    hints: true,
+  },
+  realistic: {
+    label: 'Realistic',
+    blurb: 'Tight stop zone, vigilance device, wheel slip on wet rail, no stopping-distance readout. A SPAD ends the run.',
+    stopZoneHalf: 15,
+    spad: 'end',
+    kavach: false,
+    vcd: true,
+    adhesion: true,
+    stoppingHud: false,
+    hints: false,
+  },
+};
+export function difficultyFor(id) {
+  return DIFFICULTY[id] ?? DIFFICULTY.pilot;
 }
 
 export const FIXED_TIMESTEP = 1 / 60;
@@ -123,15 +223,30 @@ export const COACH_TYPES = {
   icf: { length: 21.337, bogieSpacing: 14.783, wheelRadius: 0.4575, axleOffsets: [-1.448, 1.448], gap: 0.7 },
   // BOXN open wagon (bulk coal/ore), CASNUB bogies, centre-buffer couplers
   boxn: { length: 10.713, bogieSpacing: 6.524, wheelRadius: 0.5, axleOffsets: [-1.0, 1.0], gap: 0.3 },
+  // BVZI brake van (guard's van at the rear of goods trains): "BVZI_ Brake_ Van_indian_train" by
+  // GameChangz (krupesh2736), CC BY 4.0 — public/assets/models/stock/bvzi.glb (length from the model)
+  bvzi: { length: 10.34, bogieSpacing: 5.5, wheelRadius: 0.5, axleOffsets: [-0.9, 0.9], gap: 0.3, model: 'bvzi.glb' },
+  // BCNA covered wagon (bagged cement, grain, fertiliser): "Train Freight Compartment" by Prabhu Ram
+  // (virtualmakes), CC BY 4.0 — stock/bcna.glb. Real (IRIMEE): 14,450 mm over couplers, 3,200 wide,
+  // 4,017 high, bogie centres 9,500 mm. The model is long for its height: scaled to the real height,
+  // it is 16.9 m long, and the formation uses that so wagons never overlap.
+  bcna: { length: 16.89, bogieSpacing: 11.1, wheelRadius: 0.5, axleOffsets: [-1.0, 1.0], gap: 0.3, model: 'bcna.glb' },
 };
 
 // Livery colours (primary body, secondary band). Applied per vehicle instance,
 // so one coach model serves every scheme.
 export const LIVERIES = {
   wap7: { paint: '#f2f2ee', paint2: '#d8232a' }, // white body, red waist band (procedural fallback only)
+  wap5: { paint: '#ecebe6', paint2: '#e0552d' }, // off-white body, red-orange bands (Ghaziabad shed scheme)
+  wap4: { paint: '#7a1f22', paint2: '#e9d27a' }, // deep red/maroon body, yellow-cream waist band
   lhb: { paint: '#d8262b', paint2: '#b9bdc1' }, // standard red-grey LHB scheme
   lhbBlue: { paint: '#1f4f9a', paint2: '#b9bdc1' }, // blue-grey (Shatabdi-style)
   icfBlue: { paint: '#24448f', paint2: '#a9d3e0' }, // classic ICF: dark blue body, pale-blue window band
+  // Historic ICF brick red (1955–1990s) and the 2018 "Utkrisht" beige & maroon
+  // (colours per Wikipedia "ICF coach" / Business Standard 2018; the exact
+  // stripe layout of Utkrisht is approximated as a maroon window band).
+  icfBrick: { paint: '#8a3726', paint2: '#7d3022' },
+  icfUtkrisht: { paint: '#d8c39a', paint2: '#6b1f26' },
 };
 
 // ---------------------------------------------------------------------------

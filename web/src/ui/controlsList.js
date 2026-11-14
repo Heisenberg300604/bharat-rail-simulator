@@ -6,9 +6,13 @@ export const CONTROLS = [
   ['E', 'Emergency brake'],
   ['F', 'Reverser: Forward / Neutral / Reverse'],
   ['H', 'Horn (hold)'],
+  ['V', 'Vigilance (VCD) acknowledge — every 60 s on Realistic'],
+  ['B', 'Sand (hold) — restores grip when the wheels slip'],
   ['L', 'Headlight on/off'],
+  ['K', 'Cab light on/off (night)'],
   ['C / 1–6', 'Camera: cab, coach interior, door, last coach, orbit, trackside'],
   ['Mouse', 'Drag to look / orbit, wheel to zoom, double-click resets'],
   ['Esc', 'Pause menu'],
+  ['P', 'Photo mode (free camera, take a PNG)'],
   ['R', 'Restart journey'],
 ];

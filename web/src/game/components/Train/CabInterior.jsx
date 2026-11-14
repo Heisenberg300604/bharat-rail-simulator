@@ -78,3 +78,61 @@ export function buildCabInterior() {
   b.cylinder({ radius: 0.04, length: 0.05, axis: 'y', position: [HL - 0.72, 2.65, -0.15], color: '#cc2222' });
   return b.build();
 }
+
+/**
+ * Moving cab parts, built separately so they can animate: the speedometer
+ * needle (on the left-hand gauge) and two windscreen wipers. Returns plain
+ * Three.js groups; Train.jsx drives them each frame in cab view.
+ */
+export const SPEEDO_MAX_KMH = 160;
+export function buildCabMoving() {
+  const dark = new THREE.MeshStandardMaterial({ color: '#141414', roughness: 0.6 });
+  const red = new THREE.MeshStandardMaterial({ color: '#d0281f', emissive: '#d0281f', emissiveIntensity: 0.4 });
+  // speedometer: group placed on the gauge face; local +Y is the face normal
+  const speedo = new THREE.Group();
+  speedo.position.set(HL - 0.632, 2.637, -1.3);
+  speedo.rotation.set(0, 0, Math.PI / 2 + 0.6);
+  const ticks = new THREE.Group();
+  for (let k = 0; k <= 8; k++) {
+    const a = -Math.PI * (2 / 3) + (k / 8) * Math.PI * (4 / 3);
+    const t = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.003, 0.0025), dark);
+    t.position.set(Math.cos(a) * 0.036, 0.011, Math.sin(a) * 0.036);
+    t.rotation.y = -a;
+    ticks.add(t);
+  }
+  speedo.add(ticks);
+  const needlePivot = new THREE.Group();
+  needlePivot.position.y = 0.013;
+  const needle = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.002, 0.003), red);
+  needle.position.x = 0.015;
+  needlePivot.add(needle);
+  speedo.add(needlePivot);
+  // wipers: pivot at the bottom of the windscreen, local +Y up along the glass, +X = glass normal
+  const slope = Math.atan2(0.42, 1.1);
+  const wipers = [-0.62, 0.55].map((z) => {
+    const g = new THREE.Group();
+    g.position.set(HL - 0.13, 2.7, z);
+    g.rotation.set(0, 0, slope);
+    const arm = new THREE.Group();
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.62, 0.018), dark);
+    blade.position.y = 0.31;
+    arm.add(blade);
+    g.add(arm);
+    return { group: g, arm };
+  });
+  // cab ceiling lamp (a small glowing panel; the "light" is a warm emissive boost on the cab)
+  const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.02, 0.14), new THREE.MeshStandardMaterial({ color: '#fff3d6', emissive: '#ffe2a8', emissiveIntensity: 0 }));
+  lamp.position.set(HL - 1.4, 4.0, -0.2);
+  return {
+    speedo,
+    needle: needlePivot,
+    wipers,
+    lamp,
+    dispose() {
+      for (const o of [speedo, lamp, ...wipers.map((w) => w.group)]) o.traverse((m) => m.geometry?.dispose());
+      dark.dispose();
+      red.dispose();
+      lamp.material.dispose();
+    },
+  };
+}

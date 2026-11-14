@@ -622,6 +622,32 @@ class AudioEngine {
     else this.ctx.resume();
   }
 
+  /**
+   * Close pass: the air-pressure "thump" when an opposing train's nose goes by
+   * a few metres away — a short low rumble with a burst of rushing air.
+   */
+  playThump(level = 1) {
+    if (!this.ready) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const make = (buffer, type, freq, peak, decay) => {
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      const f = ctx.createBiquadFilter();
+      f.type = type;
+      f.frequency.value = freq;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(peak * level, now + 0.03);
+      g.gain.setTargetAtTime(0, now + 0.05, decay);
+      src.connect(f).connect(g).connect(this.ambBus.in);
+      src.start(now, Math.random());
+      src.stop(now + decay * 6 + 0.2);
+    };
+    make(this.brown, 'lowpass', 130, 0.9, 0.18);
+    make(this.white, 'bandpass', 900, 0.22, 0.35);
+  }
+
   playPassby(level = 1) {
     const list = this.rail.passby;
     const buf = list?.length ? list[Math.floor(Math.random() * list.length)].buf : this.buffers.passby;

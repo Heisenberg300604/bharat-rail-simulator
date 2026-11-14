@@ -6,8 +6,8 @@
 // All static parts are merged by ModelBuilder into ~3 draw calls per station.
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
-import { route } from '../../state/gameStore.js';
-import { TRACK, JOURNEY } from '../../config/gameConfig.js';
+import { route, journeyCfg, useGameValue } from '../../state/gameStore.js';
+import { TRACK } from '../../config/gameConfig.js';
 import { ModelBuilder } from '../../world/modelBuilder.js';
 import { makeNoiseTexture, makePlateTexture, makeStationBoardTexture, makeFacadeTexture, makeFacadeGlowTexture } from '../../world/textures.js';
 import { createGlowMaterial, createPoolMaterial, makeGlowMesh, disposeGlowMaterial } from '../../world/glow.js';
@@ -204,7 +204,8 @@ export default function Station({ station }) {
   const centerS = station.centerS;
   const layout = station.layout;
   const PLATFORMS = layout.platforms;
-  const stops = JOURNEY.stops.filter((st) => st.stationId === station.id);
+  useGameValue((s) => s.difficulty); // the stop zone size follows the difficulty
+  const stops = journeyCfg.stops.filter((st) => st.stationId === station.id);
 
   const built = useMemo(() => {
     const pose = route.sample(centerS, {});

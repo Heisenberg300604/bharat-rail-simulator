@@ -112,7 +112,7 @@ export function RouteDetail({ r, settings, best }) {
       </div>
       <p className="route-detail__tagline">{m.tagline}</p>
       <div className="route-detail__profile">
-        <Profile r={r} width={372} height={78} labels />
+        <Profile r={r} width={372} height={62} labels />
         <div className="route-detail__legend">
           <span>
             <i className="lg lg--tunnel" /> tunnel

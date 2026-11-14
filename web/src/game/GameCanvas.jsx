@@ -14,6 +14,8 @@ import Road from './components/Environment/Road.jsx';
 import Terrain from './components/Environment/Terrain.jsx';
 import Structures from './components/Environment/Structures.jsx';
 import Landmarks from './components/Environment/Landmarks.jsx';
+import Signals from './components/Environment/Signals.jsx';
+import SpeedBoards from './components/Environment/SpeedBoards.jsx';
 import { Sky, Lighting, EnvironmentLighting, EnvironmentController, HORIZON_COLOR } from './components/Environment/Atmosphere.jsx';
 import Weather from './components/Environment/Weather.jsx';
 import Crowds from './components/People/Crowds.jsx';
@@ -34,6 +36,8 @@ function RouteWorld() {
       <Scenery />
       <Landmarks />
       <Road />
+      <Signals />
+      <SpeedBoards />
       {STATIONS.map((st) => (
         <Station key={st.id} station={st} />
       ))}
@@ -65,9 +69,10 @@ export default memo(function GameCanvas() {
       shadows="percentage"
       gl={{ antialias: quality.antialias, powerPreference: 'high-performance', stencil: false, logarithmicDepthBuffer: true }}
       camera={{ fov: 60, near: 0.25, far: quality.cameraFar, position: [0, 20, 40] }}
-      onCreated={({ gl, scene }) => {
+      onCreated={({ gl, scene, camera }) => {
         sceneRefs.gl = gl;
         sceneRefs.scene = scene;
+        sceneRefs.camera = camera;
       }}
     >
       <CameraFar far={quality.cameraFar} />

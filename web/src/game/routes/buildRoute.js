@@ -159,9 +159,10 @@ function autoSignals(route) {
     for (let i = 0; i < route.stations.length - 1; i++) {
       const a = route.stations[i].platformEnd + 900;
       const b = route.stations[i + 1].platformStart - 1900;
-      for (let s = a; s < b; s += 1600) {
+      // automatic signals are "normally about 1 km apart" (Signal Engineering Manual §7.1.14)
+      for (let s = a; s < b; s += 1100) {
         sigs.push({ s, lat: 3.8, aspect: 'green' });
-        sigs.push({ s: s + 500, lat: revLat, rev: true, aspect: 'green' });
+        sigs.push({ s: s + 450, lat: revLat, rev: true, aspect: 'green' });
       }
     }
   }

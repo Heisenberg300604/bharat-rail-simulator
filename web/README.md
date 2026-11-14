@@ -52,6 +52,10 @@ npm run preview    # serve the production build locally
 | F | Reverser Forward / Neutral / Reverse (only when stopped, lever at 0) |
 | H | Horn (hold) |
 | L | Headlight |
+| K | Cab light |
+| V | Vigilance (VCD) acknowledge — needed every 60 s on Realistic |
+| B | Sand (hold) — restores grip when the wheels slip (Realistic) |
+| P | Photo mode: free camera, take a PNG |
 | C or 1–6 | Camera: cab, coach interior, door, last coach, orbit, trackside |
 | Mouse | Drag to look around (cab) or orbit; wheel to zoom; double-click resets |
 | Esc | Pause menu: time of day, weather, volume, background sounds, people, graphics, coaches, field of view, FPS |
@@ -59,6 +63,22 @@ npm run preview    # serve the production build locally
 
 The physics, with real WAP-7 and LHB numbers, is explained in
 [docs/SIMULATION.md](docs/SIMULATION.md).
+
+## Driving like a loco pilot
+
+- **Difficulty:** *Trainee* (Kavach guides and protects, generous stop zone),
+  *Loco Pilot* (the standard game), *Realistic* (vigilance device, wheel slip on
+  wet rail, no stopping-distance readout, tight stop zone, a SPAD ends the run).
+- **Live signals:** aspects follow the line ahead — green, double yellow,
+  yellow, red. Starters at halts stay red until the guard's right-away; home
+  signals are sometimes held at danger while the platform is occupied. The next
+  signal is shown on the HUD. Passing a red is a SPAD.
+- **Kavach** (Indian ATP): permitted speed, braking curve to the end of
+  authority, automatic brake intervention. On for Trainee; switchable.
+- **Driver school:** four guided lessons (brakes, power, stopping, signals).
+- **Run card and records:** punctuality, stop accuracy in cm, comfort, energy;
+  personal bests and a driving log, kept in the browser (no account, no server).
+- All rules and their sources: [docs/DRIVING_RULES.md](docs/DRIVING_RULES.md).
 
 ## World and atmosphere
 

@@ -37,6 +37,8 @@ export function createJourney() {
     dwellTimer: 0,
     stopResults: [], // per halt: { stationId, name, offset, rating, arrivedAt, scheduled, late, missed }
     earlyDepartures: 0,
+    spadPenalties: 0, // signals passed at danger that count against the score (−25 each)
+    rightAway: [], // indexes of halts where the guard gave the right-away (their starter clears)
     events: [], // 'arrived' | 'rightAway' | 'missed' | 'early' (consumed by the frame loop)
   };
 }
@@ -97,6 +99,7 @@ export function updateJourney(journey, train, dt, cfg, speedLimitKmh = Infinity)
       advance(journey, stops);
     } else if (journey.dwellTimer <= 0) {
       journey.events.push('rightAway');
+      journey.rightAway.push(journey.stopIndex);
       advance(journey, stops);
     }
     return journey;
@@ -144,6 +147,7 @@ export function updateJourney(journey, train, dt, cfg, speedLimitKmh = Infinity)
           stops: journey.stopResults.map((r) => ({ ...r })),
           missedStops: journey.stopResults.filter((r) => r.missed).length,
           earlyDepartures: journey.earlyDepartures,
+          spads: journey.spadPenalties,
           scheduled: stop.scheduled ?? null,
           lateSeconds: late,
           score: scoreJourney(Math.abs(offset), journey),
@@ -170,7 +174,7 @@ export function latenessPenalty(lateSeconds) {
 /**
  * 0–100 driving score: stop accuracy (averaged over every halt), speed
  * discipline, smooth braking, missed halts, leaving before the right-away,
- * and punctuality at the destination.
+ * signals passed at danger, and punctuality at the destination.
  */
 export function scoreJourney(absOffset, journey) {
   const arrived = (journey.stopResults ?? []).filter((r) => !r.missed);
@@ -180,6 +184,7 @@ export function scoreJourney(absOffset, journey) {
   if (journey.emergencyUsed) score -= 15;
   score -= 20 * (journey.stopResults ?? []).filter((r) => r.missed).length;
   score -= 8 * (journey.earlyDepartures ?? 0);
+  score -= 25 * (journey.spadPenalties ?? 0);
   const last = arrived[arrived.length - 1];
   if (last?.scheduled) score -= latenessPenalty(last.late);
   return Math.max(0, Math.round(score));

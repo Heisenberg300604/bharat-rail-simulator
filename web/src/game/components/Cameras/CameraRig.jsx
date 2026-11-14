@@ -14,10 +14,11 @@ import { terrain } from '../../world/terrain.js';
 import { tunnelAt } from '../../routes/activeRoute.js';
 import { CAB_EYE, CAB_LOOK_PITCH_DEG } from '../Train/CabInterior.jsx';
 import { COACH_EYE, COACH_LOOK_PITCH_DEG, COACH_DEFAULT_YAW_DEG } from '../Train/CoachInterior.jsx';
-import { TRACK, FORMATION, COACH_TYPES } from '../../config/gameConfig.js';
+import { TRACK, FORMATION, COACH_TYPES, consistFor } from '../../config/gameConfig.js';
 import { vehiclePose } from '../../simulation/routeMath.js';
 import { attachPointer, consumePointer } from '../../hooks/pointerInput.js';
 import { FRAME_PRIORITY_CAMERA, damp } from './cameraConstants.js';
+import { photoKeys } from './photoInput.js';
 
 const DEG = Math.PI / 180;
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
@@ -48,6 +49,7 @@ export default function CameraRig() {
     door: { yaw: 12 * DEG, pitch: -4 * DEG, zoom: 1 },
     rear: { yaw: 0, pitch: -7 * DEG, zoom: 1 },
     trackside: { s: null, side: 1 },
+    photo: { yaw: -140 * DEG, pitch: 12 * DEG, dist: 40, pivot: new THREE.Vector3(), ready: false },
     initialised: false,
     lastMode: null,
   });
@@ -63,7 +65,12 @@ export default function CameraRig() {
     const s = st.current;
     const input = consumePointer();
     const dt = Math.min(delta, 0.1);
-    const view = screen === 'title' || screen === 'loading' ? 'title' : mode;
+    // close-pass jolt (set by SimulationDriver), decaying over ~1 s
+    const shake = (sceneRefs.shake ?? 0) > 0.002 ? sceneRefs.shake : 0;
+    if (shake) sceneRefs.shake *= Math.exp(-dt * 3.5);
+    const tt = state.clock.elapsedTime;
+    const jolt = (e) => shake && e.set(e.x + Math.sin(tt * 29) * 0.012 * shake, e.y + Math.sin(tt * 23 + 1) * 0.008 * shake, e.z + Math.sin(tt * 37 + 2) * 0.035 * shake);
+    const view = screen === 'title' || screen === 'loading' ? 'title' : screen === 'photo' ? 'photo' : mode;
     const snap = view !== s.lastMode || !s.initialised;
     s.lastMode = view;
     s.initialised = true;
@@ -76,10 +83,12 @@ export default function CameraRig() {
       c.zoom = clamp(c.zoom * (1 + input.wheel * 0.001), 0.45, 1);
       const sway = Math.min(game.train.speedMps / 25, 1);
       const t = state.clock.elapsedTime;
-      const [ex, ey, ez] = CAB_EYE;
+      const [ex0, ey, ez] = CAB_EYE;
+      const ex = ex0 + (sceneRefs.cabShift ?? 0); // shorter locos: the cab sits at their real nose
       v.eye.set(ex, ey + Math.sin(t * 9.1) * 0.006 * sway, ez + Math.sin(t * 1.7) * 0.012 * sway);
       const pitch = CAB_LOOK_PITCH_DEG * DEG + c.pitch;
       v.look.set(Math.cos(c.yaw) * Math.cos(pitch), Math.sin(pitch), -Math.sin(c.yaw) * Math.cos(pitch)).add(v.eye);
+      jolt(v.eye);
       loco.localToWorld(v.eye);
       loco.localToWorld(v.look);
       camera.position.copy(v.eye);
@@ -102,6 +111,7 @@ export default function CameraRig() {
       const pitch = COACH_LOOK_PITCH_DEG * DEG + c.pitch;
       v.look.set(Math.cos(c.yaw) * Math.cos(pitch), Math.sin(pitch), -Math.sin(c.yaw) * Math.cos(pitch)).add(v.eye);
 
+      jolt(v.eye);
       const coach = sceneRefs.coachInterior;
       if (coach) {
         coach.localToWorld(v.eye);
@@ -109,7 +119,7 @@ export default function CameraRig() {
         camera.position.copy(v.eye);
         camera.lookAt(v.look);
       } else {
-        const isIcf = game.settings.coachLivery === 'icfBlue';
+        const isIcf = consistFor(game.settings.coachLivery).type === 'icf';
         const coachSpec = isIcf ? COACH_TYPES.icf : COACH_TYPES.lhb;
         const coachOffset = FORMATION.locomotive.length + (coachSpec.gap ?? FORMATION.couplingGap) + coachSpec.length / 2;
         const coachDist = game.renderDistance - coachOffset;
@@ -138,6 +148,7 @@ export default function CameraRig() {
       const [ex, ey, ez] = seat.eye;
       v.eye.set(ex, ey + Math.sin(t * 7.3) * 0.01 * sway, ez + Math.sin(t * 1.3) * 0.02 * sway);
       v.look.set(Math.cos(c.yaw) * Math.cos(c.pitch), Math.sin(c.pitch), -Math.sin(c.yaw) * Math.cos(c.pitch)).add(v.eye);
+      jolt(v.eye);
       sceneRefs.doorway.localToWorld(v.eye);
       sceneRefs.doorway.localToWorld(v.look);
       camera.position.copy(v.eye);
@@ -166,6 +177,37 @@ export default function CameraRig() {
       setFov(camera, fovSetting * c.zoom);
       return;
     }
+
+    // Photo mode: orbit a free pivot (starts at the loco); drag to orbit, wheel
+    // to zoom, W/A/S/D to move the pivot, Q/E down/up, Shift = faster
+    if (view === 'photo') {
+      const o = s.photo;
+      if (snap || !o.ready) {
+        o.pivot.set(0, 2.4, 0);
+        loco.localToWorld(o.pivot);
+        o.ready = true;
+        o.dist = 40;
+      }
+      if (input.reset) Object.assign(o, { yaw: -140 * DEG, pitch: 12 * DEG, dist: 40, ready: false });
+      o.yaw -= input.dx * 0.005;
+      o.pitch = clamp(o.pitch + input.dy * 0.004, -20 * DEG, 89 * DEG);
+      o.dist = clamp(o.dist * (1 + input.wheel * 0.0012), 1.5, 900);
+      const speed = (photoKeys.ShiftLeft ? 60 : 15) * dt * Math.max(1, o.dist / 40);
+      const fx = -Math.cos(o.yaw);
+      const fz = -Math.sin(o.yaw);
+      if (photoKeys.KeyW) o.pivot.add(v.tmp.set(fx, 0, fz).multiplyScalar(speed));
+      if (photoKeys.KeyS) o.pivot.add(v.tmp.set(fx, 0, fz).multiplyScalar(-speed));
+      if (photoKeys.KeyA) o.pivot.add(v.tmp.set(fz, 0, -fx).multiplyScalar(speed));
+      if (photoKeys.KeyD) o.pivot.add(v.tmp.set(-fz, 0, fx).multiplyScalar(speed));
+      if (photoKeys.KeyE) o.pivot.y += speed;
+      if (photoKeys.KeyQ) o.pivot.y -= speed;
+      v.eye.set(Math.cos(o.yaw) * Math.cos(o.pitch), Math.sin(o.pitch), Math.sin(o.yaw) * Math.cos(o.pitch)).multiplyScalar(o.dist).add(o.pivot);
+      camera.position.copy(v.eye);
+      camera.lookAt(o.pivot);
+      setFov(camera, fovSetting);
+      return;
+    }
+    s.photo.ready = false;
 
     let k = damp(5, dt);
     if (view === 'title') {

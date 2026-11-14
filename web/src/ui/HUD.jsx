@@ -55,6 +55,64 @@ function Gauge({ label, value, max, unit, tone }) {
   );
 }
 
+const ASPECT_TEXT = { red: 'Stop', yellow: 'Caution', yy: 'Attention', green: 'Proceed' };
+
+/** Next signal ahead: a four-lamp head (Y-G-Y-R, top to bottom) as on the Kavach display. */
+function SignalAhead({ sig }) {
+  if (!sig) return null;
+  const lit = { top: sig.aspect === 'yy', green: sig.aspect === 'green', yellow: sig.aspect === 'yellow' || sig.aspect === 'yy', red: sig.aspect === 'red' };
+  return (
+    <div className={`sig-ahead sig-ahead--${sig.aspect}`}>
+      <div className="sig-head" aria-hidden>
+        <i className={lit.top ? 'on y' : ''} />
+        <i className={lit.green ? 'on g' : ''} />
+        <i className={lit.yellow ? 'on y' : ''} />
+        <i className={lit.red ? 'on r' : ''} />
+      </div>
+      <div>
+        <div className="sig-ahead__aspect">{ASPECT_TEXT[sig.aspect]}</div>
+        <div className="sig-ahead__name">
+          {sig.name} · <span className="num">{formatDistance(sig.distance)}</span>
+        </div>
+        {sig.held && sig.aspect === 'red' && <div className="sig-ahead__note">Platform occupied — stop and wait</div>}
+      </div>
+    </div>
+  );
+}
+
+/** Kavach driver display (simplified): permitted speed, target distance bar, mode. */
+function KavachDmi({ k, speed }) {
+  const permitted = Number.isFinite(k.permitted) ? Math.floor(k.permitted) : null;
+  const tone = k.state === 'service' || k.state === 'full' || k.state === 'emergency' || k.state === 'trip' ? 'red' : speed > (k.permitted ?? Infinity) ? 'orange' : 'green';
+  const t = k.target;
+  return (
+    <div className={`kavach kavach--${tone}`}>
+      <div className="kavach__head">
+        <span>KAVACH</span>
+        <span className="kavach__mode">{k.state === 'trip' ? 'TRIP' : 'FS'}</span>
+      </div>
+      <div className="kavach__row">
+        <span>Permitted</span>
+        <strong className="num">{permitted ?? '—'} km/h</strong>
+      </div>
+      {t && (
+        <>
+          <div className="kavach__row">
+            <span>{t.label === 'EoA' ? 'End of authority' : 'Speed restriction'}</span>
+            <span className="num">
+              {Math.round(t.kmh)} km/h in {formatDistance(t.distance)}
+            </span>
+          </div>
+          <div className="kavach__bar">
+            <div style={{ width: `${Math.max(2, 100 - (t.distance / 2000) * 100)}%` }} />
+          </div>
+        </>
+      )}
+      {k.state !== 'normal' && k.state !== 'warning' && <div className="kavach__brake">Kavach braking</div>}
+    </div>
+  );
+}
+
 const DIRS = [
   [1, 'F'],
   [0, 'N'],
@@ -66,7 +124,7 @@ export default function HUD({ s }) {
   const overshoot = remaining < 0;
   const limit = Number.isFinite(s.speedLimit) ? s.speedLimit : TRAIN.sectionalSpeedKmh;
   const overspeed = s.speedKmh > limit + 1;
-  const tooLate = s.speedKmh > 5 && remaining > 0 && s.stoppingDistance > remaining && s.dwell === null;
+  const tooLate = s.stoppingHud && s.speedKmh > 5 && remaining > 0 && s.stoppingDistance > remaining && s.dwell === null;
   const next = s.nextStop;
   const span = JOURNEY.stopMarker - JOURNEY.startDistance;
   const late = next?.scheduled ? s.elapsed - next.scheduled : 0;
@@ -112,6 +170,8 @@ export default function HUD({ s }) {
       </div>
 
       <div className="hud__speed panel-glass">
+        <SignalAhead sig={s.signal} />
+        {s.kavachOn && <KavachDmi k={s.kavach} speed={s.speedKmh} />}
         <div className="speed-row">
           <div className="speed">
             <span className={`speed__value num ${overspeed ? 'is-over' : ''}`}>{Math.round(s.speedKmh)}</span>
@@ -133,7 +193,18 @@ export default function HUD({ s }) {
           <Gauge label="BP" value={s.bp} max={5.2} unit="kg/cm²" tone="bp" />
           <Gauge label="BC" value={s.bc} max={3.8} unit="kg/cm²" tone="bc" />
         </div>
-        <div className="speed__limit">Full-service stop: {s.speedKmh > 1 ? formatDistance(s.stoppingDistance) : '—'}</div>
+        {s.stoppingHud && <div className="speed__limit">Full-service stop: {s.speedKmh > 1 ? formatDistance(s.stoppingDistance) : '—'}</div>}
+        {(s.vcdOn || s.adhesionOn) && (
+          <div className="lamps">
+            {s.vcdOn && (
+              <span className={`lamp lamp--vcd lamp--${s.vcd.phase}`} title="Vigilance control device: press V at least every 60 s">
+                VCD {s.vcd.phase === 'warning' ? `· press V (${Math.ceil(s.vcd.left)})` : s.vcd.phase === 'penalty' ? `· reset in ${Math.ceil(s.vcd.left)} s` : ''}
+              </span>
+            )}
+            {s.adhesionOn && <span className={`lamp lamp--slip ${s.slipping ? 'is-on' : ''}`}>SLIP</span>}
+            {s.adhesionOn && <span className={`lamp lamp--sand ${s.sanding ? 'is-on' : ''}`}>SAND</span>}
+          </div>
+        )}
         <div className="direction" aria-label={`Reverser ${s.directionLabel}`}>
           {DIRS.map(([d, l]) => (
             <span key={l} className={`direction__pill ${s.direction === d ? 'is-active' : ''}`}>

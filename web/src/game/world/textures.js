@@ -376,7 +376,12 @@ export function makeLhbSideTexture({ primary, secondary = '#b9bdc1', label = 'AC
  */
 export const ICF_SIDE = { length: 21.337, bottom: 1.1, top: 3.62 };
 
-export function makeIcfSideTexture({ primary = '#24448f', band = '#a9d3e0', codes = 'GZB ⇄ NDLS' } = {}) {
+/**
+ * ICF coach side. kind: 'sleeper' (passenger windows) or 'slr' — the
+ * luggage-cum-guard's van at the end of the rake: two wide luggage doors,
+ * the guard's compartment windows, and "SLR" lettering.
+ */
+export function makeIcfSideTexture({ primary = '#24448f', band = '#a9d3e0', codes = 'GZB ⇄ NDLS', kind = 'sleeper' } = {}) {
   const W = 4096;
   const H = 512;
   const c = document.createElement('canvas');
@@ -455,9 +460,33 @@ export function makeIcfSideTexture({ primary = '#24448f', band = '#a9d3e0', code
   const pitch = 0.9;
   const n = 19;
   const first = L / 2 - (pitch * (n - 1)) / 2;
-  for (let i = 0; i < n; i++) {
-    const cx = first + pitch * i;
-    louvre(cx - 0.31, cx + 0.31, 2.13, 2.67, rand() < 0.3);
+  if (kind === 'slr') {
+    // guard's compartment at one end, a small passenger section at the other
+    for (let i = 0; i < 4; i++) louvre(1.7 + i * 0.9 - 0.31, 1.7 + i * 0.9 + 0.31, 2.13, 2.67, rand() < 0.4);
+    for (const x of [L - 3.0, L - 2.1]) louvre(x - 0.26, x + 0.26, 2.2, 2.62, false);
+    // two wide sliding luggage doors with a small barred window each
+    for (const dx of [8.2, 12.6]) {
+      g.fillStyle = 'rgba(0,0,0,0.22)';
+      g.fillRect(...rect(dx - 1.0, 1.15, dx + 1.0, 3.2));
+      g.fillStyle = primary;
+      g.fillRect(...rect(dx - 0.97, 1.18, dx + 0.97, 3.17));
+      g.fillStyle = 'rgba(0,0,0,0.45)';
+      g.fillRect(...rect(dx - 0.005, 1.18, dx + 0.005, 3.17));
+      for (const k of [-0.5, 0.5]) {
+        g.fillStyle = '#26292c';
+        g.fillRect(...rect(dx + k - 0.22, 2.45, dx + k + 0.22, 2.75));
+        g.fillStyle = '#9ea4a8';
+        for (let b = 0; b < 4; b++) g.fillRect(...rect(dx + k - 0.2 + b * 0.13, 2.47, dx + k - 0.18 + b * 0.13, 2.73));
+      }
+      g.fillStyle = '#7e8386'; // door rails
+      g.fillRect(...rect(dx - 1.05, 3.2, dx + 1.05, 3.24));
+      g.fillRect(...rect(dx - 1.05, 1.13, dx + 1.05, 1.17));
+    }
+  } else {
+    for (let i = 0; i < n; i++) {
+      const cx = first + pitch * i;
+      louvre(cx - 0.31, cx + 0.31, 2.13, 2.67, rand() < 0.3);
+    }
   }
   // doors with yellow grab rails, toilet windows, yellow end stripes
   for (const end of [0, 1]) {
@@ -477,16 +506,23 @@ export function makeIcfSideTexture({ primary = '#24448f', band = '#a9d3e0', code
   g.fillStyle = 'rgba(225,240,245,0.92)';
   g.textAlign = 'left';
   g.textBaseline = 'middle';
-  g.font = `bold ${Math.round(0.2 * sy)}px ${DEV}`;
-  g.fillText('शयनयान', X(1.55), Y(3.38));
-  g.font = `bold ${Math.round(0.22 * sy)}px Helvetica, Arial, sans-serif`;
-  g.fillText('SLEEPER', X(1.55), Y(3.03));
-  g.textAlign = 'right';
-  g.fillText('SL', X(L - 1.5), Y(3.2));
-  g.fillStyle = '#d21e1e';
-  g.textAlign = 'center';
-  g.font = `bold ${Math.round(0.07 * sy)}px Helvetica, Arial, sans-serif`;
-  g.fillText('EMERGENCY WINDOW', X(first + pitch * 5), Y(1.95));
+  if (kind === 'slr') {
+    g.font = `bold ${Math.round(0.22 * sy)}px Helvetica, Arial, sans-serif`;
+    g.fillText('GUARD', X(1.55), Y(3.03));
+    g.textAlign = 'right';
+    g.fillText('SLR', X(L - 1.5), Y(3.2));
+  } else {
+    g.font = `bold ${Math.round(0.2 * sy)}px ${DEV}`;
+    g.fillText('शयनयान', X(1.55), Y(3.38));
+    g.font = `bold ${Math.round(0.22 * sy)}px Helvetica, Arial, sans-serif`;
+    g.fillText('SLEEPER', X(1.55), Y(3.03));
+    g.textAlign = 'right';
+    g.fillText('SL', X(L - 1.5), Y(3.2));
+    g.fillStyle = '#d21e1e';
+    g.textAlign = 'center';
+    g.font = `bold ${Math.round(0.07 * sy)}px Helvetica, Arial, sans-serif`;
+    g.fillText('EMERGENCY WINDOW', X(first + pitch * 5), Y(1.95));
+  }
   for (const cx of [L / 2 - 2.6, L / 2 + 2.6]) {
     g.fillStyle = '#2a2a2a';
     g.fillRect(...rect(cx - 0.62, 3.2, cx + 0.62, 3.42));

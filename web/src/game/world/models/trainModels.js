@@ -266,6 +266,7 @@ export function buildWheelset(radius) {
  */
 export function buildRearEndIndicators(type = 'lhb') {
   if (type === 'boxn') return buildWagonRearEnd();
+  if (type === 'van') return buildWagonRearEnd({ withX: false }); // brake van: LV board + tail lamp, no X
   const b = new ModelBuilder();
   const icf = type === 'icf';
   const reach = (icf ? 0.7 : 0.5) / 2 + 0.02; // how far the gangway bellows stick out
@@ -315,7 +316,7 @@ export function buildRearEndIndicators(type = 'lhb') {
  * end wall (there's no gangway), the LV board and the tail lamp bracket.
  * The wall is 0.3 m in from the coupler face (the rear-end origin).
  */
-function buildWagonRearEnd() {
+function buildWagonRearEnd({ withX = true } = {}) {
   const b = new ModelBuilder();
   const xf = 0.215; // just proud of the end stanchions
   const y0 = 1.35;
@@ -323,7 +324,7 @@ function buildWagonRearEnd() {
   const hz = 1.3;
   const len = Math.hypot(y1 - y0, 2 * hz);
   const ang = Math.atan2(y1 - y0, 2 * hz);
-  for (const sgn of [1, -1]) {
+  for (const sgn of withX ? [1, -1] : []) {
     b.add(new THREE.BoxGeometry(0.008, 0.24, len + 0.06), { color: '#f4f2ea', mat: 'reflect', position: [xf, (y0 + y1) / 2, 0], rotation: [sgn * ang, 0, 0] });
     b.add(new THREE.BoxGeometry(0.008, 0.16, len), { color: '#f7c600', mat: 'reflect', position: [xf - 0.008, (y0 + y1) / 2, 0], rotation: [sgn * ang, 0, 0] });
   }
@@ -342,7 +343,7 @@ function buildWagonRearEnd() {
 
 /** Where the tail lamp sits on the rear end (matches buildRearEndIndicators). */
 export function tailLampPosition(type = 'lhb') {
-  if (type === 'boxn') return [0.13, 1.98, -1.1];
+  if (type === 'boxn' || type === 'van') return [0.13, 1.98, -1.1];
   const vw = type === 'icf' ? 0.55 : 0.66;
   return [-0.09, 1.98, -(vw + 0.4)];
 }
