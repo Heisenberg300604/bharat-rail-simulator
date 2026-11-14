@@ -100,6 +100,15 @@ function Settings({ settings }) {
         </select>
       </label>
       <label className="setting">
+        <span>Incidents</span>
+        <select value={settings.incidents ?? 'off'} onChange={(e) => updateSettings({ incidents: e.target.value })}>
+          <option value="off">Off</option>
+          <option value="occasional">Occasional (about one run in two)</option>
+          <option value="always">Every run (practice)</option>
+        </select>
+      </label>
+      <p className="modal__note">Incidents: a caution order for track work, an automatic signal failed at danger (GR 9.02), or the alarm chain pulled. Each follows the rulebook, and the HUD tells you the procedure.</p>
+      <label className="setting">
         <span>Field of view</span>
         <input type="range" min="50" max="90" step="1" value={settings.fov} onChange={(e) => updateSettings({ fov: Number(e.target.value) })} />
         <span className="num">{settings.fov}°</span>
@@ -107,6 +116,10 @@ function Settings({ settings }) {
       <label className="setting setting--check">
         <input type="checkbox" checked={settings.crowd} onChange={(e) => updateSettings({ crowd: e.target.checked })} />
         <span>People on platforms</span>
+      </label>
+      <label className="setting setting--check">
+        <input type="checkbox" checked={!!settings.spokenAnnouncements} onChange={(e) => updateSettings({ spokenAnnouncements: e.target.checked })} />
+        <span>Spoken station announcements ("Yatrigan kripya dhyan dein…", Hindi + English, uses your browser's voices)</span>
       </label>
       <label className="setting setting--check">
         <input type="checkbox" checked={settings.showFps} onChange={(e) => updateSettings({ showFps: e.target.checked })} />
@@ -245,7 +258,15 @@ function About() {
         <a href="https://freesound.org/s/248229/" target="_blank" rel="noreferrer">
           “Train Horn”
         </a>{' '}
-        by CouleurCasquette, CC BY 3.0. Sounds also by Calcuttan (birds), Zabuhailo, KrystofJakobe, Anton and Garuda1982 on Freesound (CC BY 4.0/3.0), and Village
+        by CouleurCasquette, CC BY 3.0 (original horn). Locomotive horns:{' '}
+        <a href="https://freesound.org/s/403930/" target="_blank" rel="noreferrer">
+          “Sound of passing train”
+        </a>{' '}
+        by arundasstp and{' '}
+        <a href="https://freesound.org/s/94012/" target="_blank" rel="noreferrer">
+          “train-station-Rajasthan”
+        </a>{' '}
+        by xserra, CC BY 4.0 (excerpts, normalised). Sounds also by Calcuttan (birds), Zabuhailo, KrystofJakobe, Anton and Garuda1982 on Freesound (CC BY 4.0/3.0), and Village
         Regional and Vijay Singh Choudhary on Wikimedia Commons (CC BY 3.0); all other sounds CC0. Full list in docs/ASSET_CREDITS.md.
       </p>
     </div>

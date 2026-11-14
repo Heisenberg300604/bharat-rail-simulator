@@ -44,6 +44,7 @@ export const TRAIN = {
   bpChargeRate: 1.5,
   bpServiceRate: 0.7,
   bpEmergencyRate: 8,
+  bpAlarmVentRate: 0.5, // kg/cm²/s through an alarm-chain vent valve (game assumption: slower than an emergency application)
   bcServiceMax: 3.0,
   bcEmergencyMax: 3.8,
   bcPerBpDrop: 2.14, // BC ≈ 2.14 × (5.0 − BP − 0.1)

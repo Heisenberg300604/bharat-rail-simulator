@@ -294,3 +294,11 @@ behaviour (`src/game/audio/railAcoustics.js`).
 - Modifications: <e.g. decimated to 40k tris, textures resized to 2K, exported to GLB>
 - Original source file kept at: <path or "not kept">
 ```
+
+## Locomotive horns (`public/assets/audio/horns/`, added 2026-11-14)
+
+Found through the Freesound API (search plus geotag filter for India), shortlisted by spectral analysis, and chosen by the owner by ear. Full per-file details are in `public/assets/audio/horns/CREDITS.md`.
+
+- `horn-kerala.wav` (default player horn) and `horn-passing-kerala.mp3` (opposing trains): https://freesound.org/people/arundasstp/sounds/403930/, by arundasstp, **CC BY 4.0**. Recorded in Kerala, 2017.
+- `horn-rajasthan.wav` (second player horn): https://freesound.org/people/xserra/sounds/94012/, by xserra, **CC BY 4.0**. Recorded near Ajmer, Rajasthan, 2010.
+- The locomotive classes are not stated by the recordists.

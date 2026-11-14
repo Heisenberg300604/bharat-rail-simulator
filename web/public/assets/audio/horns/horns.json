@@ -1,0 +1,40 @@
+{
+  "horns": [
+    {
+      "id": "kerala-single",
+      "file": "horn-kerala.wav",
+      "label": "Indian loco horn · single tone (Kerala, 2017)",
+      "kind": "player",
+      "tone": "single ~287 Hz",
+      "loopStart": 2.50016,
+      "loopEnd": 3.22381,
+      "releaseS": 1.0,
+      "source": "https://freesound.org/people/arundasstp/sounds/403930/",
+      "licence": "CC BY 4.0",
+      "gain": 2.0
+    },
+    {
+      "id": "rajasthan-twotone",
+      "file": "horn-rajasthan.wav",
+      "label": "Indian loco horn · two-tone (Rajasthan, 2010)",
+      "kind": "player",
+      "tone": "two-tone ~330 + 430 Hz",
+      "loopStart": 0.74993,
+      "loopEnd": 2.7956,
+      "releaseS": 1.0,
+      "source": "https://freesound.org/people/xserra/sounds/94012/",
+      "licence": "CC BY 4.0",
+      "gain": 1.7
+    },
+    {
+      "id": "kerala-passing",
+      "file": "horn-passing-kerala.mp3",
+      "label": "Passing train horn (Kerala, 2017)",
+      "kind": "distant",
+      "bakedDoppler": true,
+      "source": "https://freesound.org/people/arundasstp/sounds/403930/",
+      "licence": "CC BY 4.0",
+      "gain": 1.5
+    }
+  ]
+}

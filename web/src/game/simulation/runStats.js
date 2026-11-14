@@ -21,6 +21,8 @@ export function createRunStats() {
     vcdPenalties: 0,
     kavachInterventions: 0,
     slipSeconds: 0,
+    guardSignals: 0, // right-away signals given by the guard (D1)
+    guardAcks: 0, // …acknowledged by the driver with a long horn blast
     _v: null,
     _a: 0,
     _wasEmergency: false,

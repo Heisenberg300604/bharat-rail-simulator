@@ -16,6 +16,9 @@ import Structures from './components/Environment/Structures.jsx';
 import Landmarks from './components/Environment/Landmarks.jsx';
 import Signals from './components/Environment/Signals.jsx';
 import SpeedBoards from './components/Environment/SpeedBoards.jsx';
+import IncidentBoards from './components/Environment/IncidentBoards.jsx';
+import PassDust from './components/Environment/PassDust.jsx';
+import Guard from './components/People/Guard.jsx';
 import { Sky, Lighting, EnvironmentLighting, EnvironmentController, HORIZON_COLOR } from './components/Environment/Atmosphere.jsx';
 import Weather from './components/Environment/Weather.jsx';
 import Crowds from './components/People/Crowds.jsx';
@@ -38,6 +41,9 @@ function RouteWorld() {
       <Road />
       <Signals />
       <SpeedBoards />
+      <IncidentBoards />
+      <PassDust />
+      <Guard />
       {STATIONS.map((st) => (
         <Station key={st.id} station={st} />
       ))}
@@ -79,7 +85,7 @@ export default memo(function GameCanvas() {
       <AdaptiveResolution min={Math.min(quality.minDpr, maxDpr)} max={maxDpr} />
       <color attach="background" args={[HORIZON_COLOR]} />
       <fog attach="fog" args={[HORIZON_COLOR, 300, quality.fogFar]} />
-      <SimulationDriver />
+      {/* SimulationDriver lives inside RouteWorld: exactly ONE per frame (two = double-speed physics) */}
       <EnvironmentController />
       <EnvironmentLighting enabled={quality.environment} />
       <Lighting shadows={quality.shadows} shadowMapSize={quality.shadowMapSize} />

@@ -157,3 +157,33 @@ export function bandWeights(bands, kmh) {
   return w;
 }
 
+
+// ------------------------------------------------------------- Doppler
+export const SPEED_OF_SOUND = 343; // m/s in air at 20 °C
+
+/**
+ * Doppler pitch factor for a moving source and a moving listener (classical
+ * formula f' = f · (c + v_listener→source) / (c − v_source→listener)).
+ * Positions {x, z} in metres, velocities {x, z} in m/s. The factor is > 1
+ * while the two approach and < 1 while they separate.
+ */
+export function dopplerFactor(srcPos, srcVel, lisPos, lisVel, c = SPEED_OF_SOUND) {
+  const dx = lisPos.x - srcPos.x;
+  const dz = lisPos.z - srcPos.z;
+  const d = Math.hypot(dx, dz);
+  if (d < 1e-6) return 1;
+  const ux = dx / d;
+  const uz = dz / d; // unit vector source → listener
+  const vs = srcVel.x * ux + srcVel.z * uz; // source speed towards the listener
+  const vl = -(lisVel.x * ux + lisVel.z * uz); // listener speed towards the source
+  const f = (c + vl) / (c - Math.min(vs, c * 0.9));
+  return Math.min(2, Math.max(0.5, f));
+}
+
+/**
+ * The point of a train occupying [sMin, sMax] (route distance) nearest to a
+ * listener at route distance s — where most of its rolling noise comes from.
+ */
+export function nearestOnSpan(s, sMin, sMax) {
+  return Math.min(sMax, Math.max(sMin, s));
+}

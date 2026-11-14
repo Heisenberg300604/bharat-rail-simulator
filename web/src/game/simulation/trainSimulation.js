@@ -117,7 +117,8 @@ export function brakeHandleLabel(train) {
  * input: { leverUp, leverDown, brakeApply, brakeRelease } (held keys)
  * env:   { curveRadius, grade, bankerTE_kN, mu, extraBrake, cutTraction } at the train's position.
  *        mu = wheel–rail adhesion (omit for no slip model); extraBrake = brake
- *        demand 0…1 applied by Kavach/VCD; cutTraction = traction interlock.
+ *        demand 0…1 applied by Kavach/VCD; cutTraction = traction interlock;
+ *        ventBp = alarm chain pulled (the coach's vent valve drains the BP).
  *        grade = average rise per metre under the train (+ = climbing in the
  *        +s direction); bankerTE_kN = extra push from banking locos at the rear.
  */
@@ -143,8 +144,10 @@ export function stepTrain(train, input, dt, cfg, env = {}) {
   train.brakeHandle = clamp(train.brakeHandle, 0, 1);
 
   // --- 2. Air brake: BP → (propagation) → BC ---------------------------------
-  const bpT = bpTarget(train, cfg, env.extraBrake ?? 0);
-  const rate = train.emergency ? cfg.bpEmergencyRate : bpT > train.bp ? cfg.bpChargeRate : cfg.bpServiceRate;
+  // an open alarm-chain vent valve (ACP) drains the brake pipe until it is reset
+  const vent = !!env.ventBp && !train.emergency;
+  const bpT = vent ? 0 : bpTarget(train, cfg, env.extraBrake ?? 0);
+  const rate = train.emergency ? cfg.bpEmergencyRate : vent ? (cfg.bpAlarmVentRate ?? 0.5) : bpT > train.bp ? cfg.bpChargeRate : cfg.bpServiceRate;
   const dBp = bpT - train.bp;
   train.bp += clamp(dBp, -rate * dt, rate * dt);
   const bcDemand = train.emergency
