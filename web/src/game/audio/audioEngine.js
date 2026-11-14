@@ -1041,8 +1041,9 @@ class AudioEngine {
     const mode = env.ambienceMode ?? 'occasional';
     const dt = clamp(now - (this.lastAmbTime ?? now), 0, 0.25);
     this.lastAmbTime = now;
-    const station = env.stationProximity ?? 0;
-    const road = env.roadProximity ?? 0;
+    // measured where the listener is (L.s), so station and road sounds fade as you leave them
+    const station = env.stationProximityAt ? env.stationProximityAt(L.s) : (env.stationProximity ?? 0);
+    const road = env.roadProximityAt ? env.roadProximityAt(L.s) : (env.roadProximity ?? 0);
     if (env.passingAiTrain) this.playPassby(L.ext ? 1 : 0.8);
     if (station > 0.65 && v < 12) this.playAnnouncement();
     this.announcementGain.gain.setTargetAtTime(station > 0.04 ? MIX.announcement * Math.pow(station, 1.8) * (this.announcementDuck ?? 1) : 0, now, 0.25);

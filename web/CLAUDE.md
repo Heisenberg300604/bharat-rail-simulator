@@ -120,7 +120,7 @@ can be unit-tested with `node --test`. Keep it that way.
 | `components/People/Guard.jsx` | D1 guard waving the right-away (green flag / night lamp) beyond the rear of the train (`sceneRefs.guardSignal`) |
 | `components/Cameras/CameraRig.jsx` | Six camera modes + mouse look/orbit |
 | `src/ui/` | `StartScreen` (route list + detail, difficulty, Driver school/How-to-play/Settings/Records/About modals), `JourneyComplete` (run card + PNG), `PhotoMode`, `LessonPanel`, `RoutePicker` (`RouteList`, `RouteDetail`, `Profile`), `HUD`, `PauseMenu`, `LoadingScreen`, `JourneyComplete`, `RestartConfirm`, `ControlsTable`, `EnvironmentPicker` |
-| `public/assets/` | `models/locomotive/*.glb` (WAP-7, WAG-9, WAP-4, WCAM-1; + per-model LICENSE), `models/stock/` (`bvzi.glb` brake van, `bcna.glb` covered wagon — any `COACH_TYPES` entry with `model` is drawn from its GLB), `audio/rail/`, `audio/ambience/` (each with `CREDITS.md`) |
+| `public/assets/` | `models/locomotive/*.glb` (WAP-7, WAG-9, WAP-4, WCAM-1; + per-model LICENSE), `models/stock/` (`bvzi.glb` brake van, `bcna.glb` covered wagon, `btpn.glb` petrol tank wagon — any `COACH_TYPES` entry with `model` is drawn from its GLB), `audio/rail/`, `audio/ambience/` (each with `CREDITS.md`) |
 
 ## 5. Invariants — breaking these breaks the game
 

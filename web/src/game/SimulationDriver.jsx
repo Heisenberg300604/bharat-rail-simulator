@@ -46,12 +46,18 @@ function announceArrival(station) {
   });
 }
 
-/** 1 at a platform, fading to 0 about half a kilometre away (for station ambience). */
+/**
+ * 1 on a platform, fading to 0 about 400 m away (station ambience). s is where
+ * the LISTENER is (cab, seat, doorway, outside camera) — not the rear of the
+ * train, or a long train would still hear the platform from a kilometre away.
+ */
+const STATION_FADE_M = 400;
 function stationProximity(s) {
   let best = 0;
   for (const st of STATIONS) {
-    const d = Math.max(0, Math.max(st.platformStart - s, s - formation.totalLength - st.platformEnd));
-    best = Math.max(best, 1 - Math.min(1, d / 550));
+    const d = Math.max(0, st.platformStart - s, s - st.platformEnd);
+    const k = 1 - Math.min(1, d / STATION_FADE_M);
+    best = Math.max(best, k * k); // falls away quickly once off the platform
   }
   return best;
 }
@@ -432,6 +438,8 @@ export default function SimulationDriver() {
       route,
       camera: state.camera,
       stationProximity: stationProximity(front),
+      stationProximityAt: stationProximity, // evaluated at the listener's position by the engine
+      roadProximityAt: roadProximity,
       stationBusy: nearSt?.sound === 'city' || nearSt === STATIONS[0],
       enclosure: game.cameraMode === 'orbit' || game.cameraMode === 'trackside' ? t.tunnelTrain * 0.5 : t.tunnelTrain,
       onBridge: !!bridgeAt(front - 40),

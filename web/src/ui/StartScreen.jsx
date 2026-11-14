@@ -250,7 +250,11 @@ function About() {
         <a href="https://sketchfab.com/3d-models/train-freight-compartment-2cd8d1032b53426a92abb64a71743aa6" target="_blank" rel="noreferrer">
           “Train Freight Compartment”
         </a>{' '}
-        (BCNA wagon) by Prabhu Ram (virtualmakes), CC BY 4.0 (scaled, optimised; watermark removed). Brake van:{' '}
+        (BCNA wagon) by Prabhu Ram (virtualmakes), CC BY 4.0 (scaled, optimised; watermark removed). Petrol tank wagon:{' '}
+        <a href="https://sketchfab.com/3d-models/authentic-3d-indian-petrol-wagon-train-model-2e40ef40f08a4a1e82bd713b7d1260c4" target="_blank" rel="noreferrer">
+          “Authentic 3D Indian Petrol-Wagon Train Model”
+        </a>{' '}
+        (BTPN) by lakshyasharma11052002, CC BY 4.0 (scaled, simplified). Brake van:{' '}
         <a href="https://sketchfab.com/3d-models/bvzi--brake--van-indian-train-c077c09c16de4be28c7cfc7cb09c83ed" target="_blank" rel="noreferrer">
           “BVZI_ Brake_ Van_indian_train”
         </a>{' '}
