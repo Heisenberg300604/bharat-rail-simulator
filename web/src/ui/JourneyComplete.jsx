@@ -179,8 +179,25 @@ export default function JourneyComplete({ result, stats, record, settings }) {
               {st.vcdPenalties > 0 && <li className="bad">VCD penalty brakes: {st.vcdPenalties}</li>}
               {st.kavachInterventions > 0 && <li>Kavach interventions: {st.kavachInterventions}</li>}
               {st.slipSeconds > 0.5 && <li>Wheel slip: {Math.round(st.slipSeconds)} s</li>}
+              {st.guardSignals > 0 && (
+                <li className={st.guardAcks < st.guardSignals ? 'muted' : ''}>
+                  Guard's right-away acknowledged ('--'): {st.guardAcks}/{st.guardSignals}
+                </li>
+              )}
             </ul>
           </section>
+          {result.incidents?.length > 0 && (
+            <section>
+              <h3>Incidents</h3>
+              <ul className="safety">
+                {result.incidents.map((i) => (
+                  <li key={i.kind} className={i.ok ? '' : 'bad'}>
+                    {i.title} — {i.note}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           <section>
             <h3>Passenger comfort</h3>
             <p>

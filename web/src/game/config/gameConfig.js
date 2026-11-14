@@ -44,6 +44,7 @@ export const TRAIN = {
   bpChargeRate: 1.5,
   bpServiceRate: 0.7,
   bpEmergencyRate: 8,
+  bpAlarmVentRate: 0.5, // kg/cm²/s through an alarm-chain vent valve (game assumption: slower than an emergency application)
   bcServiceMax: 3.0,
   bcEmergencyMax: 3.8,
   bcPerBpDrop: 2.14, // BC ≈ 2.14 × (5.0 − BP − 0.1)
@@ -127,6 +128,8 @@ export const CONSISTS = {
   freight: { label: 'Freight: BOXN coal wagons + BVZI brake van', type: 'boxn', livery: 'boxn', count: 20, massT: 81, passenger: false, brakeVan: 'bvzi' },
   // BCNA loaded: tare 24.55 t + payload 56.73 t = 81.28 t gross (IRIMEE wagon notes)
   freightBcna: { label: 'Freight: BCNA covered wagons + BVZI brake van', type: 'bcna', livery: 'bcna', count: 20, massT: 81.28, passenger: false, brakeVan: 'bvzi' },
+  // BTPN petrol tank wagons, loaded: gross 81.28 t each (IRIMEE: tare 27.0 t + payload 54.28 t)
+  freightBtpn: { label: 'Freight: BTPN petrol tank wagons + BVZI brake van', type: 'btpn', livery: 'bcna', count: 20, massT: 81.28, passenger: false, brakeVan: 'bvzi' },
   // new, additive: ICF rakes with a luggage-cum-guard's van (SLR) at the rear
   icfBrick: { label: 'Heritage brick-red ICF (1955–1990s) + SLR', type: 'icf', livery: 'icfBrick', count: 8, massT: 50, passenger: true, slr: true },
   icfUtkrisht: { label: 'Utkrisht ICF, beige & maroon (2018) + SLR', type: 'icf', livery: 'icfUtkrisht', count: 8, massT: 50, passenger: true, slr: true },
@@ -231,6 +234,12 @@ export const COACH_TYPES = {
   // 4,017 high, bogie centres 9,500 mm. The model is long for its height: scaled to the real height,
   // it is 16.9 m long, and the formation uses that so wagons never overlap.
   bcna: { length: 16.89, bogieSpacing: 11.1, wheelRadius: 0.5, axleOffsets: [-1.0, 1.0], gap: 0.3, model: 'bcna.glb' },
+  // BTPN bogie petrol tank wagon: "Authentic 3D Indian Petrol-Wagon Train Model" by
+  // lakshyasharma11052002, CC BY 4.0 — stock/btpn.glb (3.04M → 38.6k triangles). Real (IRIMEE
+  // BTPN notes): 12,420 mm over couplers, barrel 2,850 mm inside dia × 11,458 mm. The model's
+  // proportions match: scaled to 12.42 m its barrel is ~2.8 m. Bogie centres measured on the
+  // model (8.43 m); the length already includes the couplers, hence the small gap.
+  btpn: { length: 12.42, bogieSpacing: 8.43, wheelRadius: 0.5, axleOffsets: [-1.0, 1.0], gap: 0.1, model: 'btpn.glb' },
 };
 
 // Livery colours (primary body, secondary band). Applied per vehicle instance,

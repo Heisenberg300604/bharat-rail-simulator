@@ -75,6 +75,10 @@ export function createSignalling(route, { seed = 1, holdChance = 0.35 } = {}) {
       waited: 0,
       approachTime: 0,
       spad: false,
+      failed: false, // an automatic signal stuck at 'on' (incidents.js, GR 9.02)
+      failWait: 0,
+      failWaited: 0,
+      authorised: false, // may be passed at 'on' after the GR 9.02 wait
     };
     if (!sig.rev && kind === 'home' && !isOrigin && stopIdx >= 0 && rand() < holdChance) {
       sig.held = true;
@@ -130,11 +134,22 @@ export function updateSignalling(st, ctx) {
     }
   }
 
+  // failed automatic signal: stop in rear, wait 1 min by day / 2 by night (GR 9.02)
+  for (const sig of st.up) {
+    if (!sig.failed || sig.authorised) continue;
+    const d = sig.s - front;
+    if (d > 0 && d < 450 && speed < 0.1) sig.failWaited += dt;
+    if (sig.failWaited >= sig.failWait) {
+      sig.authorised = true;
+      events.push({ type: 'authorised', signal: sig });
+    }
+  }
+
   // player's direction: walk back from the end of the line
   let next = ASPECT.RED; // the buffer stop beyond the last signal
   for (let i = st.up.length - 1; i >= 0; i--) {
     const sig = st.up[i];
-    let danger = sig.held;
+    let danger = sig.held || sig.failed;
     // the starter at a booked halt stays at danger until the right-away
     // (leaving early or running through doesn't clear it — passing it then is a SPAD)
     if (sig.kind === 'starter' && sig.stopIdx >= 0) {
@@ -162,7 +177,9 @@ export function updateSignalling(st, ctx) {
   if (st.lastFront !== null && front > st.lastFront) {
     for (const sig of st.up) {
       if (sig.s > st.lastFront && sig.s <= front) {
-        if (sig.aspect === ASPECT.RED && !sig.spad) {
+        if (sig.aspect === ASPECT.RED && sig.authorised) {
+          events.push({ type: 'passedAuthorised', signal: sig });
+        } else if (sig.aspect === ASPECT.RED && !sig.spad) {
           sig.spad = true;
           events.push({ type: 'spad', signal: sig });
         } else if (sig.aspect !== ASPECT.RED) {
@@ -175,6 +192,22 @@ export function updateSignalling(st, ctx) {
   st.lastFront = front;
   if (changed) st.version++;
   return events;
+}
+
+/** Make the automatic signal at route distance s fail at 'on' (B5 incidents). */
+export function failSignal(st, s, waitSeconds) {
+  const sig = st.up.find((x) => x.s === s && x.kind === 'auto');
+  if (!sig) return null;
+  sig.failed = true;
+  sig.failWait = waitSeconds;
+  sig.failWaited = 0;
+  sig.authorised = false;
+  return sig;
+}
+
+/** The next stop signal beyond route distance s (where a GR 9.02 cautious run ends). */
+export function nextStopSignalAfter(st, s) {
+  return st.up.find((x) => x.s > s + 0.5 && x.kind !== 'distant') ?? null;
 }
 
 /** The next signal ahead of the train (player's direction), with its distance. */

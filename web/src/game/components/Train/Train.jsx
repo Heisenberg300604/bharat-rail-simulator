@@ -836,7 +836,7 @@ export default function Train() {
       {/* Licensed wagons and brake vans (own bogies) */}
       {Object.entries(counts.glb).flatMap(([type, n]) =>
         (stockModels[type]?.parts ?? []).map((p, k) => (
-          <instancedMesh key={`glb${type}${k}`} ref={register(`glb_${type}_${k}`, true)} args={[p.geometry, p.material, n]} castShadow={type !== 'bcna'} receiveShadow />
+          <instancedMesh key={`glb${type}${k}`} ref={register(`glb_${type}_${k}`, true)} args={[p.geometry, p.material, n]} castShadow={type !== 'bcna' && type !== 'btpn'} receiveShadow />
         )),
       )}
 

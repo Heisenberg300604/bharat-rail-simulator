@@ -1,6 +1,9 @@
 # Future enhancements: product plan
 
-Status: proposal (2026-11-14). **Progress (2026-11-14):** Wave 1 done (C1
+Status: proposal (2026-11-14). **Progress (2026-11-14):** D1 announcements +
+guard (flag/lamp, horn acknowledgement, spoken announcement), B5 incidents
+(caution order, failed automatic signal, alarm chain; cattle and gates not yet)
+and the rest of D4 (Doppler, dust) done. Wave 1 done (C1
 driver school, C2 difficulty presets, B1 run card + records in localStorage,
 B6 driving log, F1 photo mode, F2 run-card PNG, E9 brick-red and Utkrisht ICF
 liveries, E8 SLR at the rear of those rakes, D5 cab life, D4 close-pass), plus

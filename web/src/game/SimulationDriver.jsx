@@ -8,7 +8,9 @@ import { useFrame } from '@react-three/fiber';
 import { useMemo, useRef } from 'react';
 import { game, publish, completeJourney, sceneReady, showToast, route, currentSpeedLimit, formation, journeyCfg } from './state/gameStore.js';
 import { updateRunStats } from './simulation/runStats.js';
-import { updateSignalling, nextSignal } from './simulation/signalling.js';
+import { updateSignalling, nextSignal, nextStopSignalAfter } from './simulation/signalling.js';
+import { updateIncidents, incidentInputs, startCautiousRun } from './simulation/incidents.js';
+import { createHornReader, updateHornReader, hasLongBlast } from './simulation/hornCodes.js';
 import { failJourney, emergencyBrake } from './state/gameStore.js';
 import { difficultyFor } from './config/gameConfig.js';
 import { updateLesson, lessonById } from './simulation/driverSchool.js';
@@ -26,15 +28,36 @@ import { envState } from './world/environment.js';
 import { KID_SPOTS } from './components/People/Crowds.jsx';
 import { stepAiTrains } from './simulation/aiTraffic.js';
 import { audioEngine } from './audio/audioEngine.js';
+import { arrivalAnnouncement, speakAnnouncement } from './audio/announcements.js';
+import { origin as originStation, destination as destinationStation } from './state/gameStore.js';
 
 const HUD_INTERVAL = 0.1;
 
-/** 1 at a platform, fading to 0 about half a kilometre away (for station ambience). */
+/** D1: the station announces our train as it runs in to platform 1 (setting: spoken announcements). */
+function announceArrival(station) {
+  const st = game.settings;
+  if (!st.spokenAnnouncements || st.muted) return;
+  // heard from the platform: quieter inside the cab or a coach
+  const onTrain = game.cameraMode === 'cab' || game.cameraMode === 'interior';
+  speakAnnouncement(arrivalAnnouncement({ origin: originStation, destination: destinationStation, station }), {
+    volume: st.volume * (onTrain ? 0.55 : 0.95),
+    onStart: () => audioEngine.duckAnnouncement(true),
+    onEnd: () => audioEngine.duckAnnouncement(false),
+  });
+}
+
+/**
+ * 1 on a platform, fading to 0 about 400 m away (station ambience). s is where
+ * the LISTENER is (cab, seat, doorway, outside camera) — not the rear of the
+ * train, or a long train would still hear the platform from a kilometre away.
+ */
+const STATION_FADE_M = 400;
 function stationProximity(s) {
   let best = 0;
   for (const st of STATIONS) {
-    const d = Math.max(0, Math.max(st.platformStart - s, s - formation.totalLength - st.platformEnd));
-    best = Math.max(best, 1 - Math.min(1, d / 550));
+    const d = Math.max(0, st.platformStart - s, s - st.platformEnd);
+    const k = 1 - Math.min(1, d / STATION_FADE_M);
+    best = Math.max(best, k * k); // falls away quickly once off the platform
   }
   return best;
 }
@@ -112,12 +135,13 @@ function protection(train, dt) {
   if (kavachActive()) {
     const front = train.routeDistance;
     const limitsAhead = [];
-    for (const l of SPEED_LIMITS) if (l.from > front && l.from - front < 2000) limitsAhead.push({ distance: l.from - front, kmh: l.kmh, label: l.reason });
+    for (const l of game.runLimits ?? SPEED_LIMITS) if (l.from > front && l.from - front < 2000) limitsAhead.push({ distance: l.from - front, kmh: l.kmh, label: l.reason });
     let redAhead = { distance: JOURNEY.bufferStop - front, name: 'Buffer stop' };
     let passedRedBy = 0;
     for (const sig of game.signalling?.up ?? []) {
       if (sig.spad) passedRedBy = Math.max(passedRedBy, front - sig.s);
-      if (sig.s > front && sig.aspect === 'red' && sig.s - front < redAhead.distance) {
+      // a failed automatic signal passed with GR 9.02 authority is no longer the end of authority
+      if (sig.s > front && sig.aspect === 'red' && !sig.authorised && sig.s - front < redAhead.distance) {
         redAhead = { distance: sig.s - front, name: sig.name };
         break;
       }
@@ -161,7 +185,42 @@ function protection(train, dt) {
     prev.lever = train.lever;
     if (prev.buzz) audioEngine.setBuzzer((prev.buzz = false));
   }
+  // alarm chain pulled: the coach's vent valve drains the brake pipe until reset
+  if (incidentInputs(game.incidents).ventBp) out.ventBp = true;
   return out;
+}
+
+/** Is the weather hiding the line ahead? (GR 9.02(3): fog, rain, dust storm → 8 km/h) */
+function viewObscured() {
+  return game.settings.weather === 'fog' || (envState.rain ?? 0) > 0.3;
+}
+
+/** B5 incidents: what the crew does and hears. */
+function handleIncidentEvent(ev) {
+  const acp = game.incidents.acp;
+  switch (ev.type) {
+    case 'acpPulled':
+      audioEngine.setBuzzer(true, 'acp');
+      audioEngine.playClick('heavy');
+      showToast(`ALARM CHAIN PULLED (coach ${acp.coach}) — brake pipe falling. Bring the train to a stand; whistle o o -- (short, short, long).`, 6000);
+      break;
+    case 'acpStopped':
+      showToast(`At a stand. The guard and assistant loco pilot are going to coach ${acp.coach} to reset the alarm device…`, 5000);
+      break;
+    case 'acpReset':
+      audioEngine.setBuzzer(false, 'acp');
+      showToast(`Coach ${acp.coach} reset. Release the A9 (hold X) and recharge the brake pipe to 5.0 before starting.`, 5000);
+      break;
+    case 'acpCode':
+      showToast("Whistle code 'o o --' — guard alerted to the loss of brake pressure", 2500);
+      break;
+    case 'signalCode':
+      showToast("Whistle code '-----' — passing an automatic signal at 'On'", 2500);
+      break;
+    case 'restrictionEnded':
+      showToast('Reached the next stop signal — obey its aspect', 2500);
+      break;
+  }
 }
 
 /** React to signals: SPAD consequences follow the difficulty; a cleared home is announced. */
@@ -178,6 +237,13 @@ function handleSignalEvent(ev) {
     if (mode === 'penalty') game.journey.spadPenalties++;
     showToast(mode === 'penalty' ? `SPAD — ${name} passed at danger (−25). Never pass a red signal.` : `SPAD — you passed ${name} at danger! Stop before a red signal.`, 5000);
     audioEngine.playClick('heavy');
+  } else if (ev.type === 'authorised') {
+    const night = game.settings.timeOfDay === 'night';
+    showToast(`Waited ${night ? '2 minutes (night)' : '1 minute'} at ${ev.signal.name}. GR 9.02: whistle '-----' (hold H ~3 s), then proceed with great caution to the next stop signal.`, 6000);
+  } else if (ev.type === 'passedAuthorised') {
+    const next = nextStopSignalAfter(game.signalling, ev.signal.s);
+    const r = startCautiousRun(game.incidents, { signalS: ev.signal.s, nextStopSignalS: next?.s, obscured: viewObscured() });
+    showToast(`Passing ${ev.signal.name} at 'On' with authority — max ${r.kmh} km/h${next ? ` until ${next.name}` : ''}, ready to stop short of any obstruction.`, 5000);
   } else if (ev.type === 'cleared' && ev.signal.s - game.train.routeDistance < 1500) {
     showToast(`${ev.signal.name} cleared — proceed with caution`, 2800);
   }
@@ -185,7 +251,7 @@ function handleSignalEvent(ev) {
 
 export default function SimulationDriver() {
   const stepper = useMemo(() => createFixedStepper(FIXED_TIMESTEP, MAX_FRAME_DELTA), []);
-  const timers = useRef({ hud: 0, fpsTime: 0, fpsFrames: 0, frames: 0, resetVersion: game.resetVersion, playing: 0, whistled: false, kids: new Set(), water: 0, waterT: 0, tunnelCam: 0, tunnelTrain: 0 });
+  const timers = useRef({ horn: createHornReader(), depart: null, hud: 0, fpsTime: 0, fpsFrames: 0, frames: 0, resetVersion: game.resetVersion, playing: 0, whistled: false, kids: new Set(), water: 0, waterT: 0, tunnelCam: 0, tunnelTrain: 0 });
 
   useFrame((state, delta) => {
     const t = timers.current;
@@ -195,6 +261,9 @@ export default function SimulationDriver() {
       t.playing = 0;
       t.whistled = false;
       t.kids.clear();
+      t.horn = createHornReader();
+      t.depart = null;
+      t.announced = new Set();
     }
 
     const train = game.train;
@@ -211,6 +280,19 @@ export default function SimulationDriver() {
         stepTrain(train, game.input, dt, game.trainCfg, { curveRadius: k > 0 ? 1 / k : Infinity, grade, bankerTE_kN: bankerTE, ...prot });
         updateJourney(game.journey, train, dt, journeyCfg, currentSpeedLimit(train));
         updateRunStats(game.stats, train, dt);
+        // horn codes (IRFCA notation) and the incidents that listen for them
+        const hornCode = updateHornReader(t.horn, game.input.horn, dt);
+        const fs = game.incidents?.failedSignal;
+        const waitingAtFailed = !!fs && !fs.passed && fs.s - train.routeDistance > 0 && fs.s - train.routeDistance < 450 && train.speedMps < 0.5;
+        for (const ev of updateIncidents(game.incidents, { front: train.routeDistance, rear: train.routeDistance - formation.totalLength, speed: train.speedMps, dt, hornCode, waitingAtFailed })) handleIncidentEvent(ev);
+        // D1: the driver acknowledges the guard's right-away with a long blast ('--', IRFCA)
+        if (t.depart) {
+          if (hornCode && hasLongBlast(hornCode)) {
+            game.stats.guardAcks++;
+            t.depart = null;
+            showToast("Horn '--' — right-away acknowledged", 1800);
+          } else if (game.journey.elapsed - t.depart.at > 30 && train.routeDistance - t.depart.s > 300) t.depart = null;
+        }
         if (game.signalling) {
           const j = game.journey;
           const spans = [];
@@ -245,7 +327,12 @@ export default function SimulationDriver() {
         const stops = stopsOf(JOURNEY);
         const i = game.journey.stopIndex;
         const st = ev === 'arrived' ? stops[i] : stops[Math.max(0, i - 1)];
-        if (ev === 'rightAway') audioEngine.playGuardWhistle(game.cameraMode === 'cab' ? 0.45 : 0.8);
+        if (ev === 'rightAway') {
+          audioEngine.playGuardWhistle(game.cameraMode === 'cab' ? 0.45 : 0.8);
+          t.depart = { at: game.journey.elapsed, s: train.routeDistance };
+          game.stats.guardSignals++;
+          sceneRefs.guardSignal = { s: train.routeDistance - formation.totalLength, until: performance.now() + 14000 };
+        }
         if (ev === 'arrived') audioEngine.playClick('switch');
         showToast(JOURNEY_TOASTS[ev](st, stops[i]), 3200);
       }
@@ -300,6 +387,18 @@ export default function SimulationDriver() {
       if (!t.whistled && t.playing > 2.5) {
         t.whistled = true;
         audioEngine.playGuardWhistle(game.cameraMode === 'cab' ? 0.45 : 0.8);
+        t.depart = { at: game.journey.elapsed, s: front };
+        game.stats.guardSignals++;
+        sceneRefs.guardSignal = { s: front - formation.totalLength, until: performance.now() + 14000 };
+      }
+      // D1: arrival announcement as the train runs in to each halt (and the destination)
+      if (!t.announced) t.announced = new Set();
+      const stops = stopsOf(JOURNEY);
+      const nextStop = stops[game.journey.stopIndex];
+      const stn = nextStop && STATIONS.find((x) => x.id === nextStop.stationId);
+      if (stn && !t.announced.has(stn.id) && train.speedMps > 1 && front > stn.platformStart - 300 && front < stn.platformEnd) {
+        t.announced.add(stn.id);
+        announceArrival(stn);
       }
       // village children shouting as the train goes by
       for (const ks of KID_SPOTS) {
@@ -339,6 +438,8 @@ export default function SimulationDriver() {
       route,
       camera: state.camera,
       stationProximity: stationProximity(front),
+      stationProximityAt: stationProximity, // evaluated at the listener's position by the engine
+      roadProximityAt: roadProximity,
       stationBusy: nearSt?.sound === 'city' || nearSt === STATIONS[0],
       enclosure: game.cameraMode === 'orbit' || game.cameraMode === 'trackside' ? t.tunnelTrain * 0.5 : t.tunnelTrain,
       onBridge: !!bridgeAt(front - 40),
@@ -347,6 +448,7 @@ export default function SimulationDriver() {
       lcBell,
       lcDistance,
       passingAiTrain,
+      aiTrains: game.aiTrains,
       cameraMode: game.cameraMode,
       coachType: consistFor(game.settings.coachLivery).type,
       coachCount: consistFor(game.settings.coachLivery).count,

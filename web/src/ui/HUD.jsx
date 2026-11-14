@@ -119,6 +119,24 @@ const DIRS = [
   [-1, 'R'],
 ];
 
+/**
+ * Rulebook guidance for this run's incidents (B5). Always shown, whatever the
+ * difficulty: a real loco pilot knows these procedures by heart.
+ */
+function incidentHint(inc) {
+  if (!inc) return '';
+  if (inc.acp?.phase === 'venting') return `Alarm chain pulled (coach ${inc.acp.coach}) — BP falling. Bring the train to a stand · whistle o o -- (H: short, short, long)`;
+  if (inc.acp?.phase === 'resetting') return `Guard and ALP resetting the alarm device on coach ${inc.acp.coach} — ${Math.ceil(inc.acp.left)} s · keep the brakes on`;
+  const f = inc.failedSignal;
+  if (f) {
+    if (f.authorised) return `GR 9.02: wait over — whistle '-----' (hold H ~3 s), then pass ${f.name} at 'On' with great caution`;
+    if (f.waited > 0) return `${f.name} at 'On' — GR 9.02: wait ${Math.ceil(f.wait - f.waited)} s more (1 min by day, 2 by night)`;
+    if (f.distance < 900) return `${f.name} at 'On' — stop in rear of it (GR 9.02)`;
+  }
+  if (inc.restriction) return `Past a failed signal: max ${inc.restriction.kmh} km/h, ready to stop short of any obstruction · ${Math.round(inc.restriction.distance)} m to the next stop signal`;
+  return '';
+}
+
 export default function HUD({ s }) {
   const remaining = s.remaining;
   const overshoot = remaining < 0;
@@ -166,7 +184,12 @@ export default function HUD({ s }) {
           {overspeed && <span className="alert alert--red">OVERSPEED · limit {limit} km/h</span>}
           {tooLate && <span className="alert alert--amber">Brake now — full-service stop needs {formatDistance(s.stoppingDistance)}</span>}
         </div>
-        {(s.toast || s.hint) && <div className="hud__hint">{s.toast || s.hint}</div>}
+        {s.incident?.cautionOrder && (
+          <div className="caution-order" title="Caution order handed to you at the starting station">
+            <strong>CAUTION ORDER</strong> · km {(s.incident.cautionOrder.from / 1000).toFixed(2)}–{(s.incident.cautionOrder.to / 1000).toFixed(2)} · <strong>{s.incident.cautionOrder.kmh} km/h</strong> · P-way work
+          </div>
+        )}
+        {(s.toast || incidentHint(s.incident) || s.hint) && <div className="hud__hint">{s.toast || incidentHint(s.incident) || s.hint}</div>}
       </div>
 
       <div className="hud__speed panel-glass">
@@ -194,8 +217,9 @@ export default function HUD({ s }) {
           <Gauge label="BC" value={s.bc} max={3.8} unit="kg/cm²" tone="bc" />
         </div>
         {s.stoppingHud && <div className="speed__limit">Full-service stop: {s.speedKmh > 1 ? formatDistance(s.stoppingDistance) : '—'}</div>}
-        {(s.vcdOn || s.adhesionOn) && (
+        {(s.vcdOn || s.adhesionOn || s.incident?.acp) && (
           <div className="lamps">
+            {s.incident?.acp && <span className="lamp lamp--acp is-on">ACP · coach {s.incident.acp.coach}</span>}
             {s.vcdOn && (
               <span className={`lamp lamp--vcd lamp--${s.vcd.phase}`} title="Vigilance control device: press V at least every 60 s">
                 VCD {s.vcd.phase === 'warning' ? `· press V (${Math.ceil(s.vcd.left)})` : s.vcd.phase === 'penalty' ? `· reset in ${Math.ceil(s.vcd.left)} s` : ''}

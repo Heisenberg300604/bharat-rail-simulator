@@ -75,6 +75,14 @@ The physics, with real WAP-7 and LHB numbers, is explained in
   signal is shown on the HUD. Passing a red is a SPAD.
 - **Kavach** (Indian ATP): permitted speed, braking curve to the end of
   authority, automatic brake intervention. On for Trainee; switchable.
+- **Incidents** (Settings, off by default): a caution order for track work with
+  its lineside boards (GR 15.09), an automatic signal failed at danger (GR 9.02:
+  wait 1 min by day / 2 by night, whistle, pass with caution), or the alarm
+  chain pulled (brake pipe vents, the crew resets the coach). The HUD gives the
+  procedure.
+- **The guard and announcements:** the guard waves the right-away with a green
+  flag (green lamp at night); answer with a long blast on the horn. Optional
+  spoken platform announcements in Hindi and English.
 - **Driver school:** four guided lessons (brakes, power, stopping, signals).
 - **Run card and records:** punctuality, stop accuracy in cm, comfort, energy;
   personal bests and a driving log, kept in the browser (no account, no server).

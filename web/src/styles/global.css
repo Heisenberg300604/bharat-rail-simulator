@@ -1501,6 +1501,11 @@ input[type='range'] {
   background: #d8261b;
   color: #fff;
 }
+.lamp--acp.is-on {
+  background: #d8261b;
+  color: #fff;
+  animation: lampblink 0.8s steps(2) infinite;
+}
 .lamp--sand.is-on {
   background: #c9a227;
   color: #1b1305;

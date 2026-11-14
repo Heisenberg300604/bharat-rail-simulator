@@ -11,6 +11,9 @@ import { createRecords } from './records.js';
 import { createLessonState, lessonById } from '../simulation/driverSchool.js';
 import { createSignalling, nextSignal as findNextSignal } from '../simulation/signalling.js';
 import { createKavach } from '../simulation/kavach.js';
+import { planIncidents, createIncidentState, runSpeedLimits, incidentLimitAt, summarizeIncidents, INCIDENT_MODES } from '../simulation/incidents.js';
+import { failSignal } from '../simulation/signalling.js';
+import { tunnelAt, bridgeAt } from '../routes/activeRoute.js';
 import { createVcd, vcdSecondsLeft } from '../simulation/vcd.js';
 import { computeFormation } from '../simulation/routeMath.js';
 import { setActiveRoute, routeId as activeRouteId } from '../routes/activeRoute.js';
@@ -36,6 +39,7 @@ import {
   JOURNEY_STATE,
 } from '../simulation/journeyManager.js';
 import { audioEngine } from '../audio/audioEngine.js';
+import { pauseAnnouncements, stopAnnouncements } from '../audio/announcements.js';
 import { detectQuality } from './detectQuality.js';
 import { TIME_OF_DAY, WEATHER } from '../world/environment.js';
 
@@ -137,6 +141,8 @@ function loadSettings() {
     horn: 'auto', // 'auto' = the locomotive's own horns, or a horn id from horns/horns.json
     route: DEFAULT_ROUTE_ID,
     showStandIns: false, // offer locos whose licensed 3D model isn't downloaded yet (procedural stand-in body)
+    incidents: 'off', // B5: 'off' | 'occasional' | 'always' (caution orders, failed signals, alarm chain)
+    spokenAnnouncements: false, // D1: speak a route-specific station announcement (browser speech) at halts
   };
   try {
     const saved = JSON.parse(localStorage.getItem('brs-settings') || '{}');
@@ -149,6 +155,8 @@ function loadSettings() {
     if (!isRouteId(merged.route)) merged.route = defaults.route;
     if (!DIFFICULTY[merged.difficulty]) merged.difficulty = defaults.difficulty;
     if (!['auto', 'on', 'off'].includes(merged.kavach)) merged.kavach = 'auto'; // was an unused boolean
+    if (!INCIDENT_MODES.includes(merged.incidents)) merged.incidents = defaults.incidents;
+    merged.spokenAnnouncements = merged.spokenAnnouncements === true;
     return merged;
   } catch {
     return defaults;
@@ -194,6 +202,8 @@ export const game = {
   locoModels: {}, // loco id → true once its GLB has loaded (Train.jsx)
   stats: createRunStats(), // energy, comfort and safety counters for the run card
   signalling: null, // live signal aspects (simulation/signalling.js), created per run
+  incidents: createIncidentState(), // this run's incidents (simulation/incidents.js)
+  runLimits: SPEED_LIMITS, // the route's speed limits + this run's caution order
   runRecord: null, // what the finished run changed in the personal records
   lesson: null, // driver school: { id, step, done } while a lesson is running
   pendingLesson: null, // lesson to start once the Delhi route has loaded
@@ -241,8 +251,26 @@ let snapshot = buildSnapshot();
 
 /** Route speed limit over the whole train, capped by the locomotive's own maximum. */
 export function currentSpeedLimit(train = game.train) {
-  const route = speedLimitFor(SPEED_LIMITS, train.routeDistance - formation.totalLength, train.routeDistance);
-  return Math.min(route, game.trainCfg?.locoMaxKmh ?? Infinity);
+  const route = speedLimitFor(game.runLimits ?? SPEED_LIMITS, train.routeDistance - formation.totalLength, train.routeDistance);
+  return Math.min(route, incidentLimitAt(game.incidents, train.routeDistance), game.trainCfg?.locoMaxKmh ?? Infinity);
+}
+
+/** What the HUD shows about this run's incidents. */
+function incidentSnapshot() {
+  const inc = game.incidents;
+  if (!inc) return null;
+  const front = game.train.routeDistance;
+  const out = {};
+  if (inc.tsr && front < inc.tsr.to + 50) out.cautionOrder = { from: inc.tsr.from, to: inc.tsr.to, kmh: inc.tsr.kmh };
+  if (inc.acp && (inc.acp.phase === 'venting' || inc.acp.phase === 'resetting')) out.acp = { phase: inc.acp.phase, coach: inc.acp.coach, left: inc.acp.resetLeft };
+  if (inc.restriction) out.restriction = { kmh: inc.restriction.kmh, distance: inc.restriction.to - front };
+  const f = inc.failedSignal;
+  if (f && !f.passed && game.signalling) {
+    const sig = game.signalling.up.find((x) => x.s === f.s);
+    const d = sig.s - front;
+    if (d > 0 && d < 1500) out.failedSignal = { name: sig.name, distance: d, waited: sig.failWaited, wait: sig.failWait, authorised: sig.authorised, codeSounded: f.codeSounded };
+  }
+  return out;
 }
 
 function publicSignal(sig) {
@@ -263,7 +291,8 @@ function buildSnapshot() {
     emergency: t.emergency,
     tractionCut: t.tractionCut && t.lever > 0,
     speedLimit: limit,
-    nextLimit: nextSpeedLimit(SPEED_LIMITS, t.routeDistance, limit),
+    nextLimit: nextSpeedLimit([...(game.runLimits ?? SPEED_LIMITS)].sort((a, b) => a.from - b.from), t.routeDistance, limit),
+    incident: incidentSnapshot(),
     stoppingDistance: estimateStoppingDistance(t, game.trainCfg),
     screen: game.screen,
     speedKmh: t.speedMps * 3.6,
@@ -309,6 +338,7 @@ function buildSnapshot() {
     fps: game.fps,
     renderScale: game.renderScale,
     resetVersion: game.resetVersion,
+    incidentsVersion: game.incidentsVersion ?? 0,
   };
 }
 
@@ -346,6 +376,7 @@ function setScreen(screen) {
   game.screen = screen;
   releaseAllInputs();
   audioEngine.setPaused(screen !== 'playing');
+  pauseAnnouncements(screen !== 'playing');
   publish();
 }
 
@@ -422,6 +453,20 @@ export function resetJourney() {
   game.stats = createRunStats();
   // a fresh random seed per run decides which home signals are held at danger
   game.signalling = createSignalling(ROUTE, { seed: (Math.random() * 1e9) | 0, holdChance: 0.35 });
+  // B5 incidents (off by default): a caution order, a failed automatic signal, the alarm chain
+  const consist = consistFor(game.settings.coachLivery);
+  game.incidents = planIncidents(ROUTE, {
+    seed: (Math.random() * 1e9) | 0,
+    mode: game.settings.incidents,
+    passenger: !!consist.passenger,
+    coachCount: consist.count,
+    night: game.settings.timeOfDay === 'night',
+    autoSignals: game.signalling.up.filter((x) => x.kind === 'auto'),
+    blocked: (s) => !!tunnelAt(s, 15) || !!bridgeAt(s, 15),
+  });
+  if (game.incidents.failedSignal) failSignal(game.signalling, game.incidents.failedSignal.s, game.incidents.failedSignal.waitS);
+  game.runLimits = runSpeedLimits(SPEED_LIMITS, game.incidents);
+  game.incidentsVersion = (game.incidentsVersion ?? 0) + 1;
   game.kavach = createKavach();
   game.vcd = createVcd();
   game.vcdAck = false;
@@ -430,6 +475,8 @@ export function resetJourney() {
   game.aiTrains = initAiTrains();
   game.renderDistance = game.train.routeDistance;
   game.toast = null;
+  stopAnnouncements();
+  audioEngine.setBuzzer(false, 'acp');
   game.resetVersion++;
 }
 
@@ -471,6 +518,7 @@ export function completeJourney() {
   const result = game.journey.result;
   const score = result?.score;
   game.newBest = score !== undefined && !result.failed && saveBest(game.routeId, score);
+  if (result) result.incidents = summarizeIncidents(game.incidents);
   if (result) game.runRecord = { ...records.recordRun(recordKey(), result, game.stats), entry: records.entry(recordKey()) };
   setScreen('completed');
 }

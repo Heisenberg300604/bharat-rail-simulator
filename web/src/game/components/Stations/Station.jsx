@@ -4,7 +4,8 @@
 // benches, a foot-over-bridge (FOB), the station building in the route's
 // regional colours, and yellow name boards (regional script / Hindi / English).
 // All static parts are merged by ModelBuilder into ~3 draw calls per station.
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { loadMergedModel } from '../../world/models/loadGlbModel.js';
 import * as THREE from 'three';
 import { route, journeyCfg, useGameValue } from '../../state/gameStore.js';
 import { TRACK } from '../../config/gameConfig.js';
@@ -20,7 +21,15 @@ const FOB_DECK = 9.0;
 // Station-local frame: x along the track, z to the RIGHT. Lateral (+left) → z = -lat.
 const zOf = (lat) => -lat;
 
-function buildStation(length, layout, style, buildingSide) {
+// Wayside station building: "Indian Railway Station Building Game-Ready" by nayan
+// pachori (Sketchfab; used with the author's permission — see docs/ASSET_CREDITS.md).
+// 17.7 m along the track × 10.6 m deep × 7.7 m high, 1,911 triangles, 1 draw call.
+// While it loads (or if it is missing) the procedural office is drawn instead.
+const STATION_MODEL_URL = `${import.meta.env.BASE_URL}assets/models/station/station-building.glb`;
+const STATION_MODEL_DEPTH = 10.56;
+const STATION_MODEL_FRONT = 1; // +1: the model's +z face is its platform front (−1: its −z face)
+
+function buildStation(length, layout, style, buildingSide, { modelBuilding = false } = {}) {
   const b = new ModelBuilder();
   const lights = { tubes: [], posts: [], boards: [] }; // positions for night glows (station-local)
   const L = length;
@@ -122,7 +131,7 @@ function buildStation(length, layout, style, buildingSide) {
   // Foot-over-bridge spanning every platform, with a staircase down to each
   if (layout.fob) buildFob(b, L, PLATFORMS, style);
   if (layout.building === 'grand') buildGrandBuilding(b, PLATFORMS, style, buildingSide, lights);
-  else buildSmallBuilding(b, PLATFORMS, style, buildingSide, lights);
+  else if (!modelBuilding) buildSmallBuilding(b, PLATFORMS, style, buildingSide, lights);
 
   return { geos: b.build(), lights };
 }
@@ -206,10 +215,23 @@ export default function Station({ station }) {
   const PLATFORMS = layout.platforms;
   useGameValue((s) => s.difficulty); // the stop zone size follows the difficulty
   const stops = journeyCfg.stops.filter((st) => st.stationId === station.id);
+  // wayside stations use the 3D station-building model once it has loaded
+  const [buildingModel, setBuildingModel] = useState(null);
+  useEffect(() => {
+    if (layout.building === 'grand') return undefined;
+    let alive = true;
+    loadMergedModel(STATION_MODEL_URL, { forwardAxis: 'x' })
+      .then((m) => alive && setBuildingModel(m))
+      .catch(() => {}); // keep the procedural building
+    return () => {
+      alive = false;
+    };
+  }, [layout.building]);
+  const useModel = !!buildingModel;
 
   const built = useMemo(() => {
     const pose = route.sample(centerS, {});
-    const { geos, lights } = buildStation(length, layout, station.style, station.side);
+    const { geos, lights } = buildStation(length, layout, station.style, station.side, { modelBuilding: useModel });
     const platformTex = makeNoiseTexture({ base: '#ffffff', speckles: ['#e2ddd4', '#f0ece4', '#d3cdc2'], density: 1.5, seed: 3 });
     const facade = makeFacadeTexture();
     const materials = {
@@ -239,7 +261,7 @@ export default function Station({ station }) {
     );
     const stopTex = stops.length ? makePlateTexture('STOP', { bg: '#ffffff', fg: '#c4161c' }) : null;
     return { pose, geos, materials, boardTex, pfTextures, stopTex, glows, pools };
-  }, [centerS, length, station, layout, PLATFORMS, stops.length]);
+  }, [centerS, length, station, layout, PLATFORMS, stops.length, useModel]);
 
   useEffect(
     () =>
@@ -281,6 +303,22 @@ export default function Station({ station }) {
       {Object.entries(geos).map(([key, geo]) => (
         <mesh key={key} geometry={geo} material={materials[key]} receiveShadow castShadow={key === 'roof'} />
       ))}
+      {useModel &&
+        buildingModel.parts.map((p, k) => {
+          const side = station.side ?? 1;
+          const zFront = zOf(PLATFORMS[0].lat[1]) - 0.6 * side; // just behind platform 1
+          return (
+            <mesh
+              key={k}
+              geometry={p.geometry}
+              material={p.material}
+              position={[0, 0, zFront - (side * STATION_MODEL_DEPTH) / 2]}
+              rotation={[0, side * STATION_MODEL_FRONT > 0 ? 0 : Math.PI, 0]}
+              castShadow
+              receiveShadow
+            />
+          );
+        })}
       <primitive object={built.glows} />
       <primitive object={built.pools} />
 

@@ -70,6 +70,7 @@ export const MIX = {
   brakeHiss: 0.1,
   announcement: 0.75,
   passby: 1.0,
+  aiRoll: 0.55, // D4: the opposing train's rolling noise (Doppler-shifted moving source)
   hum: 0.05,
   blower: 0.22,
   inverter: 0.035,

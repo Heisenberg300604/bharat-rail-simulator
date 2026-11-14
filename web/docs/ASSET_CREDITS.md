@@ -294,3 +294,31 @@ behaviour (`src/game/audio/railAcoustics.js`).
 - Modifications: <e.g. decimated to 40k tris, textures resized to 2K, exported to GLB>
 - Original source file kept at: <path or "not kept">
 ```
+
+## Locomotive horns (`public/assets/audio/horns/`, added 2026-11-14)
+
+Found through the Freesound API (search plus geotag filter for India), shortlisted by spectral analysis, and chosen by the owner by ear. Full per-file details are in `public/assets/audio/horns/CREDITS.md`.
+
+- `horn-kerala.wav` (default player horn) and `horn-passing-kerala.mp3` (opposing trains): https://freesound.org/people/arundasstp/sounds/403930/, by arundasstp, **CC BY 4.0**. Recorded in Kerala, 2017.
+- `horn-rajasthan.wav` (second player horn): https://freesound.org/people/xserra/sounds/94012/, by xserra, **CC BY 4.0**. Recorded near Ajmer, Rajasthan, 2010.
+- The locomotive classes are not stated by the recordists.
+
+## BTPN petrol tank wagon (`public/assets/models/stock/btpn.glb`, added 2026-11-15)
+
+- Source: "Authentic 3D Indian Petrol-Wagon Train Model", https://sketchfab.com/3d-models/authentic-3d-indian-petrol-wagon-train-model-2e40ef40f08a4a1e82bd713b7d1260c4, by lakshyasharma11052002. **CC BY 4.0**; the licence is copied to `stock/btpn-LICENSE.txt`. The owner downloaded it.
+- Original: glTF, 3,043,092 triangles, 117 meshes, 231 MB of geometry. It is triangle soup, so the normals and unused UVs were stripped before welding.
+- Processing: welded, simplified to **38,619 triangles** (5 meshes, 5 materials), smooth normals rebuilt, texture to WebP 1024, meshopt. The result is 0.8 MB. A 21.6k-triangle version lost the couplers and was rejected.
+- Scale: 12.42 m over couplers. Real BTPN (IRIMEE notes, https://rskr.irimee.in/sites/default/files/BTPN.pdf): 12,420 mm over couplers, barrel 2,850 mm inside diameter × 11,458 mm, tare 27.0 t, payload 54.28 t, gross 81.28 t, axle load 20.32 t.
+  - The model's barrel length-to-diameter ratio (4.0) matches the real one, so it is true to scale: barrel ≈ 2.8 m, height 4.37 m, width 2.89 m.
+  - Bogie centres measured on the model: 8.43 m.
+- The model has its own bogies. It is dark green (the artist's choice; many real BTPN rakes are black or grey).
+- Cost: 5 draw calls for the whole rake (instanced). No shadows, as with the BCNA. 61–62 FPS on an M4 with a 20-wagon rake.
+
+## Wayside station building (`public/assets/models/station/station-building.glb`, added 2026-11-15)
+
+- Source: "Indian Railway Station Building Game-Ready", https://sketchfab.com/3d-models/indian-railway-station-building-game-ready-b511a0c49a8344208f04883f8ffeb379, by nayan pachori (https://sketchfab.com/nayanpachori19). The licence text is copied to `models/station/station-building-LICENSE.txt`.
+- **Licence: Sketchfab Standard — NOT Creative Commons.** On its own it forbids making the model "available … as a stand-alone file" or letting third parties "download, extract or access" it. That would rule out this public repository and the web build.
+- **Permission:** the owner reports (2026-11-15) that the author gave permission to use it in this game. **Action for the owner:** keep that permission in writing (a message or email naming this open-source web game). If the permission is ever in doubt, delete `public/assets/models/station/`. The game then falls back to the original procedural station office with no code change.
+- Original: glTF, 1,911 triangles, 2 meshes, 1 material (PBR, 2K-4K base colour, normal and ORM maps), modelled in centimetres.
+- Processing: scaled ×0.01 to metres (17.74 × 7.66 × 10.56 m), textures to WebP 2048, meshopt. The result is 1.35 MB, one draw call per station.
+- Used at every wayside station (`layout.building` other than `grand`), behind platform 1. The termini keep the procedural grand building.

@@ -1,25 +1,26 @@
 # CLAUDE.md — Bharat Rail Simulator (web)
 
 Read this first and you should not need to explore the repo to start work.
-Everything here is current as of 2026-11-14. **If you change something this
+Everything here is current as of 2026-11-14 (refreshed after D1, B5, D4). **If you change something this
 file describes, update this file in the same turn** — see §9.
 
 ---
 
 ## 1. What this is
 
-A browser Indian-railways driving sim: drive a WAP-7 (or WAG-9) with 8 LHB
-coaches over six condensed, fictional routes inspired by famous lines (Delhi
+A browser Indian-railways driving sim: drive a WAP-7, WAG-9, WAP-4 or WCAM-1
+with LHB/ICF coaches or BOXN/BCNA freight over six condensed, fictional routes inspired by famous lines (Delhi
 mainline, Bhor Ghat, Konkan, Pamban Bridge, Gatimaan corridor, Bengal
 suburban). Real physics numbers, gradients, multi-stop timetables, per-axle
-recorded rail audio, 60 FPS on cheap laptops.
+recorded rail audio, live signalling, Kavach, VCD, wheel slip, a driver school,
+run cards and local records, photo mode. 60 FPS on cheap laptops.
 
 Stack: **JavaScript (no TypeScript), React 19, Vite 8, Three.js 0.187,
 React Three Fiber 9.** No other dependencies, no backend, no paid services.
 
 ```bash
 npm run dev      # http://localhost:5173
-npm test         # node --test — 95 tests, all passing; run before claiming done
+npm test         # node --test — 109 tests, all passing; run before claiming done
 npm run build    # static dist/  (vite base: './' so it works in a sub-folder)
 ```
 
@@ -44,6 +45,12 @@ npm run build    # static dist/  (vite base: './' so it works in a sub-folder)
    (`ambience: 'occasional'` is the default and the intended feel).
 7. Keep simulation logic pure and unit-tested, separate from rendering (§4).
 8. Don't claim a feature works unless it was implemented and verified.
+9. **Ask before each feature.** When working through `docs/ENHANCEMENTS_PLAN.md`,
+   go easiest first, then medium. Before building each item, describe what you
+   plan to implement and wait for the owner's yes/no. "No" means skip it and
+   propose the next one. Never start the next feature without approval.
+10. Work goes on a feature branch (currently `wave1-driving-realism`), not
+   straight onto `main`.
 
 ## 3. Architecture in ten lines
 
@@ -91,6 +98,9 @@ can be unit-tested with `node --test`. Keep it that way.
 | `simulation/vcd.js` | Vigilance control device (60 s / 8 s / penalty / 160 s reset) |
 | `simulation/runStats.js` | Run-card stats: energy, regen, comfort (peak accel/jerk), safety counters |
 | `simulation/driverSchool.js` | Lessons (steps with checks) for the driver school |
+| `simulation/incidents.js` | B5 incidents: plan per run (caution order + boards, failed automatic signal, alarm chain), `runSpeedLimits`, GR 9.02 cautious run, run-card summary |
+| `simulation/hornCodes.js` | Reads horn presses as IRFCA codes (`o`, `--`, `-----`, e.g. `o o --`) |
+| `audio/announcements.js` | D1 spoken platform announcement (Web Speech API, Hindi + English); pure text builder is tested |
 | `state/records.js` | Personal records + driving log (localStorage `brs-records`) |
 | `simulation/roadTraffic.js` | Intelligent Driver Model for road vehicles |
 | `simulation/simulation.test.js` | Physics / route / journey tests |
@@ -105,11 +115,12 @@ can be unit-tested with `node --test`. Keep it that way.
 | `components/Train/` | `Train.jsx` (the rake), `CabInterior`, `CoachInterior` |
 | `components/Track/TrackRoute.jsx` | Rails, sleepers, ballast, OHE |
 | `components/Stations/Station.jsx` | Platforms, buildings, boards, lighting |
-| `components/Environment/` | `Atmosphere` (sky/sun/moon/lighting, tunnel darkness), `Weather`, `Terrain` (chunked corridor mesh, far plane, water), `Structures` (bridges, tunnels), `Landmarks`, `Scenery` (biome-driven), `Road.jsx` (road, traffic, level crossings), `Signals` (instanced posts + live lamps, A/P plates), `SpeedBoards` |
+| `components/Environment/` | `Atmosphere` (sky/sun/moon/lighting, tunnel darkness), `Weather`, `Terrain` (chunked corridor mesh, far plane, water), `Structures` (bridges, tunnels), `Landmarks`, `Scenery` (biome-driven), `Road.jsx` (road, traffic, level crossings), `Signals` (instanced posts + live lamps, A/P plates), `SpeedBoards`, `IncidentBoards` (caution/speed/T-P/T-G boards of this run's caution order), `PassDust` (D4 dust when an AI train passes; 1 draw call) |
 | `components/People/Crowds.jsx` | GPU-animated crowds; exports `KID_SPOTS` |
+| `components/People/Guard.jsx` | D1 guard waving the right-away (green flag / night lamp) beyond the rear of the train (`sceneRefs.guardSignal`) |
 | `components/Cameras/CameraRig.jsx` | Six camera modes + mouse look/orbit |
 | `src/ui/` | `StartScreen` (route list + detail, difficulty, Driver school/How-to-play/Settings/Records/About modals), `JourneyComplete` (run card + PNG), `PhotoMode`, `LessonPanel`, `RoutePicker` (`RouteList`, `RouteDetail`, `Profile`), `HUD`, `PauseMenu`, `LoadingScreen`, `JourneyComplete`, `RestartConfirm`, `ControlsTable`, `EnvironmentPicker` |
-| `public/assets/` | `models/locomotive/*.glb` (WAP-7, WAG-9, WAP-4, WCAM-1; + per-model LICENSE), `models/stock/` (`bvzi.glb` brake van, `bcna.glb` covered wagon — any `COACH_TYPES` entry with `model` is drawn from its GLB), `audio/rail/`, `audio/ambience/` (each with `CREDITS.md`) |
+| `public/assets/` | `models/station/station-building.glb` (wayside station building, `Station.jsx`; procedural office until it loads), `models/locomotive/*.glb` (WAP-7, WAG-9, WAP-4, WCAM-1; + per-model LICENSE), `models/stock/` (`bvzi.glb` brake van, `bcna.glb` covered wagon, `btpn.glb` petrol tank wagon — any `COACH_TYPES` entry with `model` is drawn from its GLB), `audio/rail/`, `audio/ambience/` (each with `CREDITS.md`) |
 
 ## 5. Invariants — breaking these breaks the game
 
@@ -161,18 +172,39 @@ can be unit-tested with `node --test`. Keep it that way.
   far-away/culled objects don't hitch when first seen; `ChunkedInstances`
   re-culls immediately after a camera jump > 150 m.
 - Tested modules must stay import-clean of Three.js/React.
+- **Exactly one `<SimulationDriver />`, inside `RouteWorld`.** A second copy
+  steps the physics twice per frame (the game ran at 2× real time from the
+  routes commit until 2026-11-14 because of this).
+- **Custom `ShaderMaterial`s must include the `logdepthbuf` chunks** (the
+  renderer uses `logarithmicDepthBuffer`); without them nothing is drawn.
+- The player's speed limits are `game.runLimits` (route limits + this run's
+  caution order) plus `incidentLimitAt` — use `currentSpeedLimit()`, never
+  `SPEED_LIMITS` directly, for the player's train. Settings `incidents`
+  (off|occasional|always, default off) and `spokenAnnouncements` (default false).
+- **Station and road ambience are measured where the listener is** (the audio
+  engine calls `stationProximityAt(L.s)` / `roadProximityAt(L.s)`), never from
+  the train's rear; station sound is gone about 400 m from the platform.
+- The cab buzzer is shared: `audioEngine.setBuzzer(on, key)` ('vcd', 'acp').
 
 ## 6. Current state
 
 Milestones 0–6 done; milestone 7 (performance & release) partial. Six
-routes (routes plan steps 1–7 implemented). 66 tests pass. Measured on an M4: 46–88 draw calls, steady 60 FPS; 58–60 FPS on Low
+routes (routes plan steps 1–7 implemented). Wave 1 of ENHANCEMENTS_PLAN done,
+plus A1/A2/A3/A5, D1, B5 (partial), D4 and the WAP-4/WCAM-1/BVZI/BCNA models. 109 tests pass. Measured on an M4: 46–88 draw calls, steady 60 FPS; 58–60 FPS on Low
 with the CPU throttled 4×.
 
 **Known limitations and quirks** (don't "fix" these by surprise):
 - Only tested in Chrome on macOS. Windows, Safari and Firefox unverified.
 - Signals are live but there is no same-direction traffic, so automatic
-  signals never go to danger; GR 9.02 (pass an automatic red after waiting) is
-  not modelled. Kavach is Full Supervision only.
+  signals only go to danger when an incident fails one (GR 9.02 is modelled
+  for that; 15 km/h after passing with a clear view is a game assumption).
+  Kavach is Full Supervision only (no Override mode).
+- Incidents: caution order, failed automatic signal and ACP only — cattle and
+  gates closed against the train (B5) are not done. Rules + assumptions:
+  `docs/DRIVING_RULES.md` §9–10. Spoken announcements depend on the browser's
+  voices (Hindi only if the system has one).
+- D4 Doppler is applied to the AI train's rolling bed and horn; the recorded
+  passby one-shot keeps the Doppler baked into the recording.
 - WAP-5 has physics but no model yet (stand-in body, hidden by default). The
   WCAM-1 model is ~18.3 m (artist's proportions) vs the real 20.95 m.
 - Locos may set `length` (formation uses it) and `ownRunningGear` (procedural
@@ -181,20 +213,28 @@ with the CPU throttled 4×.
 - Adhesion coefficients are game assumptions (no official figures exist).
 - Single-line routes have no running opposing trains (they wait parked in
   crossing loops). Bankers on Bhor Ghat are physics + HUD only (not drawn).
-- No diesel/WAP-5 models yet, so every route is driven with WAP-7/WAG-9.
-- `settings.kavach` exists in `gameStore.js:74` but **nothing reads it** — a
-  placeholder for the planned ATP feature.
-- `public/assets/audio/horns/` does not exist, so `horns.json` 404s and the
-  single `horn-india.mp3` is used. Dropping that folder in enables the horn
-  picker with no code change.
-- No licence-clear ICF model was found; the ICF and LHB coaches are **original
-  procedural** bodies built to real dimensions. The parked blue rake is a
-  recoloured LHB.
+- No diesel, EMU or WAP-5 models yet (electric locos only: WAP-7, WAG-9,
+  WAP-4, WCAM-1). The BCNA wagon is ~16.9 m (artist's proportions) vs 14.45 m.
+- Horn library `public/assets/audio/horns/horns.json` (2026-11-14): the default
+  player horn is `kerala-single` (the first `kind: player` entry), with
+  `rajasthan-twotone` in the pause-menu picker and `kerala-passing` (`distant`,
+  `bakedDoppler`: no extra Doppler) for opposing trains. `horn-india.mp3` is
+  only the fallback. The recordists don't name the loco classes. Player horns
+  are WAV so their loop points stay sample-accurate.
+- The ICF and LHB coaches are **original procedural** bodies built to real
+  dimensions (a CC BY ICF model is catalogued in ASSET_CREDITS but not yet
+  downloaded).
 - The WAP-7 traction-motor sound is synthesized; no licence-clean recording of
   an Indian three-phase loco exists.
 - The WAP-7 body texture carries real fleet numbers — see the open question in
   `docs/ASSET_CREDITS.md`.
-- Persistence: settings and best score per route only.
+- The wayside station building is **not Creative Commons**: Sketchfab Standard
+  licence, used with the author's permission as reported by the owner
+  (2026-11-15). Keep that permission in writing; if it is withdrawn, delete
+  `models/station/` and the procedural building returns automatically.
+- Persistence is localStorage only (settings, bests, records, school); no server yet.
+- `docs/ROUTES_PLAN.md` is deleted in the owner's working copy (still in git
+  history); the routes are documented in `src/game/routes/` and §3–§5 here.
 
 ## 7. Which doc to read, and when
 

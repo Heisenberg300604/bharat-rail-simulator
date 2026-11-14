@@ -21,7 +21,7 @@
 // Recordings load in the background after the Start click; anything that is
 // missing falls back to a synthesized version so the game is never silent.
 import { AUDIO_FILES, LOOPED, MIX, HORN, RAIL_INDEX_URL, HORN_INDEX_URL, AUDIO_BASE } from './audioManifest.js';
-import { trainAxles, nextJoint, specialJoints, timeToJoint, inverterTone, bandWeights, RAIL_JOINTS } from './railAcoustics.js';
+import { trainAxles, nextJoint, specialJoints, timeToJoint, inverterTone, bandWeights, RAIL_JOINTS, dopplerFactor, nearestOnSpan } from './railAcoustics.js';
 import { onRouteChange } from '../routes/activeRoute.js';
 
 let SPECIALS = [];
@@ -485,14 +485,14 @@ class AudioEngine {
       index = [];
     }
     await Promise.all(
-      index.map(async (e) => {
+      index.map(async (e, order) => {
         try {
           const buf = await this.fetchBuffer(`${AUDIO_BASE}horns/${String(e.file).replace(/^.*\//, '')}`);
           const short = e.shortFile ? await this.fetchBuffer(`${AUDIO_BASE}horns/${String(e.shortFile).replace(/^.*\//, '')}`).catch(() => null) : null;
           const loopStart = Number(e.loopStart);
           const loopEnd = Number(e.loopEnd);
           const ok = Number.isFinite(loopStart) && Number.isFinite(loopEnd) && loopEnd - loopStart > 0.2 && loopEnd < buf.duration;
-          this.horns[e.id] = { ...e, buf, short, loopStart: ok ? loopStart : buf.duration * 0.3, loopEnd: ok ? loopEnd : buf.duration * 0.7 };
+          this.horns[e.id] = { ...e, order, buf, short, loopStart: ok ? loopStart : buf.duration * 0.3, loopEnd: ok ? loopEnd : buf.duration * 0.7 };
         } catch (err) {
           console.warn(`Horn "${e.id}" unavailable:`, err.message);
         }
@@ -504,7 +504,10 @@ class AudioEngine {
   hornRecording() {
     const chosen = this.horns[this.hornChoice];
     if (chosen) return chosen;
-    const player = Object.values(this.horns).find((h) => h.kind !== 'distant');
+    // the first player horn listed in horns.json (files load in parallel, so not insertion order)
+    const player = Object.values(this.horns)
+      .filter((h) => h.kind !== 'distant')
+      .sort((a, b) => a.order - b.order)[0];
     if (player) return player;
     // the original recording: no measured release, so it simply fades out
     return this.buffers.horn ? { buf: this.buffers.horn, loopStart: HORN.loopStart, loopEnd: HORN.loopEnd, releaseS: 0 } : null;
@@ -527,7 +530,8 @@ class AudioEngine {
       this.hornGain.gain.setTargetAtTime(MIX.hornSynth, now, 0.03);
       return;
     }
-    this.hornVoice = this.startHornVoice(h, MIX.horn, this.locoBus.in, now);
+    // per-horn loudness trim from horns.json ("gain", default 1)
+    this.hornVoice = this.startHornVoice(h, MIX.horn * (Number(h.gain) || 1), this.locoBus.in, now);
   }
 
   startHornVoice(h, level, dest, now) {
@@ -582,7 +586,9 @@ class AudioEngine {
     const distant = Object.values(this.horns).filter((h) => h.kind === 'distant');
     if (distant.length) {
       const h = distant[Math.floor(Math.random() * distant.length)];
-      this.playOneShot(h.buf, level * 1.2, this.ambBus.in, { rate: 0.97 + Math.random() * 0.06 });
+      // a recording made as a train passed already carries its own Doppler: don't shift it again
+      const src = this.playOneShot(h.buf, level * 1.2 * (Number(h.gain) || 1), this.ambBus.in, { rate: h.bakedDoppler ? 1 : (this.aiHornRate ?? 1) });
+      this.aiHornSrc = h.bakedDoppler ? null : src;
       return;
     }
     const players = Object.values(this.horns).filter((h) => h.kind !== 'distant');
@@ -590,7 +596,8 @@ class AudioEngine {
     if (!buf) return;
     const src = this.ctx.createBufferSource();
     src.buffer = buf;
-    src.playbackRate.value = 1.04;
+    src.playbackRate.value = this.aiHornRate ?? 1;
+    this.aiHornSrc = src;
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0, now);
     g.gain.linearRampToValueAtTime(level, now + 0.08);
@@ -699,10 +706,21 @@ class AudioEngine {
     this.playOneShot(this.buffers[key], MIX.click, this.uiBus, { rate: 0.95 + Math.random() * 0.1 });
   }
 
-  /** Vigilance-control alarm buzzer (looped while on). */
-  setBuzzer(on) {
+  /**
+   * Cab alarm buzzer (looped while on). Several devices share it — the VCD
+   * and the alarm-chain indication ('acp') — so it sounds while any is on.
+   */
+  setBuzzer(on, key = 'vcd') {
+    this.buzzers ??= new Set();
+    if (on) this.buzzers.add(key);
+    else this.buzzers.delete(key);
     if (!this.ready || !this.amb?.buzzer) return;
-    this.amb.buzzer.gain.gain.setTargetAtTime(on ? MIX.buzzer : 0, this.ctx.currentTime, 0.02);
+    this.amb.buzzer.gain.gain.setTargetAtTime(this.buzzers.size ? MIX.buzzer : 0, this.ctx.currentTime, 0.02);
+  }
+
+  /** Lower the background announcement recording while a spoken one plays (D1). */
+  duckAnnouncement(on) {
+    this.announcementDuck = on ? 0.12 : 1;
   }
 
   playHonk(level = 1, pan = 0) {
@@ -916,8 +934,79 @@ class AudioEngine {
     if (this.amb?.wind) this.amb.wind.gain.gain.setTargetAtTime(MIX.wind * P.wind * Math.pow(smoothstep(4, 34, v), 1.6), now, 0.3);
 
     // ---- 5. world ambience
+    this.updateAiPass(env, L, now, v * dir);
     this.ambienceMode = env.ambienceMode;
     this.updateAmbience(env, now, v, pKey, L);
+  }
+
+  /**
+   * D4: the opposing train's rolling noise as a moving source, with real
+   * Doppler shift (railAcoustics.dopplerFactor): higher pitch while it
+   * approaches, lower as it goes away. The rolling noise comes from the part
+   * of the train nearest the listener; the horn from its locomotive.
+   * env.aiTrains: [{ state, front, length, speed }] on the down line (lat −5.3),
+   * running towards lower s. vSigned: our speed along +s.
+   */
+  updateAiPass(env, L, now, vSigned) {
+    const route = env.route;
+    if (!route || !this.ctx) return;
+    const LAT = -5.3;
+    let best = null;
+    let bestD = Infinity;
+    for (const tr of env.aiTrains ?? []) {
+      if (tr.state !== 'running' || tr.speed < 1) continue;
+      const sN = nearestOnSpan(L.s, tr.front, tr.front + tr.length);
+      const d = Math.hypot(L.s - sN, L.lat - LAT, (L.h ?? 2) - 1);
+      if (d < bestD) {
+        bestD = d;
+        best = { tr, sN };
+      }
+    }
+    const p = this._dp ?? (this._dp = {});
+    const q = this._dq ?? (this._dq = {});
+    const world = (s, lat, out) => {
+      route.sample(s, p);
+      route.sample(s + 1, q);
+      out.x = p.x + p.lx * lat;
+      out.z = p.z + p.lz * lat;
+      out.fx = q.x - p.x;
+      out.fz = q.z - p.z;
+      return out;
+    };
+    // start on synthesized noise; switch to a recorded rolling bed once the rail recordings have loaded
+    if (this.aiRoll?.synthetic && this.rail.rollExt.length) {
+      try {
+        this.aiRoll.src.stop();
+      } catch {
+        /* already stopped */
+      }
+      this.aiRoll = null;
+    }
+    if (!this.aiRoll) {
+      const bed = this.rail.rollExt[Math.floor(this.rail.rollExt.length / 2)];
+      this.aiRoll = bed ? this.loopVoice(bed.buffer, this.ambBus.in, { filter: 'lowpass', freq: 3000 }) : this.loopVoice(this.brown, this.ambBus.in, { filter: 'lowpass', freq: 380 });
+      this.aiRoll.recordedKmh = bed?.speed ?? 80;
+      this.aiRoll.synthetic = !bed;
+    }
+    if (!best || bestD > 700) {
+      this.aiRoll.gain.gain.setTargetAtTime(0, now, 0.4);
+      this.aiHornRate = 1;
+      return;
+    }
+    const lis = world(L.s, L.lat, this._dl ?? (this._dl = {}));
+    const still = env.cameraMode === 'trackside';
+    const lisVel = still ? { x: 0, z: 0 } : { x: lis.fx * vSigned, z: lis.fz * vSigned };
+    const src = world(best.sN, LAT, this._ds ?? (this._ds = {}));
+    const vel = { x: -src.fx * best.tr.speed, z: -src.fz * best.tr.speed };
+    const doppler = dopplerFactor(src, vel, lis, lisVel);
+    // the horn comes from the locomotive at the train's leading end
+    const loco = world(best.tr.front, LAT, this._dh ?? (this._dh = {}));
+    this.aiHornRate = dopplerFactor(loco, { x: -loco.fx * best.tr.speed, z: -loco.fz * best.tr.speed }, lis, lisVel);
+    if (this.aiHornSrc) this.aiHornSrc.playbackRate.setTargetAtTime(this.aiHornRate, now, 0.03);
+    const speedRate = clamp((best.tr.speed * 3.6) / this.aiRoll.recordedKmh, 0.6, 1.4);
+    this.aiRoll.src.playbackRate.setTargetAtTime(speedRate * doppler, now, 0.05);
+    const level = (MIX.aiRoll ?? 0.55) * clamp(best.tr.speed / 25, 0, 1.2) / (1 + bestD / 30) * (L.ext ? 1 : 0.55) * (1 - (env.enclosure ?? 0) * 0.7);
+    this.aiRoll.gain.gain.setTargetAtTime(level, now, 0.08);
   }
 
   setSqueal(sq, level, now) {
@@ -952,11 +1041,12 @@ class AudioEngine {
     const mode = env.ambienceMode ?? 'occasional';
     const dt = clamp(now - (this.lastAmbTime ?? now), 0, 0.25);
     this.lastAmbTime = now;
-    const station = env.stationProximity ?? 0;
-    const road = env.roadProximity ?? 0;
+    // measured where the listener is (L.s), so station and road sounds fade as you leave them
+    const station = env.stationProximityAt ? env.stationProximityAt(L.s) : (env.stationProximity ?? 0);
+    const road = env.roadProximityAt ? env.roadProximityAt(L.s) : (env.roadProximity ?? 0);
     if (env.passingAiTrain) this.playPassby(L.ext ? 1 : 0.8);
     if (station > 0.65 && v < 12) this.playAnnouncement();
-    this.announcementGain.gain.setTargetAtTime(station > 0.04 ? MIX.announcement * Math.pow(station, 1.8) : 0, now, 0.25);
+    this.announcementGain.gain.setTargetAtTime(station > 0.04 ? MIX.announcement * Math.pow(station, 1.8) * (this.announcementDuck ?? 1) : 0, now, 0.25);
     if (station <= 0.02 && this.announcementSource) {
       try {
         this.announcementSource.stop();
