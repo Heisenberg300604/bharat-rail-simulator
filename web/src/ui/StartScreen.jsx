@@ -254,7 +254,11 @@ function About() {
         <a href="https://sketchfab.com/3d-models/authentic-3d-indian-petrol-wagon-train-model-2e40ef40f08a4a1e82bd713b7d1260c4" target="_blank" rel="noreferrer">
           “Authentic 3D Indian Petrol-Wagon Train Model”
         </a>{' '}
-        (BTPN) by lakshyasharma11052002, CC BY 4.0 (scaled, simplified). Brake van:{' '}
+        (BTPN) by lakshyasharma11052002, CC BY 4.0 (scaled, simplified). Wayside station building:{' '}
+        <a href="https://sketchfab.com/3d-models/indian-railway-station-building-game-ready-b511a0c49a8344208f04883f8ffeb379" target="_blank" rel="noreferrer">
+          “Indian Railway Station Building Game-Ready”
+        </a>{' '}
+        © nayan pachori, used with the author's permission (not for reuse as a separate file). Brake van:{' '}
         <a href="https://sketchfab.com/3d-models/bvzi--brake--van-indian-train-c077c09c16de4be28c7cfc7cb09c83ed" target="_blank" rel="noreferrer">
           “BVZI_ Brake_ Van_indian_train”
         </a>{' '}

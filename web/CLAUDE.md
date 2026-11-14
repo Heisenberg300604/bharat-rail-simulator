@@ -120,7 +120,7 @@ can be unit-tested with `node --test`. Keep it that way.
 | `components/People/Guard.jsx` | D1 guard waving the right-away (green flag / night lamp) beyond the rear of the train (`sceneRefs.guardSignal`) |
 | `components/Cameras/CameraRig.jsx` | Six camera modes + mouse look/orbit |
 | `src/ui/` | `StartScreen` (route list + detail, difficulty, Driver school/How-to-play/Settings/Records/About modals), `JourneyComplete` (run card + PNG), `PhotoMode`, `LessonPanel`, `RoutePicker` (`RouteList`, `RouteDetail`, `Profile`), `HUD`, `PauseMenu`, `LoadingScreen`, `JourneyComplete`, `RestartConfirm`, `ControlsTable`, `EnvironmentPicker` |
-| `public/assets/` | `models/locomotive/*.glb` (WAP-7, WAG-9, WAP-4, WCAM-1; + per-model LICENSE), `models/stock/` (`bvzi.glb` brake van, `bcna.glb` covered wagon, `btpn.glb` petrol tank wagon — any `COACH_TYPES` entry with `model` is drawn from its GLB), `audio/rail/`, `audio/ambience/` (each with `CREDITS.md`) |
+| `public/assets/` | `models/station/station-building.glb` (wayside station building, `Station.jsx`; procedural office until it loads), `models/locomotive/*.glb` (WAP-7, WAG-9, WAP-4, WCAM-1; + per-model LICENSE), `models/stock/` (`bvzi.glb` brake van, `bcna.glb` covered wagon, `btpn.glb` petrol tank wagon — any `COACH_TYPES` entry with `model` is drawn from its GLB), `audio/rail/`, `audio/ambience/` (each with `CREDITS.md`) |
 
 ## 5. Invariants — breaking these breaks the game
 
@@ -181,6 +181,9 @@ can be unit-tested with `node --test`. Keep it that way.
   caution order) plus `incidentLimitAt` — use `currentSpeedLimit()`, never
   `SPEED_LIMITS` directly, for the player's train. Settings `incidents`
   (off|occasional|always, default off) and `spokenAnnouncements` (default false).
+- **Station and road ambience are measured where the listener is** (the audio
+  engine calls `stationProximityAt(L.s)` / `roadProximityAt(L.s)`), never from
+  the train's rear; station sound is gone about 400 m from the platform.
 - The cab buzzer is shared: `audioEngine.setBuzzer(on, key)` ('vcd', 'acp').
 
 ## 6. Current state
@@ -225,6 +228,10 @@ with the CPU throttled 4×.
   an Indian three-phase loco exists.
 - The WAP-7 body texture carries real fleet numbers — see the open question in
   `docs/ASSET_CREDITS.md`.
+- The wayside station building is **not Creative Commons**: Sketchfab Standard
+  licence, used with the author's permission as reported by the owner
+  (2026-11-15). Keep that permission in writing; if it is withdrawn, delete
+  `models/station/` and the procedural building returns automatically.
 - Persistence is localStorage only (settings, bests, records, school); no server yet.
 - `docs/ROUTES_PLAN.md` is deleted in the owner's working copy (still in git
   history); the routes are documented in `src/game/routes/` and §3–§5 here.

@@ -313,3 +313,12 @@ Found through the Freesound API (search plus geotag filter for India), shortlist
   - Bogie centres measured on the model: 8.43 m.
 - The model has its own bogies. It is dark green (the artist's choice; many real BTPN rakes are black or grey).
 - Cost: 5 draw calls for the whole rake (instanced). No shadows, as with the BCNA. 61–62 FPS on an M4 with a 20-wagon rake.
+
+## Wayside station building (`public/assets/models/station/station-building.glb`, added 2026-11-15)
+
+- Source: "Indian Railway Station Building Game-Ready", https://sketchfab.com/3d-models/indian-railway-station-building-game-ready-b511a0c49a8344208f04883f8ffeb379, by nayan pachori (https://sketchfab.com/nayanpachori19). The licence text is copied to `models/station/station-building-LICENSE.txt`.
+- **Licence: Sketchfab Standard — NOT Creative Commons.** On its own it forbids making the model "available … as a stand-alone file" or letting third parties "download, extract or access" it. That would rule out this public repository and the web build.
+- **Permission:** the owner reports (2026-11-15) that the author gave permission to use it in this game. **Action for the owner:** keep that permission in writing (a message or email naming this open-source web game). If the permission is ever in doubt, delete `public/assets/models/station/`. The game then falls back to the original procedural station office with no code change.
+- Original: glTF, 1,911 triangles, 2 meshes, 1 material (PBR, 2K-4K base colour, normal and ORM maps), modelled in centimetres.
+- Processing: scaled ×0.01 to metres (17.74 × 7.66 × 10.56 m), textures to WebP 2048, meshopt. The result is 1.35 MB, one draw call per station.
+- Used at every wayside station (`layout.building` other than `grand`), behind platform 1. The termini keep the procedural grand building.
