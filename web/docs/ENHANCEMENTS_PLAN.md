@@ -1,6 +1,12 @@
 # Future enhancements: product plan
 
-Status: proposal (2026-11-14). Written from the product side, not the
+Status: proposal (2026-11-14). **Progress (2026-11-14):** Wave 1 done (C1
+driver school, C2 difficulty presets, B1 run card + records in localStorage,
+B6 driving log, F1 photo mode, F2 run-card PNG, E9 brick-red and Utkrisht ICF
+liveries, E8 SLR at the rear of those rakes, D5 cab life, D4 close-pass), plus
+A1 live signalling + SPAD, A2 Kavach (simplified), A3 adhesion/slip/sand, A5
+VCD, lineside speed boards, and E1 WAP-5 / E7 WAP-4 physics (models still to
+be downloaded). Sources for every rule: [DRIVING_RULES.md](DRIVING_RULES.md). Written from the product side, not the
 engineering side: what would make this a game people keep opening, in what
 order, and why.
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { HORN_INDEX_URL } from '../game/audio/audioManifest.js';
-import { togglePause, requestRestart, returnToTitle, updateSettings } from '../game/state/gameStore.js';
-import { QUALITY_PRESETS, LOCOMOTIVES, CONSISTS, ROUTE } from '../game/config/gameConfig.js';
+import { togglePause, requestRestart, returnToTitle, updateSettings, enterPhotoMode } from '../game/state/gameStore.js';
+import { QUALITY_PRESETS, LOCOMOTIVES, CONSISTS, pickableLocos, ROUTE } from '../game/config/gameConfig.js';
 import ControlsTable from './ControlsTable.jsx';
 import EnvironmentPicker from './EnvironmentPicker.jsx';
 
@@ -22,7 +22,7 @@ function useHornList() {
   return list;
 }
 
-export default function PauseMenu({ settings }) {
+export default function PauseMenu({ settings, locoModels = {} }) {
   const horns = useHornList();
   return (
     <div className="overlay">
@@ -34,6 +34,9 @@ export default function PauseMenu({ settings }) {
         <div className="menu-buttons">
           <button className="btn btn--primary" onClick={togglePause} autoFocus>
             Resume
+          </button>
+          <button className="btn" onClick={enterPhotoMode}>
+            Photo mode (P)
           </button>
           <button className="btn" onClick={requestRestart}>
             Restart journey
@@ -82,7 +85,7 @@ export default function PauseMenu({ settings }) {
           <label className="setting">
             <span>Locomotive</span>
             <select value={settings.locomotive} onChange={(e) => updateSettings({ locomotive: e.target.value })}>
-              {Object.entries(LOCOMOTIVES).map(([id, l]) => (
+              {pickableLocos(locoModels, settings.showStandIns).map(([id, l]) => (
                 <option key={id} value={id}>
                   {l.label}
                 </option>

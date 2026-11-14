@@ -5,7 +5,13 @@
 // immutable *snapshot* that we publish only when needed — ~10×/s for the HUD,
 // immediately for menu/screen changes.
 import { useSyncExternalStore } from 'react';
-import { JOURNEY, FORMATION, COACH_TYPES, AI_TRAINS, STATIONS, QUALITY_PRESETS, SPEED_LIMITS, LOCOMOTIVES, CONSISTS, ROUTE, consistFor, trainConfigFor } from '../config/gameConfig.js';
+import { JOURNEY, FORMATION, COACH_TYPES, AI_TRAINS, STATIONS, QUALITY_PRESETS, SPEED_LIMITS, LOCOMOTIVES, CONSISTS, ROUTE, DIFFICULTY, consistFor, trainConfigFor, difficultyFor, locoLength } from '../config/gameConfig.js';
+import { createRunStats, summarizeRunStats } from '../simulation/runStats.js';
+import { createRecords } from './records.js';
+import { createLessonState, lessonById } from '../simulation/driverSchool.js';
+import { createSignalling, nextSignal as findNextSignal } from '../simulation/signalling.js';
+import { createKavach } from '../simulation/kavach.js';
+import { createVcd, vcdSecondsLeft } from '../simulation/vcd.js';
 import { computeFormation } from '../simulation/routeMath.js';
 import { setActiveRoute, routeId as activeRouteId } from '../routes/activeRoute.js';
 import { isRouteId, DEFAULT_ROUTE_ID } from '../routes/index.js';
@@ -36,12 +42,14 @@ import { TIME_OF_DAY, WEATHER } from '../world/environment.js';
 // The route geometry (live binding: changes with the selected route)
 export { route } from '../routes/activeRoute.js';
 /** Length/offsets of the player's train for a consist (passenger rake or freight). */
-function formationFor(consistId) {
+function formationFor(consistId, locoId = 'wap7') {
   const c = consistFor(consistId);
   const ct = COACH_TYPES[c.type] ?? COACH_TYPES.lhb;
-  return computeFormation({ locomotive: FORMATION.locomotive, coach: ct, coachCount: c.count, couplingGap: ct.gap ?? FORMATION.couplingGap });
+  const f = computeFormation({ locomotive: { ...FORMATION.locomotive, length: locoLength(locoId) }, coach: ct, coachCount: c.count, couplingGap: ct.gap ?? FORMATION.couplingGap });
+  // goods trains end with a brake van (the guard's van)
+  if (c.brakeVan) f.totalLength += (ct.gap ?? FORMATION.couplingGap) + COACH_TYPES[c.brakeVan].length;
+  return f;
 }
-// `let`: an ES-module live binding, so importers see the new value when the consist changes
 export let formation = formationFor('red');
 // live bindings, refreshed when the route changes
 export let origin = STATIONS.find((s) => s.id === JOURNEY.originId);
@@ -51,9 +59,29 @@ function refreshEnds() {
   destination = STATIONS.find((s) => s.id === JOURNEY.destinationId);
 }
 
+/**
+ * The journey rules actually in force: the route's journey with the stop
+ * zone of the chosen difficulty (live binding — read it, don't cache it).
+ */
+export let journeyCfg = JOURNEY;
+function refreshJourneyCfg(difficultyId) {
+  const half = difficultyFor(difficultyId).stopZoneHalf;
+  journeyCfg = half ? { ...JOURNEY, stopZoneHalfLength: half, stops: JOURNEY.stops.map((st) => ({ ...st, halfLength: half })) } : JOURNEY;
+}
+
+/** Is Kavach active? The player's setting ('on' | 'off'), or the difficulty's default ('auto'). */
+export function kavachActive(settings = game.settings) {
+  if (settings.kavach === 'on') return true;
+  if (settings.kavach === 'off') return false;
+  return difficultyFor(settings.difficulty).kavach;
+}
+
+export const records = createRecords();
+
 function lengthOfAiTrain(def) {
   const ct = COACH_TYPES[def.type] || COACH_TYPES.lhb;
-  return FORMATION.locomotive.length + def.coaches * (ct.length + (ct.gap ?? 0.5));
+  const van = def.type === 'boxn' ? (ct.gap ?? 0.5) + COACH_TYPES.bvzi.length : 0;
+  return locoLength(def.loco ?? 'wap7') + def.coaches * (ct.length + (ct.gap ?? 0.5)) + van;
 }
 
 export function initAiTrains() {
@@ -101,12 +129,14 @@ function loadSettings() {
     coachLivery: 'red',
     timeOfDay: 'noon',
     weather: 'clear',
-    kavach: true,
+    kavach: 'auto', // Kavach ATP: 'auto' (follows the difficulty) | 'on' | 'off'
+    difficulty: 'pilot', // see DIFFICULTY in gameConfig.js; 'pilot' = the standard game
     crowd: true,
     ambience: 'occasional', // background sounds: 'occasional' | 'always' | 'off'
     locomotive: 'wap7',
     horn: 'auto', // 'auto' = the locomotive's own horns, or a horn id from horns/horns.json
     route: DEFAULT_ROUTE_ID,
+    showStandIns: false, // offer locos whose licensed 3D model isn't downloaded yet (procedural stand-in body)
   };
   try {
     const saved = JSON.parse(localStorage.getItem('brs-settings') || '{}');
@@ -117,6 +147,8 @@ function loadSettings() {
     if (!LOCOMOTIVES[merged.locomotive]) merged.locomotive = defaults.locomotive;
     if (!CONSISTS[merged.coachLivery]) merged.coachLivery = defaults.coachLivery; // e.g. the retired blue LHB option
     if (!isRouteId(merged.route)) merged.route = defaults.route;
+    if (!DIFFICULTY[merged.difficulty]) merged.difficulty = defaults.difficulty;
+    if (!['auto', 'on', 'off'].includes(merged.kavach)) merged.kavach = 'auto'; // was an unused boolean
     return merged;
   } catch {
     return defaults;
@@ -132,8 +164,9 @@ function saveSettings() {
 
 const initialSettings = loadSettings();
 if (setActiveRoute(initialSettings.route)) refreshEnds();
+refreshJourneyCfg(initialSettings.difficulty);
 const initialTrainCfg = trainCfgWithBanker(initialSettings.locomotive, initialSettings.coachLivery);
-formation = formationFor(initialSettings.coachLivery);
+formation = formationFor(initialSettings.coachLivery, initialSettings.locomotive);
 
 export const game = {
   // 'loading' | 'title' | 'playing' | 'paused' | 'confirmRestart' | 'completed'
@@ -144,9 +177,13 @@ export const game = {
   journey: createJourney(),
   aiTrains: initAiTrains(),
   renderDistance: JOURNEY.startDistance, // smoothed distance used for drawing
-  input: { leverUp: false, leverDown: false, brakeApply: false, brakeRelease: false, horn: false },
+  input: { leverUp: false, leverDown: false, brakeApply: false, brakeRelease: false, horn: false, sand: false },
+  kavach: createKavach(), // ATP state (simulation/kavach.js)
+  vcd: createVcd(), // vigilance control device (simulation/vcd.js)
+  vcdAck: false, // set by the VCD button (V); consumed by the frame loop
   cameraMode: 'cab', // 'cab' | 'chase' | 'orbit' | 'trackside'
   headlight: true,
+  cabLight: false, // the cab's ceiling lamp (K) — for night running
   settings: initialSettings,
   toast: null, // { text, until }
   fps: 0,
@@ -154,7 +191,31 @@ export const game = {
   resetVersion: 0, // bumps on restart so the frame loop can reset its timers
   routeId: activeRouteId,
   bests: loadBests(), // best score per route id
+  locoModels: {}, // loco id → true once its GLB has loaded (Train.jsx)
+  stats: createRunStats(), // energy, comfort and safety counters for the run card
+  signalling: null, // live signal aspects (simulation/signalling.js), created per run
+  runRecord: null, // what the finished run changed in the personal records
+  lesson: null, // driver school: { id, step, done } while a lesson is running
+  pendingLesson: null, // lesson to start once the Delhi route has loaded
+  schoolDone: loadSchool(), // ids of completed lessons
 };
+
+function loadSchool() {
+  try {
+    return JSON.parse(localStorage.getItem('brs-school') || '[]');
+  } catch {
+    return [];
+  }
+}
+export function markLessonDone(id) {
+  if (game.schoolDone.includes(id)) return;
+  game.schoolDone = [...game.schoolDone, id];
+  try {
+    localStorage.setItem('brs-school', JSON.stringify(game.schoolDone));
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 function loadBests() {
   try {
@@ -184,6 +245,10 @@ export function currentSpeedLimit(train = game.train) {
   return Math.min(route, game.trainCfg?.locoMaxKmh ?? Infinity);
 }
 
+function publicSignal(sig) {
+  return sig ? { name: sig.name, kind: sig.kind, aspect: sig.aspect, distance: sig.distance, held: sig.held } : null;
+}
+
 function buildSnapshot() {
   const t = game.train;
   const now = performance.now();
@@ -208,16 +273,31 @@ function buildSnapshot() {
     direction: t.direction,
     directionLabel: DIRECTION_LABEL[t.direction],
     journeyState: game.journey.state,
-    remaining: remainingDistance(t, JOURNEY, game.journey),
+    remaining: remainingDistance(t, journeyCfg, game.journey),
     progress: journeyProgress(t, JOURNEY),
-    hint: journeyHint(game.journey, t, JOURNEY),
-    nextStop: currentStop(game.journey, JOURNEY),
+    hint: difficultyFor(game.settings.difficulty).hints || game.journey.state === JOURNEY_STATE.READY ? journeyHint(game.journey, t, journeyCfg) : '',
+    nextStop: currentStop(game.journey, journeyCfg),
     stopIndex: game.journey.stopIndex,
     dwell: game.journey.state === JOURNEY_STATE.DWELL ? Math.max(0, game.journey.dwellTimer) : null,
     grade: t.grade ?? 0,
     banker: game.banker?.label ?? null,
     routeId: game.routeId,
     bests: game.bests,
+    locoModels: game.locoModels,
+    difficulty: game.settings.difficulty,
+    stats: game.screen === 'completed' ? summarizeRunStats(game.stats) : null,
+    runRecord: game.runRecord,
+    kavachOn: kavachActive(),
+    kavach: { state: game.kavach.state, permitted: game.kavach.permittedKmh, target: game.kavach.target },
+    vcdOn: difficultyFor(game.settings.difficulty).vcd,
+    vcd: { phase: game.vcd.phase, left: vcdSecondsLeft(game.vcd) },
+    adhesionOn: difficultyFor(game.settings.difficulty).adhesion,
+    slipping: !!t.slipping,
+    sanding: !!game.input.sand,
+    stoppingHud: difficultyFor(game.settings.difficulty).stoppingHud,
+    signal: game.signalling ? publicSignal(findNextSignal(game.signalling, t.routeDistance)) : null,
+    lesson: game.lesson ? { id: game.lesson.id, step: game.lesson.step, done: game.lesson.done } : null,
+    schoolDone: game.schoolDone,
     newBest: game.newBest ?? false,
     result: game.journey.result,
     elapsed: game.journey.elapsed,
@@ -283,18 +363,68 @@ export function sceneReady() {
     firstLoad = false;
     if (elapsed < minLoadingTime) {
       setTimeout(() => {
-        if (game.screen === 'loading') setScreen('title');
+        if (game.screen === 'loading') afterLoad();
       }, minLoadingTime - elapsed);
     } else {
-      setScreen('title');
+      afterLoad();
     }
   }
+}
+
+function afterLoad() {
+  if (game.pendingLesson) {
+    const id = game.pendingLesson;
+    game.pendingLesson = null;
+    startLesson(id);
+  } else setScreen('title');
+}
+
+/**
+ * Driver school: lessons run on the Delhi route. Places the train as the
+ * lesson needs (position, speed, brakes released) and starts the guide.
+ */
+export function startLesson(id) {
+  const lesson = lessonById(id);
+  if (!lesson) return;
+  if (game.routeId !== 'ndls-gzb') {
+    game.pendingLesson = id;
+    selectRoute('ndls-gzb');
+    return;
+  }
+  startJourney();
+  const t = game.train;
+  const { s, kmh, released } = lesson.setup;
+  t.routeDistance = t.previousRouteDistance = s;
+  game.renderDistance = s;
+  t.speedMps = kmh / 3.6;
+  if (released) {
+    t.brakeHandle = 0;
+    t.bp = game.trainCfg.bpNormal;
+    t.bc = 0;
+    t.brakeSignal = 0;
+  }
+  if (kmh > 0) game.journey.state = JOURNEY_STATE.RUNNING;
+  game.lesson = createLessonState(id);
+  game.cameraMode = 'cab';
+  publish();
+}
+export function endLesson() {
+  game.lesson = null;
+  publish();
 }
 
 export function resetJourney() {
   game.trainCfg = trainCfgWithBanker(game.settings.locomotive, game.settings.coachLivery);
   game.banker = bankerFor(game.trainCfg, game.settings.coachLivery);
   game.newBest = false;
+  game.runRecord = null;
+  game.lesson = null;
+  game.stats = createRunStats();
+  // a fresh random seed per run decides which home signals are held at danger
+  game.signalling = createSignalling(ROUTE, { seed: (Math.random() * 1e9) | 0, holdChance: 0.35 });
+  game.kavach = createKavach();
+  game.vcd = createVcd();
+  game.vcdAck = false;
   game.train = newTrain();
   game.journey = createJourney();
   game.aiTrains = initAiTrains();
@@ -307,6 +437,7 @@ export function startJourney() {
   audioEngine.init(); // must happen inside a click: browsers block audio until a user gesture
   audioEngine.setVolume(game.settings.volume, game.settings.muted);
   resetJourney();
+  records.noteStarted();
   setScreen('playing');
 }
 
@@ -331,10 +462,45 @@ export function returnToTitle() {
   setScreen('title');
 }
 
+function recordKey() {
+  const st = game.settings;
+  return records.keyFor({ route: game.routeId, loco: st.locomotive, consist: st.coachLivery, difficulty: st.difficulty });
+}
+
 export function completeJourney() {
-  const score = game.journey.result?.score;
-  game.newBest = score !== undefined && saveBest(game.routeId, score);
+  const result = game.journey.result;
+  const score = result?.score;
+  game.newBest = score !== undefined && !result.failed && saveBest(game.routeId, score);
+  if (result) game.runRecord = { ...records.recordRun(recordKey(), result, game.stats), entry: records.entry(recordKey()) };
   setScreen('completed');
+}
+
+/**
+ * End the run early (a signal passed at danger on Realistic). The run card
+ * shows why; the run is logged but never becomes a record.
+ */
+export function failJourney(reason) {
+  const j = game.journey;
+  if (j.state === JOURNEY_STATE.COMPLETED) return;
+  j.state = JOURNEY_STATE.COMPLETED;
+  j.result = {
+    failed: true,
+    reason,
+    elapsed: j.elapsed,
+    maxSpeedKmh: game.train.maxSpeedReachedMps * 3.6,
+    stopOffset: 0,
+    stopRating: '—',
+    overspeedSeconds: j.overspeedSeconds,
+    maxOverspeedKmh: j.maxOverspeedKmh,
+    emergencyUsed: j.emergencyUsed,
+    stops: j.stopResults.map((r) => ({ ...r })),
+    missedStops: j.stopResults.filter((r) => r.missed).length,
+    earlyDepartures: j.earlyDepartures,
+    scheduled: null,
+    lateSeconds: 0,
+    score: 0,
+  };
+  completeJourney();
 }
 
 /**
@@ -348,9 +514,19 @@ export function selectRoute(id) {
   game.routeId = id;
   game.settings = { ...game.settings, route: id };
   saveSettings();
+  refreshJourneyCfg(game.settings.difficulty);
   resetJourney();
   loadStart = Date.now();
   setScreen('loading');
+}
+
+/** Photo mode: the run freezes, the HUD hides and a free camera takes over. */
+export function enterPhotoMode() {
+  if (game.screen !== 'playing' && game.screen !== 'paused') return;
+  setScreen('photo');
+}
+export function exitPhotoMode() {
+  if (game.screen === 'photo') setScreen('playing');
 }
 
 const CAMERA_ORDER = ['cab', 'interior', 'door', 'rear', 'orbit', 'trackside'];
@@ -370,6 +546,18 @@ export function setCamera(mode) {
     game.cameraMode = mode;
     publish();
   }
+}
+
+/** VCD acknowledge button (V): resets the vigilance timer, or the device after a penalty. */
+export function acknowledgeVcd() {
+  game.vcdAck = true;
+  audioEngine.playClick('switch');
+}
+
+export function toggleCabLight() {
+  game.cabLight = !game.cabLight;
+  audioEngine.playClick('switch');
+  showToast(game.cabLight ? 'Cab light on' : 'Cab light off', 1200);
 }
 
 export function toggleHeadlight() {
@@ -398,17 +586,23 @@ export function updateSettings(patch) {
   // driving physics follow the chosen loco and what it hauls
   game.trainCfg = trainCfgWithBanker(game.settings.locomotive, game.settings.coachLivery);
   game.banker = bankerFor(game.trainCfg, game.settings.coachLivery);
-  if (prev.coachLivery !== game.settings.coachLivery) {
-    formation = formationFor(game.settings.coachLivery);
+  if (prev.coachLivery !== game.settings.coachLivery || prev.locomotive !== game.settings.locomotive) {
+    formation = formationFor(game.settings.coachLivery, game.settings.locomotive);
     const c = consistFor(game.settings.coachLivery);
     game.train.mass = trainMass(game.trainCfg, c.count);
     game.train.minDistance = formation.totalLength + 5;
     // a freight train has no coach to sit in or doorway to stand in
     if (!c.passenger && (game.cameraMode === 'interior' || game.cameraMode === 'door')) game.cameraMode = 'cab';
-  } else if (prev.locomotive !== game.settings.locomotive) {
-    game.train.mass = trainMass(game.trainCfg, consistFor(game.settings.coachLivery).count);
   }
+  if (prev.difficulty !== game.settings.difficulty) refreshJourneyCfg(game.settings.difficulty);
   audioEngine.setVolume(game.settings.volume, game.settings.muted);
   saveSettings();
+  publish();
+}
+
+/** Train.jsx reports which loco models exist, so the pickers can offer them. */
+export function setLocoModelAvailable(id, ok) {
+  if (game.locoModels[id] === ok) return;
+  game.locoModels = { ...game.locoModels, [id]: ok };
   publish();
 }

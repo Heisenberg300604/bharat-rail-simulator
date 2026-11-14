@@ -148,12 +148,19 @@ function routeBoards(r) {
   return { route: [a.name.toUpperCase(), b.name.toUpperCase()], routeHi: `${a.hindi} ⇄ ${b.hindi}`, codes: `${b.code} ⇄ ${a.code}` };
 }
 let boards = null;
+/** ICF variants: every livery, plus an SLR (guard's van) side for the rear of the rake. */
+const ICF_VARIANTS = { 'icf-blue': 'icfBlue', 'icf-brick': 'icfBrick', 'icf-utkrisht': 'icfUtkrisht' };
 function sideTextures() {
-  return {
+  const out = {
     'lhb-red': makeLhbSideTexture({ primary: LIVERIES.lhb.paint, secondary: LIVERIES.lhb.paint2, label: 'AC 3 TIER', ...boards }),
     'lhb-blue': makeLhbSideTexture({ primary: LIVERIES.lhbBlue.paint, secondary: LIVERIES.lhbBlue.paint2, label: 'AC CHAIR CAR', ...boards }),
-    'icf-blue': makeIcfSideTexture({ primary: LIVERIES.icfBlue.paint, band: LIVERIES.icfBlue.paint2, codes: boards.codes }),
   };
+  for (const [key, liv] of Object.entries(ICF_VARIANTS)) {
+    const l = LIVERIES[liv];
+    out[key] = makeIcfSideTexture({ primary: l.paint, band: l.paint2, codes: boards.codes });
+    out[`${key}-slr`] = makeIcfSideTexture({ primary: l.paint, band: l.paint2, codes: boards.codes, kind: 'slr' });
+  }
+  return out;
 }
 onRouteChange((r) => {
   boards = routeBoards(r);
@@ -205,8 +212,11 @@ export function getCoachVariants() {
   shared = {
     'lhb-red': make('lhb', 'lhb', tex['lhb-red']),
     'lhb-blue': make('lhb', 'lhbBlue', tex['lhb-blue']),
-    'icf-blue': make('icf', 'icfBlue', tex['icf-blue']),
   };
+  for (const [key, liv] of Object.entries(ICF_VARIANTS)) {
+    shared[key] = make('icf', liv, tex[key]);
+    shared[`${key}-slr`] = make('icf', liv, tex[`${key}-slr`]);
+  }
   const boxn = boxnGeometry();
   shared['boxn'] = [
     { geometry: boxn.body, material: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.2 }) },
@@ -216,9 +226,12 @@ export function getCoachVariants() {
 }
 
 /** Which variant key a vehicle uses. */
-export function coachVariantKey(type, livery) {
+export function coachVariantKey(type, livery, slr = false) {
   if (type === 'boxn' || livery === 'boxn') return 'boxn';
-  if (type === 'icf' || livery === 'icfBlue') return 'icf-blue';
+  if (type === 'icf' || livery === 'icfBlue' || livery === 'icfBrick' || livery === 'icfUtkrisht') {
+    const key = livery === 'icfBrick' ? 'icf-brick' : livery === 'icfUtkrisht' ? 'icf-utkrisht' : 'icf-blue';
+    return slr ? `${key}-slr` : key;
+  }
   return livery === 'lhbBlue' || livery === 'blue' ? 'lhb-blue' : 'lhb-red';
 }
 

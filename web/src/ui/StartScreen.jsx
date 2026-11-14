@@ -2,8 +2,10 @@
 // start. How to play, settings and credits live behind buttons in the footer
 // so the screen stays clean; the 3D scene behind shows the chosen route.
 import { useEffect, useState } from 'react';
-import { startJourney, updateSettings } from '../game/state/gameStore.js';
-import { QUALITY_PRESETS, LOCOMOTIVES, CONSISTS, ROUTE } from '../game/config/gameConfig.js';
+import { startJourney, updateSettings, records, startLesson } from '../game/state/gameStore.js';
+import { LESSONS } from '../game/simulation/driverSchool.js';
+import { QUALITY_PRESETS, LOCOMOTIVES, CONSISTS, pickableLocos, ROUTE, DIFFICULTY, difficultyFor } from '../game/config/gameConfig.js';
+import { routeSummaries } from '../game/routes/activeRoute.js';
 import ControlsTable from './ControlsTable.jsx';
 import EnvironmentPicker from './EnvironmentPicker.jsx';
 import { RouteList, RouteDetail } from './RoutePicker.jsx';
@@ -90,6 +92,14 @@ function Settings({ settings }) {
         </select>
       </label>
       <label className="setting">
+        <span>Kavach (ATP)</span>
+        <select value={settings.kavach ?? 'auto'} onChange={(e) => updateSettings({ kavach: e.target.value })}>
+          <option value="auto">Follow difficulty ({difficultyFor(settings.difficulty).kavach ? 'on' : 'off'})</option>
+          <option value="on">Always on</option>
+          <option value="off">Off (purist)</option>
+        </select>
+      </label>
+      <label className="setting">
         <span>Field of view</span>
         <input type="range" min="50" max="90" step="1" value={settings.fov} onChange={(e) => updateSettings({ fov: Number(e.target.value) })} />
         <span className="num">{settings.fov}°</span>
@@ -102,7 +112,95 @@ function Settings({ settings }) {
         <input type="checkbox" checked={settings.showFps} onChange={(e) => updateSettings({ showFps: e.target.checked })} />
         <span>Show FPS</span>
       </label>
+      <label className="setting setting--check">
+        <input type="checkbox" checked={!!settings.showStandIns} onChange={(e) => updateSettings({ showStandIns: e.target.checked })} />
+        <span>Show locos still waiting for their 3D model (WAP-5, WAP-4 — stand-in body, real physics)</span>
+      </label>
       <p className="modal__note">More options (horn, mute) are in the pause menu (Esc) while driving.</p>
+    </div>
+  );
+}
+
+/** Personal bests per route and the lifetime driving log (all stored in this browser). */
+function Records() {
+  const d = records.data;
+  const log = d.log;
+  const rows = routeSummaries().map((r) => {
+    const entries = Object.entries(d.runs).filter(([k]) => k.startsWith(`${r.id}|`));
+    const best = entries.reduce((b, [, e]) => (e.bestScore > (b?.bestScore ?? -1) ? e : b), null);
+    const runs = entries.reduce((n, [, e]) => n + e.runs, 0);
+    return { r, best, runs };
+  });
+  return (
+    <div className="records">
+      <dl className="route-detail__stats">
+        <div>
+          <dt>Runs</dt>
+          <dd className="num">
+            {log.completed}/{log.started}
+          </dd>
+        </div>
+        <div>
+          <dt>Distance</dt>
+          <dd className="num">{log.km.toFixed(1)} km</dd>
+        </div>
+        <div>
+          <dt>Energy</dt>
+          <dd className="num">{log.kWh.toFixed(0)} kWh</dd>
+        </div>
+        <div>
+          <dt>SPADs</dt>
+          <dd className="num">{log.spads}</dd>
+        </div>
+      </dl>
+      <table className="halts">
+        <thead>
+          <tr>
+            <th>Route</th>
+            <th>Runs</th>
+            <th>Best</th>
+            <th>Best stop</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ r, best, runs }) => (
+            <tr key={r.id}>
+              <td>{r.meta.shortName}</td>
+              <td className="num">{runs}</td>
+              <td className="num">{best?.bestScore ?? '—'}</td>
+              <td className="num">{best?.bestStopCm !== undefined ? `${best.bestStopCm} cm` : '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="modal__note">Records are kept in this browser only (localStorage). Nothing is uploaded.</p>
+    </div>
+  );
+}
+
+/** Driver school: the lessons, with a tick for each one completed. */
+function School({ done, onStart }) {
+  return (
+    <div className="school">
+      <p className="modal__note" style={{ marginTop: 0 }}>
+        Four short guided lessons on the Delhi route. The guide waits for you to actually do each step.
+      </p>
+      <ol className="school__list">
+        {LESSONS.map((l) => (
+          <li key={l.id}>
+            <div>
+              <strong>
+                {done.includes(l.id) && <span className="school__tick">✓ </span>}
+                {l.title}
+              </strong>
+              <p>{l.summary}</p>
+            </div>
+            <button className="btn btn--primary" onClick={() => onStart(l.id)}>
+              {done.includes(l.id) ? 'Again' : 'Start'}
+            </button>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
@@ -127,7 +225,23 @@ function About() {
         <a href="https://sketchfab.com/3d-models/wag-9-indian-locomotive-lowpoly-count-665150d63c6146e0b361c1020a87074e" target="_blank" rel="noreferrer">
           “Wag 9 Indian Locomotive Lowpoly count”
         </a>{' '}
-        by knitro_vedant, CC BY 4.0 (optimised). Horn:{' '}
+        by knitro_vedant, CC BY 4.0 (optimised). WAP-4 and WCAM-1 3D models:{' '}
+        <a href="https://sketchfab.com/3d-models/wap-4-indian-electric-engine-locomotive-ed30919c961142c1a77c931dc13ad5bd" target="_blank" rel="noreferrer">
+          “WAP-4 | Indian Electric Engine Locomotive”
+        </a>{' '}
+        and{' '}
+        <a href="https://sketchfab.com/3d-models/wam-4-indian-electric-engine-locomotive-37aa5b915f9a4e44825da1c8a498a850" target="_blank" rel="noreferrer">
+          “WAM-4 | Indian Electric Engine Locomotive”
+        </a>{' '}
+        (a WCAM-1) and{' '}
+        <a href="https://sketchfab.com/3d-models/train-freight-compartment-2cd8d1032b53426a92abb64a71743aa6" target="_blank" rel="noreferrer">
+          “Train Freight Compartment”
+        </a>{' '}
+        (BCNA wagon) by Prabhu Ram (virtualmakes), CC BY 4.0 (scaled, optimised; watermark removed). Brake van:{' '}
+        <a href="https://sketchfab.com/3d-models/bvzi--brake--van-indian-train-c077c09c16de4be28c7cfc7cb09c83ed" target="_blank" rel="noreferrer">
+          “BVZI_ Brake_ Van_indian_train”
+        </a>{' '}
+        by GameChangz (krupesh2736), CC BY 4.0 (optimised). Horn:{' '}
         <a href="https://freesound.org/s/248229/" target="_blank" rel="noreferrer">
           “Train Horn”
         </a>{' '}
@@ -138,7 +252,7 @@ function About() {
   );
 }
 
-export default function StartScreen({ settings, bests, routeId }) {
+export default function StartScreen({ settings, bests, routeId, schoolDone = [], locoModels = {} }) {
   const [modal, setModal] = useState(null);
   const freightOnGhat = ROUTE.banker && CONSISTS[settings.coachLivery]?.passenger === false;
   return (
@@ -164,7 +278,7 @@ export default function StartScreen({ settings, bests, routeId }) {
                 <label>
                   <span>Locomotive</span>
                   <select value={settings.locomotive} onChange={(e) => updateSettings({ locomotive: e.target.value })}>
-                    {Object.entries(LOCOMOTIVES).map(([id, l]) => (
+                    {pickableLocos(locoModels, settings.showStandIns).map(([id, l]) => (
                       <option key={id} value={id}>
                         {l.label}
                       </option>
@@ -183,8 +297,19 @@ export default function StartScreen({ settings, bests, routeId }) {
                 </label>
               </div>
               {freightOnGhat && <p className="setup__note">Two WAG-9 bankers will push from the rear up the ghat.</p>}
+              <div className="segmented" role="radiogroup" aria-label="Difficulty">
+                <span className="segmented__label">Difficulty</span>
+                <div className="segmented__options">
+                  {Object.entries(DIFFICULTY).map(([id, d]) => (
+                    <button key={id} type="button" role="radio" aria-checked={settings.difficulty === id} className={`segmented__btn ${settings.difficulty === id ? 'is-active' : ''}`} onClick={() => updateSettings({ difficulty: id })}>
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+                <span className="setup__hint">{difficultyFor(settings.difficulty).blurb}</span>
+              </div>
               <EnvironmentPicker settings={settings} />
-              <button className="btn btn--primary btn--start" onClick={startJourney} autoFocus>
+              <button className="btn btn--primary btn--start" onClick={startJourney} ref={(el) => el && !el.dataset.f && ((el.dataset.f = 1), el.focus({ preventScroll: true }))}>
                 Start journey <span aria-hidden>▶</span>
               </button>
             </div>
@@ -192,11 +317,17 @@ export default function StartScreen({ settings, bests, routeId }) {
         </div>
 
         <footer className="title-footer">
+          <button className="btn btn--ghost btn--school" onClick={() => setModal('school')}>
+            🎓 Driver school {schoolDone.length > 0 && <span className="num">({schoolDone.length}/{LESSONS.length})</span>}
+          </button>
           <button className="btn btn--ghost" onClick={() => setModal('how')}>
             ⌨ How to play
           </button>
           <button className="btn btn--ghost" onClick={() => setModal('settings')}>
             ⚙ Settings
+          </button>
+          <button className="btn btn--ghost" onClick={() => setModal('records')}>
+            ★ Records
           </button>
           <button className="btn btn--ghost" onClick={() => setModal('about')}>
             ⓘ About &amp; credits
@@ -212,6 +343,22 @@ export default function StartScreen({ settings, bests, routeId }) {
       {modal === 'settings' && (
         <Modal title="Settings" onClose={() => setModal(null)}>
           <Settings settings={settings} />
+        </Modal>
+      )}
+      {modal === 'school' && (
+        <Modal title="Driver school" onClose={() => setModal(null)} wide>
+          <School
+            done={schoolDone}
+            onStart={(id) => {
+              setModal(null);
+              startLesson(id);
+            }}
+          />
+        </Modal>
+      )}
+      {modal === 'records' && (
+        <Modal title="Records & driving log" onClose={() => setModal(null)}>
+          <Records />
         </Modal>
       )}
       {modal === 'about' && (

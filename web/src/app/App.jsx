@@ -7,6 +7,8 @@ import HUD from '../ui/HUD.jsx';
 import PauseMenu from '../ui/PauseMenu.jsx';
 import RestartConfirm from '../ui/RestartConfirm.jsx';
 import JourneyComplete from '../ui/JourneyComplete.jsx';
+import PhotoMode from '../ui/PhotoMode.jsx';
+import LessonPanel from '../ui/LessonPanel.jsx';
 import { sceneRefs } from '../game/state/sceneRefs.js';
 import { audioEngine } from '../game/audio/audioEngine.js';
 
@@ -41,11 +43,13 @@ export default function App() {
     <div className="app">
       <GameCanvas />
       {s.screen === 'loading' && <LoadingScreen />}
-      {s.screen === 'title' && <StartScreen settings={s.settings} bests={s.bests} routeId={s.routeId} />}
+      {s.screen === 'title' && <StartScreen settings={s.settings} bests={s.bests} routeId={s.routeId} schoolDone={s.schoolDone} locoModels={s.locoModels} />}
       {inGame && <HUD s={s} />}
-      {s.screen === 'paused' && <PauseMenu settings={s.settings} />}
+      {s.lesson && (s.screen === 'playing' || s.screen === 'paused') && <LessonPanel lesson={s.lesson} />}
+      {s.screen === 'paused' && <PauseMenu settings={s.settings} locoModels={s.locoModels} />}
+      {s.screen === 'photo' && <PhotoMode settings={s.settings} />}
       {s.screen === 'confirmRestart' && <RestartConfirm />}
-      {s.screen === 'completed' && <JourneyComplete result={s.result} newBest={s.newBest} />}
+      {s.screen === 'completed' && <JourneyComplete result={s.result} stats={s.stats} record={s.runRecord} settings={s.settings} />}
     </div>
   );
 }

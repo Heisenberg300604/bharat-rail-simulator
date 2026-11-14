@@ -10,14 +10,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { game, formation, useGameValue } from '../../state/gameStore.js';
+import { game, formation, useGameValue, setLocoModelAvailable } from '../../state/gameStore.js';
 import { sceneRefs } from '../../state/sceneRefs.js';
-import { FORMATION, COACH_TYPES, LIVERIES, PARKED_TRAINS, AI_TRAINS, TRACK, LOCOMOTIVES, consistFor } from '../../config/gameConfig.js';
+import { FORMATION, COACH_TYPES, LIVERIES, PARKED_TRAINS, AI_TRAINS, TRACK, LOCOMOTIVES, consistFor, locoLength } from '../../config/gameConfig.js';
 import { vehiclePose } from '../../simulation/routeMath.js';
 import { lines, mainLine, downLine } from '../../world/trackLayout.js';
 import { buildLocomotive, buildBogieFrame, buildWheelset, buildCoachExtras, buildRearEndIndicators, tailLampPosition } from '../../world/models/trainModels.js';
 import { getCoachVariants, coachVariantKey } from '../../world/models/coaches.js';
-import { buildCabInterior } from './CabInterior.jsx';
+import { buildCabInterior, buildCabMoving, SPEEDO_MAX_KMH } from './CabInterior.jsx';
 import { buildCoachInterior, createInteriorMaterials, coachEye, COACH_LAYOUTS, INTERIOR_FLOOR, buildDoorway, doorEye } from './CoachInterior.jsx';
 import { buildPersonGeometry, createPeopleMaterial, makeCrowdMesh, randomPerson, ANIM } from '../../world/models/people.js';
 import { seededRandom } from '../../world/geometry.js';
@@ -79,7 +79,7 @@ function buildVehicleList(coachSetting, playerLoco = 'wap7') {
   const playerLivery = consist.livery;
 
   // 1. Player train on main line (locomotive + coaches with proper spacing per coach type)
-  const L = FORMATION.locomotive.length;
+  const L = locoLength(playerLoco);
   list.push({
     kind: 'locomotive',
     type: 'locomotive',
@@ -98,16 +98,22 @@ function buildVehicleList(coachSetting, playerLoco = 'wap7') {
   for (let i = 0; i < consist.count; i++) {
     playerBack += playerGap;
     list.push({
-      kind: 'coach',
+      kind: playerSpec.model ? 'glb' : 'coach', // wagons with a licensed model (e.g. BCNA) are drawn from it
       type: playerType,
       line: mainLine,
       offset: playerBack + playerSpec.length / 2,
       dynamic: true,
       isPlayer: true,
       livery: playerLivery,
+      slr: !!consist.slr && i === consist.count - 1, // guard's van at the rear
       reverseHeading: false,
     });
     playerBack += playerSpec.length;
+  }
+  // goods trains end with the guard's brake van
+  if (consist.brakeVan) {
+    const van = COACH_TYPES[consist.brakeVan];
+    list.push({ kind: 'glb', isVan: true, type: consist.brakeVan, line: mainLine, offset: playerBack + playerGap + van.length / 2, dynamic: true, isPlayer: true, reverseHeading: false });
   }
 
   // 2. Parked trains at station yards
@@ -115,7 +121,7 @@ function buildVehicleList(coachSetting, playerLoco = 'wap7') {
     const line = lines.find((l) => l.id === pt.line);
     if (!line) continue;
     let back = 0;
-    const L = FORMATION.locomotive.length;
+    const L = locoLength(pt.loco ?? 'wap7');
     list.push({ kind: 'locomotive', type: 'locomotive', line, centerS: pt.frontS - L / 2, livery: 'wap7', model: pt.loco ?? 'wap7', reverseHeading: false });
     back = L;
     const ptType = pt.type || 'lhb';
@@ -135,6 +141,7 @@ function buildVehicleList(coachSetting, playerLoco = 'wap7') {
       });
       back += ct.length;
     }
+    if (ptType === 'boxn') list.push({ kind: 'glb', isVan: true, type: 'bvzi', line, centerS: pt.frontS - back - gap - COACH_TYPES.bvzi.length / 2, reverseHeading: false });
   }
 
   // 3. AI Trains on the DOWN main line (running towards the route start)
@@ -142,7 +149,7 @@ function buildVehicleList(coachSetting, playerLoco = 'wap7') {
   AI_TRAINS.forEach((def, aiIdx) => {
     const ct = COACH_TYPES[def.type] || COACH_TYPES.lhb;
     const gap = ct.gap ?? 0.5;
-    const L = FORMATION.locomotive.length;
+    const L = locoLength(def.loco ?? 'wap7');
 
     // AI Locomotive (leading end)
     list.push({
@@ -174,6 +181,7 @@ function buildVehicleList(coachSetting, playerLoco = 'wap7') {
       });
       back += ct.length;
     }
+    if (def.type === 'boxn') list.push({ kind: 'glb', isVan: true, type: 'bvzi', line: downLine, dynamic: true, isAi: true, aiIndex: aiIdx, offsetFromFront: back + gap + COACH_TYPES.bvzi.length / 2, reverseHeading: true });
   });
 
   return list;
@@ -214,7 +222,7 @@ export default function Train() {
       coachWheel: buildWheelset(COACH_TYPES.lhb.wheelRadius),
       lhbExtras: buildCoachExtras(COACH_TYPES.lhb.gap, COACH_TYPES.lhb.length, 'lhb'),
       icfExtras: buildCoachExtras(COACH_TYPES.icf.gap, COACH_TYPES.icf.length, 'icf'),
-      rearEnds: { lhb: buildRearEndIndicators('lhb'), icf: buildRearEndIndicators('icf'), boxn: buildRearEndIndicators('boxn') },
+      rearEnds: { lhb: buildRearEndIndicators('lhb'), icf: buildRearEndIndicators('icf'), boxn: buildRearEndIndicators('boxn'), van: buildRearEndIndicators('van') },
       doorways: { lhb: buildDoorway('lhb'), icf: buildDoorway('icf') },
       reflectMat: makeReflectiveMaterial(),
       mats: makeMaterials(),
@@ -275,6 +283,7 @@ export default function Train() {
         ...Object.values(assets.rearEnds.lhb),
         ...Object.values(assets.rearEnds.icf),
         ...Object.values(assets.rearEnds.boxn),
+        ...Object.values(assets.rearEnds.van),
         ...Object.values(assets.doorways.lhb),
         ...Object.values(assets.doorways.icf),
       ];
@@ -293,15 +302,40 @@ export default function Train() {
   useEffect(() => {
     let alive = true;
     for (const id of Object.keys(LOCOMOTIVES)) {
-      loadMergedModel(locoUrl(id), { forwardAxis: 'z' })
-        .then((m) => alive && setGlbModels((prev) => ({ ...prev, [id]: m })))
-        .catch((err) => console.warn(`${id} model failed to load, using procedural loco:`, err));
+      // models not downloaded yet (e.g. WAP-5/WAP-4) quietly keep the procedural stand-in
+      fetch(locoUrl(id), { method: 'HEAD' })
+        .then((r) => {
+          const type = r.headers.get('content-type') ?? '';
+          if (!r.ok || type.includes('text/html')) throw new Error('missing');
+          return loadMergedModel(locoUrl(id), { forwardAxis: 'z' });
+        })
+        .then((m) => {
+          setLocoModelAvailable(id, true);
+          if (alive) setGlbModels((prev) => ({ ...prev, [id]: m }));
+        })
+        .catch((err) => err.message !== 'missing' && console.warn(`${id} model failed to load, using procedural loco:`, err));
     }
     return () => {
       alive = false;
     };
   }, []);
   const allLocosLoaded = Object.keys(LOCOMOTIVES).every((id) => glbModels[id]);
+
+  // Licensed rolling-stock models (BVZI brake van, BCNA covered wagon): every
+  // COACH_TYPES entry with a `model` file, instanced per part
+  const [stockModels, setStockModels] = useState({});
+  useEffect(() => {
+    let alive = true;
+    for (const [type, spec] of Object.entries(COACH_TYPES)) {
+      if (!spec.model) continue;
+      loadMergedModel(`${import.meta.env.BASE_URL}assets/models/stock/${spec.model}`, { forwardAxis: 'z' })
+        .then((m) => alive && setStockModels((prev) => ({ ...prev, [type]: m })))
+        .catch((err) => console.warn(`${type} model failed to load:`, err));
+    }
+    return () => {
+      alive = false;
+    };
+  }, []);
   // lamps sit on each model's real nose, so the glows never float in front of the cab
   const anchors = useMemo(() => Object.fromEntries(Object.entries(glbModels).map(([id, m]) => [id, measureLampAnchors(m.parts)])), [glbModels]);
   const playerAnchors = anchors[playerLoco] ?? DEFAULT_ANCHORS;
@@ -321,7 +355,7 @@ export default function Train() {
   // passengers sitting on the berths around you.
   const consist = consistFor(coachLivery);
   const playerCoachType = consist.type === 'icf' ? 'icf' : 'lhb'; // which passenger interior to build
-  const lastVehicleType = consist.type; // what the X / LV board / tail lamp mount on
+  const lastVehicleType = consist.brakeVan ? 'van' : consist.type; // what the X / LV board / tail lamp mount on (brake van: no X)
   const passengers = useMemo(() => {
     const c = COACH_LAYOUTS[playerCoachType];
     const rand = seededRandom(playerCoachType === 'icf' ? 71 : 72);
@@ -379,7 +413,7 @@ export default function Train() {
 
     const variantCounts = {};
     for (const v of coaches) {
-      v.variantKey = coachVariantKey(v.type, v.livery);
+      v.variantKey = coachVariantKey(v.type, v.livery, v.slr);
       v.variant = `${v.variantKey}${v.dynamic ? '' : '-parked'}`;
       variantCounts[v.variant] = variantCounts[v.variant] ?? 0;
       v.variantIndex = variantCounts[v.variant]++;
@@ -398,11 +432,21 @@ export default function Train() {
       v.modelIndex = modelCounts[v.model]++; // slot within this model's body meshes
     });
 
-    return { coaches, lhbCoaches, icfCoaches, boxnWagons, locos, otherLocos, modelCounts, variantCounts };
+    const glb = {};
+    for (const v of vehicles) {
+      if (v.kind !== 'glb') continue;
+      glb[v.type] ??= 0;
+      v.glbIndex = glb[v.type]++;
+    }
+    return { coaches, lhbCoaches, icfCoaches, boxnWagons, locos, otherLocos, modelCounts, variantCounts, glb };
   }, [vehicles]);
 
   const locoGroup = useRef();
   const cabGroup = useRef();
+  // moving cab parts: speedometer needle (with a little lag, like a real gauge), wipers, cab lamp
+  const cabMoving = useMemo(buildCabMoving, []);
+  useEffect(() => () => cabMoving.dispose(), [cabMoving]);
+  const cabAnim = useRef({ speed: 0, wipe: 0 });
   const coachInteriorGroup = useRef();
   const rearEndGroup = useRef();
   const doorGroup = useRef();
@@ -423,8 +467,6 @@ export default function Train() {
     sceneRefs.rearEnd = rearEndGroup.current;
     sceneRefs.doorway = doorGroup.current;
     light.current.target = lightTarget;
-    assets.locoMats.paint.color.set(LIVERIES.wap7.paint);
-    assets.locoMats.paint2.color.set(LIVERIES.wap7.paint2);
     return () => {
       sceneRefs.locomotive = null;
       sceneRefs.coachInterior = null;
@@ -432,6 +474,13 @@ export default function Train() {
       sceneRefs.doorway = null;
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // the player's stand-in loco body wears its class livery
+  useLayoutEffect(() => {
+    const liv = LIVERIES[LOCOMOTIVES[playerLoco]?.livery ?? 'wap7'] ?? LIVERIES.wap7;
+    assets.locoMats.paint.color.set(liv.paint);
+    assets.locoMats.paint2.color.set(liv.paint2);
+  }, [playerLoco, assets]);
 
   useLayoutEffect(() => {
     const r = refs.current;
@@ -470,6 +519,14 @@ export default function Train() {
     }
   }
 
+  /** Zero-scale the procedural bogies (2) and wheelsets (6) of a loco whose model has its own. */
+  const _zero = new THREE.Matrix4().makeScale(0, 0, 0);
+  function hideRunningGear(bogieIndex, wheelIndex) {
+    const r = refs.current;
+    for (let b = 0; b < 2; b++) r.locoBogie?.setMatrixAt(bogieIndex + b, _zero);
+    for (let w = 0; w < 6; w++) r.locoWheel?.setMatrixAt(wheelIndex + w, _zero);
+  }
+
   /** Running AI locos show their headlight; parked ones only red marker lamps. Uses _m. */
   function addLocoGlows(v, idx) {
     if (idx > 60) return idx;
@@ -494,7 +551,9 @@ export default function Train() {
 
     for (const v of vehicles) {
       const isLoco = v.kind === 'locomotive';
-      const spec = isLoco ? FORMATION.locomotive : COACH_TYPES[v.type] || COACH_TYPES.lhb;
+      const spec = isLoco ? { ...FORMATION.locomotive, bogieSpacing: FORMATION.locomotive.bogieSpacing * (locoLength(v.model) / FORMATION.locomotive.length) } : COACH_TYPES[v.type] || COACH_TYPES.lhb;
+      // models with their own bogies and wheels: hide the procedural running gear under them
+      const ownGear = isLoco && LOCOMOTIVES[v.model]?.ownRunningGear && glbModels[v.model];
 
       if (!v.dynamic && !includeParked) {
         // parked locos never move, but their marker lamps still need a glow slot
@@ -529,17 +588,25 @@ export default function Train() {
       orient(_q, yaw, pitch);
       _m.compose(_p.set(pose.x, TRACK.railTop + pose.y, pose.z), _q, _one);
 
+      if (v.kind === 'glb') {
+        // licensed wagon/van model (with its own bogies), instanced per part
+        stockModels[v.type]?.parts.forEach((_, k) => r[`glb_${v.type}_${k}`]?.setMatrixAt(v.glbIndex, _m));
+        continue;
+      }
+
       if (v.isPlayer && isLoco) {
         const g = locoGroup.current;
         g.position.set(pose.x, TRACK.railTop + pose.y, pose.z);
         g.rotation.set(0, yaw, pitch);
         g.updateMatrixWorld();
-        if (r.locoBogie) placeRunningGear(v, centerS, dist, r.locoBogie, 0, r.locoWheel, 0, spec, false, pose.pitch);
+        if (ownGear) hideRunningGear(0, 0);
+        else if (r.locoBogie) placeRunningGear(v, centerS, dist, r.locoBogie, 0, r.locoWheel, 0, spec, false, pose.pitch);
       } else if (isLoco) {
         const pli = v.locoIndex;
         for (const part of partsByModel[v.model]) r[`ploco_${v.model}_${part.key}`]?.setMatrixAt(v.modelIndex, _m);
         if (lit) glowIdx = addLocoGlows(v, glowIdx);
-        if (r.locoBogie) placeRunningGear(v, centerS, dist, r.locoBogie, (pli + 1) * 2, r.locoWheel, (pli + 1) * 6, spec, v.reverseHeading, pose.pitch);
+        if (ownGear) hideRunningGear((pli + 1) * 2, (pli + 1) * 6);
+        else if (r.locoBogie) placeRunningGear(v, centerS, dist, r.locoBogie, (pli + 1) * 2, r.locoWheel, (pli + 1) * 6, spec, v.reverseHeading, pose.pitch);
       } else {
         const variantKey = v.variantKey;
         const parts = coachVariants[variantKey] || coachVariants['lhb-red'];
@@ -578,8 +645,9 @@ export default function Train() {
     }
 
     // Place LV board and flashing red tail lamp on the rear wall of the player train
-    if (rearEndGroup.current && vehicles[consist.count]) {
-      const lastCoach = vehicles[consist.count];
+    const lastVehicle = consist.brakeVan ? vehicles.find((x) => x.isVan && x.isPlayer) : vehicles[consist.count];
+    if (rearEndGroup.current && lastVehicle) {
+      const lastCoach = lastVehicle;
       const coachSpec = COACH_TYPES[lastCoach.type] || COACH_TYPES.lhb;
       const rearS = d - (lastCoach.offset + coachSpec.length / 2);
       vehiclePose(mainLine, rearS, coachSpec.bogieSpacing, pose);
@@ -603,10 +671,10 @@ export default function Train() {
     }
   }
 
-  useFrame((state) => {
+  useFrame((state, delta) => {
     updateAll(false);
     const mode = game.cameraMode;
-    const isPlaying = game.screen !== 'title' && game.screen !== 'loading';
+    const isPlaying = game.screen !== 'title' && game.screen !== 'loading' && game.screen !== 'photo'; // photo mode always shows the outside
     const isCab = mode === 'cab' && isPlaying;
     const isInterior = mode === 'interior' && isPlaying;
 
@@ -624,6 +692,29 @@ export default function Train() {
 
     light.current.intensity = game.headlight ? 70 + 90 * envState.night : 0;
     assets.locoMats.lamp.emissiveIntensity = game.headlight ? 4 : 0;
+
+    // the cab (built for the 20.6 m body) moves back to a shorter loco's real nose
+    const cabShift = (locoLength(playerLoco) - FORMATION.locomotive.length) / 2;
+    if (cabGroup.current.position.x !== cabShift) cabGroup.current.position.x = cabShift;
+    sceneRefs.cabShift = cabShift;
+
+    if (isCab) {
+      const ca = cabAnim.current;
+      const dt = Math.min(delta, 0.1);
+      ca.speed += (game.train.speedMps * 3.6 - ca.speed) * Math.min(1, dt / 0.35);
+      const f = Math.min(1, Math.max(0, ca.speed / SPEEDO_MAX_KMH));
+      cabMoving.needle.rotation.y = Math.PI * (2 / 3) - f * Math.PI * (4 / 3);
+      // wipers sweep while it rains, and park when it stops
+      const raining = envState.rain > 0.15;
+      if (raining || Math.abs(Math.sin(ca.wipe)) > 0.02) ca.wipe += dt * (Math.PI / 0.75);
+      const ang = -1.25 + 1.15 * (0.5 - 0.5 * Math.cos(ca.wipe));
+      cabMoving.wipers.forEach((w, i) => (w.arm.rotation.x = i ? ang : -ang));
+      // cab light (K) after dark: warm fill on the cab walls
+      const lit = game.cabLight && envState.lamps > 0.3 ? 1 : 0;
+      cabMoving.lamp.material.emissiveIntensity = lit * 2.5;
+      assets.locoMats.body.emissive.set('#ffd8a0');
+      assets.locoMats.body.emissiveIntensity = lit * 0.12;
+    }
 
     // Indian Railways tail lamp standard: 75 flashes per minute = 1.25 Hz
     const flash = Math.sin(state.clock.getElapsedTime() * 7.85) > 0.15;
@@ -665,6 +756,11 @@ export default function Train() {
           ))}
         </group>
         <group ref={cabGroup} visible={false}>
+          <primitive object={cabMoving.speedo} />
+          <primitive object={cabMoving.lamp} />
+          {cabMoving.wipers.map((w, i) => (
+            <primitive key={i} object={w.group} />
+          ))}
           {Object.entries(assets.cab).map(([key, geo]) => (
             <mesh key={key} geometry={geo} material={assets.locoMats[key] ?? assets.locoMats.body} />
           ))}
@@ -736,6 +832,13 @@ export default function Train() {
 
       {/* ICF coach extras (buffers, screw couplers, battery boxes, brake hoses) */}
       {nIcf > 0 && <instancedMesh ref={register('icfCoachExtras', true)} args={[assets.icfExtras, assets.mats.body, nIcf]} castShadow receiveShadow />}
+
+      {/* Licensed wagons and brake vans (own bogies) */}
+      {Object.entries(counts.glb).flatMap(([type, n]) =>
+        (stockModels[type]?.parts ?? []).map((p, k) => (
+          <instancedMesh key={`glb${type}${k}`} ref={register(`glb_${type}_${k}`, true)} args={[p.geometry, p.material, n]} castShadow={type !== 'bcna'} receiveShadow />
+        )),
+      )}
 
       {/* Bogies */}
       {nLhb > 0 && <instancedMesh ref={register('lhbCoachBogie')} args={[assets.lhbBogie, assets.mats.running, nLhb * 2]} castShadow />}

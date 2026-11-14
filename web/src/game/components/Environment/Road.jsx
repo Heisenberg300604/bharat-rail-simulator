@@ -7,7 +7,7 @@
 //    buses, painted trucks and tractor-trolleys — driven by the IDM
 //    car-following model (simulation/roadTraffic.js): they keep their gaps,
 //    queue at the closed gates and pull away when the booms lift.
-// 4. Multi-aspect colour-light signals beside the line.
+// (Signals moved to Signals.jsx, with live aspects.)
 // Performance: one InstancedMesh per vehicle type for bodies (per-vehicle paint
 // colour via a shader mask) + one for lamps; streetlights are chunked
 // instances; night headlights are one dynamic glow layer.
@@ -17,7 +17,7 @@ import * as THREE from 'three';
 import { game, useQuality } from '../../state/gameStore.js';
 import { sceneRefs } from '../../state/sceneRefs.js';
 import { mainLine } from '../../world/trackLayout.js';
-import { ROAD, LEVEL_CROSSINGS, TRACK, STATIONS, SIGNALS } from '../../config/gameConfig.js';
+import { ROAD, LEVEL_CROSSINGS, TRACK, STATIONS } from '../../config/gameConfig.js';
 import { terrain } from '../../world/terrain.js';
 import { highwayOffset, crossRoadSpan, ROAD_END_VEER } from '../../world/roadLayout.js';
 import { ModelBuilder } from '../../world/modelBuilder.js';
@@ -205,30 +205,6 @@ function buildWhistleBoard() {
   return b.build().body;
 }
 
-// ---------------------------------------------------------------- MACLS Signal
-function buildSignalPost() {
-  const b = new ModelBuilder();
-  // Concrete base
-  b.box([-0.4, 0.4], [0, 0.6], [-0.4, 0.4], '#8c8880');
-  // Tubular steel mast
-  b.cylinder({ radius: 0.1, length: 4.8, axis: 'y', position: [0, 2.9, 0], color: '#5c636a' });
-  // Target board (circular shield with 4 aspect hoods)
-  b.cylinder({ radius: 0.45, length: 0.08, axis: 'x', position: [0.12, 4.2, 0], color: '#1a1a1a' });
-  b.box([0.08, 0.16], [3.2, 5.0], [-0.35, 0.35], '#1a1a1a');
-  // Hoods (visors)
-  for (const y of [3.5, 3.9, 4.3, 4.7]) {
-    b.cylinder({ radius: 0.1, length: 0.15, axis: 'x', position: [0.18, y, 0], color: '#2a2d30' });
-  }
-  // Ladder on the back
-  for (const z of [-0.18, 0.18]) {
-    b.cylinder({ radius: 0.015, length: 4.6, axis: 'y', position: [-0.25, 2.8, z], color: '#7a828a' });
-  }
-  for (let y = 0.8; y <= 4.8; y += 0.4) {
-    b.cylinder({ radius: 0.012, length: 0.36, axis: 'z', position: [-0.25, y, 0], color: '#7a828a' });
-  }
-  return b.build().body;
-}
-
 /** Lanes (India drives on the left) and the road surfaces built from them. */
 function buildRoadNetwork() {
   const p = {};
@@ -361,9 +337,6 @@ export default function Road() {
       vc: vc(),
       vehicle: createVehicleMaterial(),
       lamp: new THREE.MeshBasicMaterial({ vertexColors: true }),
-      greenSignal: new THREE.MeshStandardMaterial({ emissive: '#00e676', emissiveIntensity: 3.5, color: '#00e676' }),
-      yellowSignal: new THREE.MeshStandardMaterial({ emissive: '#ffab00', emissiveIntensity: 3.5, color: '#ffab00' }),
-      redSignal: new THREE.MeshStandardMaterial({ emissive: '#ff1744', emissiveIntensity: 3.5, color: '#ff1744' }),
     };
     const vehicles = Object.fromEntries(Object.entries(VEHICLE_TYPES).map(([id, t]) => [id, t.build()]));
     return {
@@ -374,7 +347,6 @@ export default function Road() {
       gateBoom: buildGateBoom(),
       gatePost: buildGatePost(),
       whistleBoard: buildWhistleBoard(),
-      signalPost: buildSignalPost(),
     };
   }, []);
 
@@ -450,7 +422,7 @@ export default function Road() {
       for (const m of Object.values(assets.mats)) m.dispose();
       for (const g of Object.values(assets.vehicles)) Object.values(g).forEach((x) => x.dispose());
       Object.values(assets.streetlight).forEach((x) => x.dispose());
-      [assets.gateCabin, assets.gateBoom, assets.gatePost, assets.whistleBoard, assets.signalPost].forEach((g) => g.dispose());
+      [assets.gateCabin, assets.gateBoom, assets.gatePost, assets.whistleBoard].forEach((g) => g.dispose());
     },
     [assets],
   );
@@ -480,14 +452,6 @@ export default function Road() {
     [fleet],
   );
 
-  // colour-light signals from the route data (static aspects: the line is clear)
-  const signals = useMemo(() => {
-    const p = {};
-    return SIGNALS.map((def) => {
-      mainLine.sample(def.s, p);
-      return { s: def.s, x: p.x + p.lx * def.lat, y: p.y, z: p.z + p.lz * def.lat, yaw: -p.heading + (def.rev ? Math.PI : 0), rev: !!def.rev, aspect: def.aspect ?? 'green' };
-    });
-  }, []);
   const lightItems = useMemo(() => net.lights.map((l) => ({ x: l.x, y: 0, z: l.z, yaw: l.yaw })), [net]);
 
   const booms = useRef([]);
@@ -606,17 +570,8 @@ export default function Road() {
   });
 
   const far = quality.sceneryDistance;
-  const ASPECT = { red: [3.5, assets.mats.redSignal], yellow: [3.9, assets.mats.yellowSignal], green: [4.7, assets.mats.greenSignal] };
   return (
     <group>
-      {signals.map((sig, i) => (
-        <group key={`sig_${i}`} position={[sig.x, sig.y, sig.z]} rotation={[0, sig.yaw, 0]}>
-          <mesh geometry={assets.signalPost} material={assets.mats.vc} />
-          <mesh position={[0.22, ASPECT[sig.aspect][0], 0]} material={ASPECT[sig.aspect][1]}>
-            <sphereGeometry args={[0.08, 12, 12]} />
-          </mesh>
-        </group>
-      ))}
       {/* the road network sits at its own (level) base height */}
       <group position={[0, terrain.roadBase, 0]}>
       {net.surfaces.map((geo, i) => (

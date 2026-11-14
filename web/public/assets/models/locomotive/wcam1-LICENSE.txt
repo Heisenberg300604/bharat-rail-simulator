@@ -1,0 +1,11 @@
+Model Information:
+* title:	WAM-4 | Indian Electric Engine Locomotive
+* source:	https://sketchfab.com/3d-models/wam-4-indian-electric-engine-locomotive-37aa5b915f9a4e44825da1c8a498a850
+* author:	Prabhu Ram (https://sketchfab.com/virtualmakes)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "WAM-4 | Indian Electric Engine Locomotive" (https://sketchfab.com/3d-models/wam-4-indian-electric-engine-locomotive-37aa5b915f9a4e44825da1c8a498a850) by Prabhu Ram (https://sketchfab.com/virtualmakes) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

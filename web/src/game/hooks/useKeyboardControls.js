@@ -9,12 +9,17 @@ import {
   cancelRestart,
   toggleCamera,
   toggleHeadlight,
+  toggleCabLight,
+  acknowledgeVcd,
   cycleDirection,
   emergencyBrake,
   setCamera,
   releaseAllInputs,
   publish,
+  enterPhotoMode,
+  exitPhotoMode,
 } from '../state/gameStore.js';
+import { photoKeys } from '../components/Cameras/photoInput.js';
 
 // e.code is the physical key, so this works on non-QWERTY layouts too.
 const HELD_KEYS = {
@@ -25,11 +30,14 @@ const HELD_KEYS = {
   Space: 'brakeApply',
   KeyX: 'brakeRelease',
   KeyH: 'horn',
+  KeyB: 'sand', // sander (foot switch on the real loco)
 };
 
 const PRESS_KEYS = {
   KeyF: cycleDirection,
   KeyL: toggleHeadlight,
+  KeyK: toggleCabLight,
+  KeyV: acknowledgeVcd,
   KeyC: toggleCamera,
   KeyR: requestRestart,
   KeyE: emergencyBrake,
@@ -48,6 +56,24 @@ export function useKeyboardControls() {
       // Let form controls (e.g. the volume slider) keep their own keys.
       const tag = e.target?.tagName;
       const inForm = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+
+      if (game.screen === 'photo') {
+        if (e.code === 'Escape' || e.code === 'KeyP') {
+          exitPhotoMode();
+          e.preventDefault();
+          return;
+        }
+        if (!inForm && e.code in photoKeys) {
+          photoKeys[e.code] = true;
+          e.preventDefault();
+        }
+        return;
+      }
+      if (e.code === 'KeyP' && !inForm && (game.screen === 'playing' || game.screen === 'paused')) {
+        enterPhotoMode();
+        e.preventDefault();
+        return;
+      }
 
       if (e.code === 'Escape') {
         if (game.screen === 'confirmRestart') cancelRestart();
@@ -86,6 +112,7 @@ export function useKeyboardControls() {
     }
 
     function onKeyUp(e) {
+      if (e.code in photoKeys) photoKeys[e.code] = false;
       const held = HELD_KEYS[e.code];
       if (held && game.input[held]) {
         game.input[held] = false;

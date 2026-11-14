@@ -1,0 +1,11 @@
+Model Information:
+* title:	BVZI_ Brake_ Van_indian_train
+* source:	https://sketchfab.com/3d-models/bvzi--brake--van-indian-train-c077c09c16de4be28c7cfc7cb09c83ed
+* author:	GameChangz (https://sketchfab.com/krupesh2736)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "BVZI_ Brake_ Van_indian_train" (https://sketchfab.com/3d-models/bvzi--brake--van-indian-train-c077c09c16de4be28c7cfc7cb09c83ed) by GameChangz (https://sketchfab.com/krupesh2736) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

@@ -56,6 +56,7 @@ export function createTrainState({ startDistance, minDistance, maxDistance, coac
     maxSpeedReachedMps: 0,
     distanceTravelled: 0,
     hitBufferStop: false,
+    slipping: false, // wheels slipping (adhesion model)
     // compatibility helpers for HUD/audio (0..1)
     get throttle() {
       return Math.max(this.lever, 0);
@@ -94,10 +95,11 @@ export function maxRegenEffort(v, cfg) {
 }
 
 /** BP target for the current A9 handle position. */
-function bpTarget(train, cfg) {
+function bpTarget(train, cfg, extraBrake = 0) {
   if (train.emergency) return 0;
-  if (train.brakeHandle < 0.04) return cfg.bpNormal; // Release
-  const t = (train.brakeHandle - 0.04) / 0.96; // Minimum reduction … Full service
+  const handle = Math.max(train.brakeHandle, extraBrake); // Kavach can apply the brake on its own
+  if (handle < 0.04) return cfg.bpNormal; // Release
+  const t = (handle - 0.04) / 0.96; // Minimum reduction … Full service
   return cfg.bpMinReduction + (cfg.bpFullService - cfg.bpMinReduction) * t;
 }
 
@@ -113,7 +115,9 @@ export function brakeHandleLabel(train) {
 /**
  * Advance the train by one fixed step.
  * input: { leverUp, leverDown, brakeApply, brakeRelease } (held keys)
- * env:   { curveRadius, grade, bankerTE_kN } at the train's position.
+ * env:   { curveRadius, grade, bankerTE_kN, mu, extraBrake, cutTraction } at the train's position.
+ *        mu = wheel–rail adhesion (omit for no slip model); extraBrake = brake
+ *        demand 0…1 applied by Kavach/VCD; cutTraction = traction interlock.
  *        grade = average rise per metre under the train (+ = climbing in the
  *        +s direction); bankerTE_kN = extra push from banking locos at the rear.
  */
@@ -139,7 +143,7 @@ export function stepTrain(train, input, dt, cfg, env = {}) {
   train.brakeHandle = clamp(train.brakeHandle, 0, 1);
 
   // --- 2. Air brake: BP → (propagation) → BC ---------------------------------
-  const bpT = bpTarget(train, cfg);
+  const bpT = bpTarget(train, cfg, env.extraBrake ?? 0);
   const rate = train.emergency ? cfg.bpEmergencyRate : bpT > train.bp ? cfg.bpChargeRate : cfg.bpServiceRate;
   const dBp = bpT - train.bp;
   train.bp += clamp(dBp, -rate * dt, rate * dt);
@@ -152,7 +156,7 @@ export function stepTrain(train, input, dt, cfg, env = {}) {
 
   // --- 3. Traction / regen (with interlocks) ---------------------------------
   const v = train.speedMps;
-  train.tractionCut = train.emergency || train.bp < cfg.tractionCutBp;
+  train.tractionCut = train.emergency || train.bp < cfg.tractionCutBp || !!env.cutTraction;
   let teTarget = 0;
   if (train.direction !== DIRECTION.NEUTRAL) {
     // traction also cuts out above the loco's maximum speed (WAG-9: 100 km/h)
@@ -165,6 +169,21 @@ export function stepTrain(train, input, dt, cfg, env = {}) {
   if (train.lever > 0 && train.teActual < 0) train.teActual = 0;
   // regen can never exceed what is available at this speed
   if (train.teActual < 0) train.teActual = Math.max(train.teActual, -maxRegenEffort(v, cfg));
+
+  // --- 3b. Adhesion (optional): wheel–rail grip limits traction and regen ----
+  // F_adh = µ × loco weight. Beyond it the wheels slip (or slide under regen):
+  // the slip control cuts effort back below the limit. Sand raises µ.
+  train.slipping = false;
+  if (env.mu) {
+    const fAdh = env.mu * cfg.loco.massT * G;
+    if (train.teActual > fAdh) {
+      train.slipping = true;
+      train.teActual = fAdh * 0.85;
+    } else if (train.teActual < -fAdh) {
+      train.slipping = true;
+      train.teActual = -fAdh * 0.85;
+    }
+  }
 
   // --- 4. Forces → acceleration ----------------------------------------------
   const banker = train.lever > 0 && !train.tractionCut && train.direction !== DIRECTION.NEUTRAL ? Math.max(0, env.bankerTE_kN ?? 0) * train.lever : 0;
@@ -286,4 +305,17 @@ export function speedLimitFor(limits, rear, front) {
 export function nextSpeedLimit(limits, front, currentLimit) {
   for (const l of limits) if (l.from > front && l.kmh < currentLimit) return { kmh: l.kmh, distance: l.from - front, reason: l.reason };
   return null;
+}
+
+/**
+ * Wheel–rail adhesion µ (game model — no official Indian Railways design
+ * figures were found). Dry ≈ 0.40: the WAG-9's 460 kN starting effort on 123 t
+ * needs ~0.38, and three-phase locos with slip control reach that. Wet rail
+ * ≈ 0.25; morning dew/fog a little lower than dry; sand adds ~0.08.
+ */
+export const ADHESION = { dry: 0.4, wet: 0.25, damp: 0.33, sand: 0.08 };
+export function adhesionMu({ rain = 0, fog = 0, sanding = false } = {}) {
+  let mu = ADHESION.dry - (ADHESION.dry - ADHESION.wet) * Math.min(1, rain) - (ADHESION.dry - ADHESION.damp) * Math.min(1, fog) * (1 - Math.min(1, rain));
+  if (sanding) mu = Math.min(ADHESION.dry + 0.02, mu + ADHESION.sand);
+  return mu;
 }

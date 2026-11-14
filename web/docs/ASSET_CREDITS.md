@@ -55,6 +55,40 @@ the date it was checked.
   WebP). Before: 23.8 MB, 290k triangles. After: 1.74 MB, about 105k triangles.
 - Used as a selectable player loco and on the AI goods train.
 
+### WAP-4 locomotive 3D model
+- **Title:** "WAP-4 | Indian Electric Engine Locomotive"
+- **Source:** https://sketchfab.com/3d-models/wap-4-indian-electric-engine-locomotive-ed30919c961142c1a77c931dc13ad5bd
+- **Creator:** Prabhu Ram (https://sketchfab.com/virtualmakes)
+- **Licence:** CC BY 4.0 (http://creativecommons.org/licenses/by/4.0/) — licence text in `public/assets/models/locomotive/wap4-LICENSE.txt`
+- **Changes made (2026-11-14):** scaled to the real 18,794 mm length over buffers (×1.199), centred, wheels at rail level; decimated 441k → 149k triangles; 4096 px texture → 2048 px WebP; meshopt-compressed (1.8 MB). The creator's "VMAX / VIRTUAL MAKES" watermark on the body-side skirt (4 places) was painted over with the surrounding texture.
+- **Used as:** `LOCOMOTIVES.wap4` (`public/assets/models/locomotive/wap4.glb`).
+
+### WCAM-1 locomotive 3D model
+- **Title:** "WAM-4 | Indian Electric Engine Locomotive" — the model is in fact a **WCAM-1** (its body reads WCAM-1), and is credited as such in the game.
+- **Source:** https://sketchfab.com/3d-models/wam-4-indian-electric-engine-locomotive-37aa5b915f9a4e44825da1c8a498a850
+- **Creator:** Prabhu Ram (https://sketchfab.com/virtualmakes)
+- **Licence:** CC BY 4.0 — `public/assets/models/locomotive/wcam1-LICENSE.txt`
+- **Changes made:** spec/gloss materials converted to metal/rough (three.js no longer reads KHR_materials_pbrSpecularGlossiness); scaled uniformly so the body is the real 3.055 m wide and the raised pantograph meets the contact wire — the artist's body is short for its width, so it is ~18.3 m long against the real 20.95 m over couplers; decimated 414k → 153k triangles; 2048 px WebP; meshopt (1.8 MB).
+- **Specs used** (Wikipedia, "Indian locomotive class WCAM-1"): Co-Co, 112.8 t, AC mode 331.9 kN starting TE, 2,714 kW continuous, 120 km/h, no dynamic brakes; withdrawn 2015.
+- **Used as:** `LOCOMOTIVES.wcam1`.
+
+### BVZI brake van 3D model
+- **Title:** "BVZI_ Brake_ Van_indian_train"
+- **Source:** https://sketchfab.com/3d-models/bvzi--brake--van-indian-train-c077c09c16de4be28c7cfc7cb09c83ed
+- **Creator:** GameChangz (https://sketchfab.com/krupesh2736)
+- **Licence:** CC BY 4.0 — `public/assets/models/stock/bvzi-LICENSE.txt`
+- **Changes made:** turned to the game's length axis, centred, wheels at rail level (already in metres: 10.34 m); light decimation 44.6k → 28.9k triangles; 1024 px WebP; meshopt (0.3 MB).
+- **Used as:** the guard's van at the rear of goods trains (player freight consist, AI and parked goods trains). The LV board and tail lamp are drawn on it; the "X" is not.
+
+### BCNA covered wagon 3D model
+- **Title:** "Train Freight Compartment" (a BCNA-type covered wagon)
+- **Source:** https://sketchfab.com/3d-models/train-freight-compartment-2cd8d1032b53426a92abb64a71743aa6
+- **Creator:** Prabhu Ram (https://sketchfab.com/virtualmakes)
+- **Licence:** CC BY 4.0 — `public/assets/models/stock/bcna-LICENSE.txt`
+- **Real dimensions** (IRIMEE wagon notes, "Types Of Wagon", rskr.irimee.in): 14,450 mm over couplers, 3,200 mm wide, 4,017 mm high from rail, bogie centres 9,500 mm; tare 24.55 t, payload 56.73 t, gross 81.28 t.
+- **Changes made (2026-11-14):** the model is long for its height and width, so no uniform scale matches all three; it is scaled to the real 4.02 m height (2.96 m wide, 16.9 m long — the formation uses 16.9 m so wagons never overlap). Decimated 150k → 25k triangles for 20-wagon rakes (the simplifier stops there: many small separate parts); flat colours kept (the model has no textures); meshopt (0.26 MB).
+- **Used as:** the new "Freight: BCNA covered wagons + BVZI brake van" consist (81.28 t per loaded wagon).
+
 ### Locomotive & stock candidates — surveyed 2026-11-14
 
 A full sweep of the Sketchfab catalogue (22 Indian-railway searches, filtered to
@@ -114,9 +148,55 @@ The realistic additions actually available today are the **WAP-4**, the
 6. Check it in the game: the loco picker in the pause menu, then the cab, orbit
    and trackside cameras.
 
-Do **not** add the `LOCOMOTIVES` entry before the GLB exists: the loader falls
-back to the procedural locomotive, so the picker would offer a class that does
-not look like itself.
+A `LOCOMOTIVES` entry whose GLB is not in the repo yet must carry
+`standIn: true`: the pickers hide it until the model file loads (so the game
+never offers a class that does not look like itself), unless the player ticks
+"Show locos still waiting for their 3D model" in Settings. WAP-5 and WAP-4 are
+wired this way. The WAP-4 model has since been added (2026-11-14); the WAP-5
+remains a stand-in until a textured model exists.
+
+### Fleet survey 2 — 2026-11-14 (specs, more models, sounds)
+
+**Specs now in `LOCOMOTIVES`** (IRFCA https://www.irfca.org/faq/faq-loco2e.html and
+Wikipedia class pages):
+- **WAP-5**: Bo-Bo, 78 t, 19.5 t axle load, LOB 18,162 mm, 160 km/h, 4,474 kW,
+  starting TE 258 kN (26.3 t-f), regenerative 160 kN. Livery: off-white body,
+  red-orange bands (Ghaziabad shed) — https://commons.wikimedia.org/wiki/File:CLW_made_WAP-5.jpg
+- **WAP-4**: Co-Co, 112.8 t, LOB 18,794 mm, 140 km/h, 3,766 kW, starting TE
+  302 kN (30.8 t-f), **no regenerative brake** (DC, tap changer). Livery: deep
+  red/maroon with a yellow-cream waist band —
+  https://commons.wikimedia.org/wiki/File:(22625)_LGD_based_WAP-4_Series_locomotive_at_Secunderabad_Station.jpg
+- Researched, not yet in the game (need a twin-section or diesel model):
+  **WAG-12B** (2 × Bo-Bo, 180 t, 9,000 kW, 705 kN, regen 514 kN; max speed
+  100 km/h per IRFCA vs 120 per Wikipedia), **WDP-4D** (Co-Co, 123 t, 4,500 hp,
+  399 kN per IRFCA / 429 kN per Wikipedia), **3-phase MEMU** (basic unit
+  1 DMC + 3 TC; 110–130 km/h; IRFCA https://irfca.org/faq/faq-mu.html).
+
+**New model candidates** (Sketchfab, CC Attribution, download needs a free account; not downloaded):
+| Model | Page | Creator | Triangles | Notes |
+| --- | --- | --- | --- | --- |
+| BVZI brake van | https://sketchfab.com/3d-models/bvzi--brake--van-indian-train-c077c09c16de4be28c7cfc7cb09c83ed | krupesh2736 | 44.6k | Textured; best new find — end of goods trains |
+| Bombardier EMU train (5 cars) | https://sketchfab.com/3d-models/bombardier-emu-train-9912d0079f434480a2b152b091fb4e95 | rmihir560 | 23.6k | Low detail; distant AI traffic |
+| Mumbai Local Train Coaches | https://sketchfab.com/3d-models/mumbai-local-train-coaches-08265ee100074880887cf80d7c60a48c | Bhaktraj | 183k | No cab end or pantograph |
+| indian train (WDM-3A + ICF) | https://sketchfab.com/3d-models/indian-train-b24ba2e1d2a34d54b1c133c22c9cad8a | animationstudiomm | 76k | Stylised; the only ALCO found |
+Rejected: "Indian Train Guard Coach" (CC BY-NC-ND), a WAP-7 re-upload, an AI-generated WAG-9, and models whose textures sit outside the licence.
+
+**Sound candidates** (licence as shown on each page; Freesound downloads need a free account, Wikimedia Commons does not):
+| Sound | Page | Licence | Length |
+| --- | --- | --- | --- |
+| Indian diesel idling (Bangalore) | https://freesound.org/people/nikitralala/sounds/239021/ | CC0 | 4:54 |
+| EMD WDG-4 heading south, Dum Dum Jn | https://commons.wikimedia.org/wiki/File:A_WDG-4_spotted_heading_south_at_Dum_Dum_Junction.webm | CC0 | 0:19 |
+| WAP-4 with train at Kochuveli | https://commons.wikimedia.org/wiki/File:WAP4_with_train_at_kochuveli.webm | CC BY 4.0 | 0:31 |
+| Churchgate arrival, PA and wheels (EMU) | https://freesound.org/people/chhavi/sounds/566506/ | CC0 | 2:19 |
+| Mumbai local starting, announcement | https://freesound.org/people/chhavi/sounds/471832/ | CC BY 4.0 | 1:33 |
+| Howrah local, inside | https://freesound.org/people/AshruKumarsEye/sounds/737620/ | CC0 | 8:51 |
+| Kerala platform announcement | https://freesound.org/people/egovind/sounds/684835/ | CC0 | 0:42 |
+| Howrah station | https://freesound.org/people/TRP/sounds/576482/ | CC0 | 2:17 |
+
+**Recommended next downloads**, in order: the diesel idle (CC0) → the EMU
+recordings (for a MEMU set) → the BVZI brake van → the WAP-4 model (Grade A
+above; the WAP-4 physics is already wired) → the WAG-12 model (twin-section
+work needed).
 
 ### Earlier candidate list (superseded by the survey above)
 | Model | Source page | Creator | Triangles |
