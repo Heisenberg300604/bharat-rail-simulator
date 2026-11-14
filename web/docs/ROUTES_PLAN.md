@@ -3,6 +3,9 @@
 Status: proposal (2026-11-08). The game has one route today: a fictional
 8 km New Delhi → Ghaziabad test segment.
 
+Non-route enhancements (signalling, progression, onboarding, new rolling
+stock) are planned separately in [ENHANCEMENTS_PLAN.md](ENHANCEMENTS_PLAN.md).
+
 All routes stay **fictional, condensed segments inspired by real lines**, not
 geographic recreations. That keeps the existing disclaimer valid, keeps
 routes short enough for the browser (8–25 km, 6–15 minutes), and avoids

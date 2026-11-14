@@ -6,7 +6,9 @@
 //   resistance= RDSO Davis-type formulas + curve resistance
 //   air brake = A9 handle → brake pipe (BP) pressure → brake cylinder (BC)
 //               pressure (with propagation delay) → braking force
-//   a = (traction − regen − resistance − airBrake) / (mass × rotating-mass factor)
+//   gradient  = m · g · grade (1 in 37 → 26.5 kN per 100 t), helps downhill
+//   a = (traction − regen − resistance − airBrake ± gradient) / (mass × rotating-mass factor)
+// No roll-back: a train stopped on a rising gradient is held (as if braked).
 // Speed is always ≥ 0; `direction` (the reverser) says which way we move.
 
 export const DIRECTION = { FORWARD: 1, NEUTRAL: 0, REVERSE: -1 };
@@ -17,7 +19,7 @@ const KGF_PER_T_TO_KN_PER_T = G / 1000; // 1 kgf/t = 0.00981 kN/t
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
 export function trainMass(cfg, coachCount) {
-  const locoT = cfg.loco.massT;
+  const locoT = cfg.loco.massT + (cfg.bankerMassT ?? 0); // banking locos at the rear count as loco mass
   const coachT = cfg.coach.massT * coachCount;
   return {
     locoT,
@@ -48,7 +50,8 @@ export function createTrainState({ startDistance, minDistance, maxDistance, coac
     bc: cfg.bcServiceMax, // brake cylinder pressure, kg/cm²
     tractionCut: false,
     // forces for the HUD (kN)
-    forces: { traction: 0, regen: 0, resistance: 0, airBrake: 0 },
+    forces: { traction: 0, regen: 0, resistance: 0, airBrake: 0, gradient: 0 },
+    grade: 0, // average gradient under the train (rise per metre, + = uphill ahead)
     // stats
     maxSpeedReachedMps: 0,
     distanceTravelled: 0,
@@ -110,7 +113,9 @@ export function brakeHandleLabel(train) {
 /**
  * Advance the train by one fixed step.
  * input: { leverUp, leverDown, brakeApply, brakeRelease } (held keys)
- * env:   { curveRadius } at the train's position
+ * env:   { curveRadius, grade, bankerTE_kN } at the train's position.
+ *        grade = average rise per metre under the train (+ = climbing in the
+ *        +s direction); bankerTE_kN = extra push from banking locos at the rear.
  */
 export function stepTrain(train, input, dt, cfg, env = {}) {
   // --- 1. Driver's controls -------------------------------------------------
@@ -162,24 +167,31 @@ export function stepTrain(train, input, dt, cfg, env = {}) {
   if (train.teActual < 0) train.teActual = Math.max(train.teActual, -maxRegenEffort(v, cfg));
 
   // --- 4. Forces → acceleration ----------------------------------------------
-  const traction = Math.max(train.teActual, 0);
+  const banker = train.lever > 0 && !train.tractionCut && train.direction !== DIRECTION.NEUTRAL ? Math.max(0, env.bankerTE_kN ?? 0) * train.lever : 0;
+  const traction = Math.max(train.teActual, 0) + banker;
   const regen = Math.max(-train.teActual, 0);
   const resistance = resistanceKN(train, cfg, env.curveRadius);
   const airBrake = (train.bc / cfg.bcEmergencyMax) * cfg.decelAtEmergency * train.mass.staticT; // kN (t·m/s²)
+  // gravity along the direction of travel: + helps (downhill), − holds back (uphill)
+  train.grade = env.grade ?? 0;
+  const travelSign = train.direction === DIRECTION.REVERSE ? -1 : 1;
+  const gradient = -train.mass.staticT * G * train.grade * travelSign;
   train.forces.traction = traction;
   train.forces.regen = regen;
   train.forces.resistance = resistance;
   train.forces.airBrake = airBrake;
+  train.forces.gradient = gradient;
 
-  const retarding = regen + resistance + airBrake;
+  const driving = traction + Math.max(gradient, 0);
+  const retarding = regen + resistance + airBrake + Math.max(-gradient, 0);
   let newV;
-  if (v === 0 && traction <= retarding) {
+  if (v === 0 && driving <= retarding) {
     newV = 0; // static: brakes/resistance hold the train
   } else {
-    newV = v + ((traction - retarding) / train.mass.effectiveT) * dt;
+    newV = v + ((driving - retarding) / train.mass.effectiveT) * dt;
   }
   if (newV < 0) newV = 0;
-  if (newV < cfg.stopSnapSpeed && traction <= retarding) newV = 0;
+  if (newV < cfg.stopSnapSpeed && driving <= retarding) newV = 0;
   if (train.emergency && newV === 0 && train.brakeHandle < 0.04) train.emergency = false; // reset once stopped & handle released
 
   // --- 5. Move along the route ------------------------------------------------
@@ -236,7 +248,9 @@ export function cycleDirection(train, cfg) {
 export function estimateStoppingDistance(train, cfg) {
   const v = train.speedMps;
   if (v < 0.1) return 0;
-  const decel = (cfg.bcServiceMax / cfg.bcEmergencyMax) * cfg.decelAtEmergency + resistanceKN(train, cfg) / train.mass.effectiveT;
+  const travelSign = train.direction === DIRECTION.REVERSE ? -1 : 1;
+  const gradeDecel = (G * (train.grade ?? 0) * travelSign * train.mass.staticT) / train.mass.effectiveT; // + uphill helps stop
+  const decel = Math.max(0.05, (cfg.bcServiceMax / cfg.bcEmergencyMax) * cfg.decelAtEmergency + resistanceKN(train, cfg) / train.mass.effectiveT + gradeDecel);
   const buildUp = Math.max(0, (cfg.bcServiceMax - train.bc) / cfg.bcServiceMax) * 3; // seconds until brakes are fully on
   return v * buildUp * 0.6 + (v * v) / (2 * decel);
 }

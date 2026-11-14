@@ -5,10 +5,64 @@
 // Any point on the route is identified by s = distance along the track.
 
 /**
+ * Vertical profile: elevation points [{ s, z }] joined by constant gradients,
+ * with a parabolic vertical curve at every change of gradient (like a real
+ * railway). Returns { heightAt(s), gradeAt(s) }; grade is rise per metre.
+ */
+export function createProfile(points = [], maxCurve = 240) {
+  const pts = [...points].sort((a, b) => a.s - b.s);
+  if (pts.length === 0) return { heightAt: () => 0, gradeAt: () => 0, points: [] };
+  if (pts.length === 1) return { heightAt: () => pts[0].z, gradeAt: () => 0, points: pts };
+  const n = pts.length;
+  const grades = [];
+  for (let i = 0; i < n - 1; i++) grades.push((pts[i + 1].z - pts[i].z) / Math.max(1e-6, pts[i + 1].s - pts[i].s));
+  // vertical curve length at each interior vertex (never more than ~half a span)
+  const curves = pts.map((p, i) => {
+    if (i === 0 || i === n - 1) return 0;
+    return Math.min(maxCurve, 0.45 * (p.s - pts[i - 1].s), 0.45 * (pts[i + 1].s - p.s));
+  });
+  function span(s) {
+    let i = 0;
+    while (i < n - 2 && s >= pts[i + 1].s) i++;
+    return i;
+  }
+  function heightAt(s) {
+    if (s <= pts[0].s) return pts[0].z;
+    if (s >= pts[n - 1].s) return pts[n - 1].z;
+    // inside a vertical curve?
+    for (let k = 1; k < n - 1; k++) {
+      const L = curves[k];
+      if (L > 0 && Math.abs(s - pts[k].s) < L / 2) {
+        const g1 = grades[k - 1];
+        const g2 = grades[k];
+        const x = s - pts[k].s;
+        return pts[k].z + g1 * x + ((g2 - g1) * (x + L / 2) ** 2) / (2 * L);
+      }
+    }
+    const i = span(s);
+    return pts[i].z + grades[i] * (s - pts[i].s);
+  }
+  function gradeAt(s) {
+    if (s <= pts[0].s || s >= pts[n - 1].s) return 0;
+    for (let k = 1; k < n - 1; k++) {
+      const L = curves[k];
+      if (L > 0 && Math.abs(s - pts[k].s) < L / 2) {
+        const g1 = grades[k - 1];
+        const g2 = grades[k];
+        return g1 + ((g2 - g1) * (s - pts[k].s + L / 2)) / L;
+      }
+    }
+    return grades[span(s)];
+  }
+  return { heightAt, gradeAt, points: pts };
+}
+
+/**
  * @param {Array<{type:'straight'|'arc', length:number, radius?:number, turn?:'left'|'right'}>} segmentDefs
  * @param {{x?:number, z?:number, heading?:number}} start
+ * @param {Array<{s:number, z:number}>} [profilePoints] vertical profile (elevation in metres)
  */
-export function createRoute(segmentDefs, start = {}) {
+export function createRoute(segmentDefs, start = {}, profilePoints = []) {
   let x = start.x ?? 0;
   let z = start.z ?? 0;
   let heading = start.heading ?? 0;
@@ -34,6 +88,7 @@ export function createRoute(segmentDefs, start = {}) {
   }
 
   const length = s;
+  const profile = createProfile(profilePoints);
 
   function findSegment(dist) {
     // Few segments, so a linear search is fine and easy to read.
@@ -45,7 +100,8 @@ export function createRoute(segmentDefs, start = {}) {
 
   /**
    * Position and heading at distance s. Writes into `out` to avoid allocating
-   * objects every frame. Also returns lateral "left" vector (lx, lz).
+   * objects every frame. Also returns lateral "left" vector (lx, lz) and the
+   * track (formation) elevation y.
    */
   function sample(dist, out = {}) {
     const d = Math.min(Math.max(dist, 0), length);
@@ -53,6 +109,7 @@ export function createRoute(segmentDefs, start = {}) {
     pointOnSegment(seg, d - seg.startS, out);
     out.lx = Math.sin(out.heading);
     out.lz = -Math.cos(out.heading);
+    out.y = profile.heightAt(d);
     return out;
   }
 
@@ -61,7 +118,11 @@ export function createRoute(segmentDefs, start = {}) {
     return findSegment(Math.min(Math.max(dist, 0), length)).curvature;
   }
 
-  return { segments, length, sample, curvatureAt };
+  /** Track elevation (m) and gradient (rise per metre) at distance s. */
+  const heightAt = (dist) => profile.heightAt(Math.min(Math.max(dist, 0), length));
+  const gradeAt = (dist) => profile.gradeAt(Math.min(Math.max(dist, 0), length));
+
+  return { segments, length, sample, curvatureAt, heightAt, gradeAt };
 }
 
 function pointOnSegment(seg, t, out) {
@@ -92,9 +153,13 @@ export function vehiclePose(route, centerS, bogieSpacing, out = {}) {
   route.sample(centerS - bogieSpacing / 2, tmpRear);
   out.x = (tmpFront.x + tmpRear.x) / 2;
   out.z = (tmpFront.z + tmpRear.z) / 2;
+  const yf = tmpFront.y ?? 0;
+  const yr = tmpRear.y ?? 0;
+  out.y = (yf + yr) / 2;
   const heading = Math.atan2(tmpFront.z - tmpRear.z, tmpFront.x - tmpRear.x);
   out.heading = heading;
   out.yaw = -heading; // local +X (vehicle front) points along the track
+  out.pitch = Math.atan2(yf - yr, Math.max(1e-6, bogieSpacing)); // + = nose up
   return out;
 }
 
