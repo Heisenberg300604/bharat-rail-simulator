@@ -7,9 +7,11 @@
 import { useFrame } from '@react-three/fiber';
 import { useMemo, useRef } from 'react';
 import { game, publish, completeJourney, sceneReady, showToast, route, currentSpeedLimit, formation } from './state/gameStore.js';
-import { stepTrain, createFixedStepper } from './simulation/trainSimulation.js';
-import { updateJourney, JOURNEY_STATE } from './simulation/journeyManager.js';
-import { TRAIN, JOURNEY, FIXED_TIMESTEP, MAX_FRAME_DELTA, STATIONS, SPEED_LIMITS, ROAD, LOCOMOTIVES, consistFor } from './config/gameConfig.js';
+import { stepTrain, createFixedStepper, maxTractiveEffort } from './simulation/trainSimulation.js';
+import { updateJourney, JOURNEY_STATE, stopsOf } from './simulation/journeyManager.js';
+import { TRAIN, JOURNEY, FIXED_TIMESTEP, MAX_FRAME_DELTA, STATIONS, SPEED_LIMITS, ROAD, ROUTE, LOCOMOTIVES, consistFor } from './config/gameConfig.js';
+import { tunnelAt, bridgeAt } from './routes/activeRoute.js';
+import { terrain } from './world/terrain.js';
 import { sceneRefs } from './state/sceneRefs.js';
 import { envState } from './world/environment.js';
 import { KID_SPOTS } from './components/People/Crowds.jsx';
@@ -34,28 +36,60 @@ function hornChoice(settings) {
   return settings.horn && settings.horn !== 'auto' ? settings.horn : LOCOMOTIVES[settings.locomotive]?.horn ?? null;
 }
 
-function nearestStationId(s) {
+function nearestStation(s) {
   let best = null;
   let bestD = Infinity;
   for (const st of STATIONS) {
     const d = Math.abs(s - (st.platformStart + st.platformEnd) / 2);
     if (d < bestD) {
       bestD = d;
-      best = st.id;
+      best = st;
     }
   }
   return best;
 }
 
-/** 0..1: how close the highway (lateral 32 m) is to the train. */
+/** 0..1: how close the highway is to the train. */
 function roadProximity(s) {
+  if (!ROAD) return 0;
   const out = Math.max(0, ROAD.from - s, s - ROAD.to);
   return 0.75 * (1 - Math.min(1, out / 250));
 }
 
+/** 0..1: open water beside the line (sea, estuary) for the surf/wind ambience. */
+function waterProximity(s) {
+  if (!ROUTE.ambience.sea || !terrain.hasWater) return 0;
+  let wet = 0;
+  for (const lat of [-160, -70, 70, 160]) if (terrain.underwater(s, lat)) wet += 0.25;
+  return wet * ROUTE.ambience.sea;
+}
+
+/** Route distance of the camera's viewpoint for on-train views (null = outside the train). */
+function viewpointS(front) {
+  switch (game.cameraMode) {
+    case 'cab':
+      return front - 2;
+    case 'interior':
+      return front - 33;
+    case 'door':
+      return front - 45;
+    case 'rear':
+      return front - formation.totalLength;
+    default:
+      return null;
+  }
+}
+
+const JOURNEY_TOASTS = {
+  arrived: (st) => `Arrived at ${st.name} — passengers boarding`,
+  rightAway: (st, next) => `Right away! Guard's whistle — next stop ${next?.name ?? ''}`,
+  missed: (st) => `Ran through ${st.name} without stopping (−20)`,
+  early: (st) => `Left ${st.name} before the right-away (−8)`,
+};
+
 export default function SimulationDriver() {
   const stepper = useMemo(() => createFixedStepper(FIXED_TIMESTEP, MAX_FRAME_DELTA), []);
-  const timers = useRef({ hud: 0, fpsTime: 0, fpsFrames: 0, frames: 0, resetVersion: game.resetVersion, playing: 0, whistled: false, kids: new Set() });
+  const timers = useRef({ hud: 0, fpsTime: 0, fpsFrames: 0, frames: 0, resetVersion: game.resetVersion, playing: 0, whistled: false, kids: new Set(), water: 0, waterT: 0, tunnelCam: 0, tunnelTrain: 0 });
 
   useFrame((state, delta) => {
     const t = timers.current;
@@ -72,7 +106,12 @@ export default function SimulationDriver() {
       const { alpha } = stepper.advance(delta, (dt) => {
         const speedBefore = train.speedMps;
         const k = Math.abs(route.curvatureAt(train.routeDistance - 100));
-        stepTrain(train, game.input, dt, game.trainCfg, { curveRadius: k > 0 ? 1 / k : Infinity });
+        // average gradient under the whole train (rise over its length)
+        const len = formation.totalLength;
+        const grade = (route.heightAt(train.routeDistance) - route.heightAt(train.routeDistance - len)) / len;
+        const b = game.banker;
+        const bankerTE = b && train.routeDistance > b.from && train.routeDistance < b.to ? b.count * maxTractiveEffort(train.speedMps, b.loco) : 0;
+        stepTrain(train, game.input, dt, game.trainCfg, { curveRadius: k > 0 ? 1 / k : Infinity, grade, bankerTE_kN: bankerTE });
         updateJourney(game.journey, train, dt, JOURNEY, currentSpeedLimit(train));
         if (game.aiTrains) {
           stepAiTrains(game.aiTrains, dt, game.journey.elapsed, {
@@ -85,6 +124,17 @@ export default function SimulationDriver() {
       // Interpolate between the last two physics states for silky motion
       // even when the display refresh rate isn't exactly 60 Hz.
       game.renderDistance = train.previousRouteDistance + (train.routeDistance - train.previousRouteDistance) * alpha;
+      // halts: arrival, the guard's right-away, missed stops
+      const events = game.journey.events;
+      while (events.length) {
+        const ev = events.shift();
+        const stops = stopsOf(JOURNEY);
+        const i = game.journey.stopIndex;
+        const st = ev === 'arrived' ? stops[i] : stops[Math.max(0, i - 1)];
+        if (ev === 'rightAway') audioEngine.playGuardWhistle(game.cameraMode === 'cab' ? 0.45 : 0.8);
+        if (ev === 'arrived') audioEngine.playClick('switch');
+        showToast(JOURNEY_TOASTS[ev](st, stops[i]), 3200);
+      }
       if (game.journey.state === JOURNEY_STATE.COMPLETED) completeJourney();
     } else {
       game.renderDistance = train.routeDistance;
@@ -133,11 +183,28 @@ export default function SimulationDriver() {
       }
     }
     const k = Math.abs(route.curvatureAt(front - 60));
+    // tunnels: the train's own sound (enclosure) and the light level of on-train views
+    const d = Math.min(delta, 0.1);
+    const inT = tunnelAt(front - 30) ? 1 : 0;
+    t.tunnelTrain += (inT - t.tunnelTrain) * Math.min(1, d * 3);
+    const vs = viewpointS(game.renderDistance);
+    const camIn = vs !== null && tunnelAt(vs, -6) ? 1 : 0;
+    t.tunnelCam += (camIn - t.tunnelCam) * Math.min(1, d * 2.5);
+    sceneRefs.tunnelDark = t.tunnelCam;
+    t.waterT -= delta;
+    if (t.waterT <= 0) {
+      t.waterT = 0.5;
+      t.water = waterProximity(front);
+    }
+    const nearSt = nearestStation(front);
     audioEngine.update(train, game.input, MAX_SPEED_MPS, {
       route,
       camera: state.camera,
       stationProximity: stationProximity(front),
-      stationId: nearestStationId(front),
+      stationBusy: nearSt?.sound === 'city' || nearSt === STATIONS[0],
+      enclosure: game.cameraMode === 'orbit' || game.cameraMode === 'trackside' ? t.tunnelTrain * 0.5 : t.tunnelTrain,
+      onBridge: !!bridgeAt(front - 40),
+      water: t.water,
       roadProximity: roadProximity(front),
       lcBell,
       lcDistance,
@@ -167,7 +234,16 @@ export default function SimulationDriver() {
       publish();
     }
 
-    // The first couple of frames compile shaders; after that we're ready.
+    // Compile every shader now (behind the loading screen), including objects
+    // that are culled or far down the line, so nothing hitches when it first
+    // comes into view mid-journey. Runs before the chunk culling hides them.
+    if (t.frames === 0) {
+      try {
+        state.gl.compile(state.scene, state.camera);
+      } catch {
+        /* older three.js: shaders compile lazily instead */
+      }
+    }
     if (++t.frames === 3) sceneReady();
   }, -3);
 

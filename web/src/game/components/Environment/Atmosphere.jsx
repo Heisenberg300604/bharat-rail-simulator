@@ -13,9 +13,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { route, useGameValue, useQuality } from '../../state/gameStore.js';
-import { makeNoiseTexture } from '../../world/textures.js';
-import { seededRandom } from '../../world/geometry.js';
+import { useGameValue, useQuality } from '../../state/gameStore.js';
+import { sceneRefs } from '../../state/sceneRefs.js';
 import { computeEnvironment, envState, blendEnvironment, snapEnvironment, notifyEnvironment, onEnvironmentChange } from '../../world/environment.js';
 import { damp } from '../Cameras/cameraConstants.js';
 
@@ -207,83 +206,6 @@ export function EnvironmentLighting({ enabled }) {
   return null;
 }
 
-/** Ground: one big plane, with gentle large-scale colour variation baked into vertex colours. */
-export function Ground() {
-  const { geometry, tex } = useMemo(() => {
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minZ = Infinity;
-    let maxZ = -Infinity;
-    const p = {};
-    for (let s = 0; s <= route.length; s += 50) {
-      route.sample(s, p);
-      minX = Math.min(minX, p.x);
-      maxX = Math.max(maxX, p.x);
-      minZ = Math.min(minZ, p.z);
-      maxZ = Math.max(maxZ, p.z);
-    }
-    const size = Math.max(maxX - minX, maxZ - minZ) + 6000;
-    const seg = 96;
-    const geometry = new THREE.PlaneGeometry(size, size, seg, seg);
-    geometry.rotateX(-Math.PI / 2);
-    geometry.translate((minX + maxX) / 2, -0.05, (minZ + maxZ) / 2);
-    // Low-frequency value noise → patches of greener grass and dusty earth
-    const rand = seededRandom(77);
-    const grid = Array.from({ length: (seg / 6 + 2) ** 2 }, () => rand());
-    const gw = seg / 6 + 2;
-    const noise = (u, v) => {
-      const x = u * (seg / 6);
-      const y = v * (seg / 6);
-      const x0 = Math.floor(x);
-      const y0 = Math.floor(y);
-      const fx = x - x0;
-      const fy = y - y0;
-      const at = (i, j) => grid[(j % gw) * gw + (i % gw)];
-      const a = at(x0, y0) * (1 - fx) + at(x0 + 1, y0) * fx;
-      const b = at(x0, y0 + 1) * (1 - fx) + at(x0 + 1, y0 + 1) * fx;
-      return a * (1 - fy) + b * fy;
-    };
-    const green = new THREE.Color('#9aa865');
-    const dust = new THREE.Color('#c2b48a');
-    const c = new THREE.Color();
-    const colors = new Float32Array(geometry.attributes.position.count * 3);
-    for (let j = 0; j <= seg; j++) {
-      for (let i = 0; i <= seg; i++) {
-        const k = j * (seg + 1) + i;
-        c.copy(green).lerp(dust, noise(i / seg, j / seg) * 0.85);
-        colors.set([c.r, c.g, c.b], k * 3);
-      }
-    }
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    const tex = makeNoiseTexture({
-      base: '#d9d9d0',
-      speckles: ['#bfc4a6', '#e8e2c9', '#a9b38a', '#cfc7a3', '#9aa37c'],
-      density: 2.5,
-      seed: 11,
-    });
-    tex.repeat.set(size / 24, size / 24);
-    return { geometry, tex };
-  }, []);
-  const material = useMemo(() => new THREE.MeshStandardMaterial({ map: tex, vertexColors: true, roughness: 1 }), [tex]);
-  // Rain darkens the soil a little (wet look) without any extra shader work.
-  useEffect(
-    () =>
-      onEnvironmentChange((env) => {
-        material.color.setScalar(1 - env.rain * 0.28);
-      }),
-    [material],
-  );
-  useEffect(
-    () => () => {
-      geometry.dispose();
-      tex.dispose();
-      material.dispose();
-    },
-    [geometry, tex, material],
-  );
-  return <mesh geometry={geometry} material={material} receiveShadow />;
-}
-
 export function Lighting({ shadows, shadowMapSize }) {
   const sun = useRef();
   const hemi = useRef();
@@ -304,28 +226,41 @@ export function Lighting({ shadows, shadowMapSize }) {
     () =>
       onEnvironmentChange((env) => {
         if (!sun.current) return;
+        const t = 1 - (sceneRefs.tunnelDark ?? 0);
         sun.current.color.copy(env.sunColor);
-        sun.current.intensity = env.sunIntensity + env.lightning * 3;
+        sun.current.intensity = (env.sunIntensity + env.lightning * 3) * (1 - 0.92 * (1 - t));
         hemi.current.color.copy(env.hemiSky);
         hemi.current.groundColor.copy(env.hemiGround);
-        hemi.current.intensity = env.hemiIntensity + env.lightning * 2.5;
+        hemi.current.intensity = (env.hemiIntensity + env.lightning * 2.5) * (1 - 0.85 * (1 - t));
       }),
     [],
   );
 
+  const dark = useRef(0);
+  const scene = useThree((s) => s.scene);
   useFrame(() => {
-    // Centre the shadow box ~50 m in front of the camera, on the ground, and
-    // snap it to whole shadow-map texels so shadows don't shimmer when moving.
+    // Centre the shadow box ~50 m in front of the camera, near the ground
+    // under it (routes climb hundreds of metres), and snap it to whole
+    // shadow-map texels so shadows don't shimmer when moving.
     camera.getWorldDirection(fwd);
     fwd.y = 0;
     fwd.normalize();
     const texel = 180 / shadowMapSize;
     const x = Math.round((camera.position.x + fwd.x * 50) / texel) * texel;
     const z = Math.round((camera.position.z + fwd.z * 50) / texel) * texel;
+    const y = Math.round((camera.position.y - 4) / 2) * 2;
     const d = envState.sunDir;
-    target.position.set(x, 0, z);
-    sun.current.position.set(x + d.x * 200, Math.max(d.y, 0.08) * 200, z + d.z * 200);
+    target.position.set(x, y, z);
+    sun.current.position.set(x + d.x * 200, y + Math.max(d.y, 0.08) * 200, z + d.z * 200);
     target.updateMatrixWorld();
+    // inside a tunnel (on-train views) daylight is shut out: only the headlight and lamps remain
+    const t = sceneRefs.tunnelDark ?? 0;
+    if (t > 0.002 || Math.abs(t - dark.current) > 0.002) {
+      dark.current = t;
+      sun.current.intensity = (envState.sunIntensity + envState.lightning * 3) * (1 - 0.92 * t);
+      hemi.current.intensity = (envState.hemiIntensity + envState.lightning * 2.5) * (1 - 0.85 * t);
+      scene.environmentIntensity = envState.envIntensity * (1 - 0.9 * t);
+    }
   });
 
   return (

@@ -17,7 +17,8 @@ import * as THREE from 'three';
 import { game, useQuality } from '../../state/gameStore.js';
 import { sceneRefs } from '../../state/sceneRefs.js';
 import { mainLine } from '../../world/trackLayout.js';
-import { ROAD, LEVEL_CROSSINGS, TRACK, STATIONS, PLATFORMS } from '../../config/gameConfig.js';
+import { ROAD, LEVEL_CROSSINGS, TRACK, STATIONS, SIGNALS } from '../../config/gameConfig.js';
+import { terrain } from '../../world/terrain.js';
 import { highwayOffset, crossRoadSpan, ROAD_END_VEER } from '../../world/roadLayout.js';
 import { ModelBuilder } from '../../world/modelBuilder.js';
 import { seededRandom } from '../../world/geometry.js';
@@ -231,18 +232,21 @@ function buildSignalPost() {
 /** Lanes (India drives on the left) and the road surfaces built from them. */
 function buildRoadNetwork() {
   const p = {};
-  const centre = [];
-  for (let s = ROAD.from - ROAD_END_VEER; s <= ROAD.to + ROAD_END_VEER; s += 8) {
-    mainLine.sample(s, p);
-    const o = highwayOffset(s);
-    centre.push([p.x + p.lx * o, p.z + p.lz * o]);
+  const lanes = {};
+  const surfaces = [];
+  const markings = [];
+  if (ROAD) {
+    const centre = [];
+    for (let s = ROAD.from - ROAD_END_VEER; s <= ROAD.to + ROAD_END_VEER; s += 8) {
+      mainLine.sample(s, p);
+      const o = highwayOffset(s);
+      centre.push([p.x + p.lx * o, p.z + p.lz * o]);
+    }
+    lanes.up = makePath(offsetPath(centre, LANE));
+    lanes.down = makePath(offsetPath([...centre].reverse(), LANE));
+    surfaces.push(ribbon(centre, ROAD.width / 2));
+    markings.push(...dashes(centre));
   }
-  const lanes = {
-    up: makePath(offsetPath(centre, LANE)),
-    down: makePath(offsetPath([...centre].reverse(), LANE)),
-  };
-  const surfaces = [ribbon(centre, ROAD.width / 2)];
-  const markings = [...dashes(centre)];
   const stops = {};
   const crossings = LEVEL_CROSSINGS.map((lc, i) => {
     const [lo, hi] = crossRoadSpan(lc);
@@ -268,7 +272,7 @@ function buildRoadNetwork() {
   });
   // streetlights on the track side of the highway, arm reaching over the road
   const lights = [];
-  for (let s = ROAD.from + 20; s <= ROAD.to; s += 45) {
+  for (let s = (ROAD?.from ?? 0) + 20; ROAD && s <= ROAD.to; s += 45) {
     if (LEVEL_CROSSINGS.some((lc) => Math.abs(lc.s - s) < 10)) continue;
     mainLine.sample(s, p);
     const lat = highwayOffset(s) - ROAD.width / 2 - 1.1;
@@ -308,8 +312,8 @@ function buildFleet(lanes, density) {
       });
     }
   };
-  add('up', Math.round(44 * density));
-  add('down', Math.round(44 * density));
+  if (lanes.up) add('up', Math.round(44 * density * ((ROAD.to - ROAD.from) / 5100)));
+  if (lanes.down) add('down', Math.round(44 * density * ((ROAD.to - ROAD.from) / 5100)));
   for (const id of Object.keys(lanes)) {
     if (!lanes[id].crossing) continue;
     const short = lanes[id].length < 400;
@@ -325,7 +329,7 @@ function buildFleet(lanes, density) {
 function crossingFurniture(crossings) {
   const p = {};
   const onPlatform = (s, lat) =>
-    STATIONS.some((st) => s > st.platformStart - 5 && s < st.platformEnd + 5 && PLATFORMS.some((pf) => lat <= Math.max(...pf.lat) + 1 && lat >= Math.min(...pf.lat) - 1));
+    STATIONS.some((st) => s > st.platformStart - 5 && s < st.platformEnd + 5 && st.layout.platforms.some((pf) => lat <= Math.max(...pf.lat) + 1 && lat >= Math.min(...pf.lat) - 1));
   return crossings.map((lc) => {
     mainLine.sample(lc.s - 14, p);
     const cabin = { x: p.x + p.lx * 10.5, z: p.z + p.lz * 10.5, yaw: -p.heading + Math.PI / 2 };
@@ -476,23 +480,12 @@ export default function Road() {
     [fleet],
   );
 
+  // colour-light signals from the route data (static aspects: the line is clear)
   const signals = useMemo(() => {
     const p = {};
-    const defs = [
-      { s: 460, lat: 3.8, rev: false },
-      { s: 920, lat: 3.8, rev: false },
-      { s: 2600, lat: 3.8, rev: false },
-      { s: 4120, lat: 3.8, rev: false },
-      { s: 6550, lat: 3.8, rev: false },
-      { s: 7120, lat: 3.8, rev: false },
-      { s: 7100, lat: -9.2, rev: true },
-      { s: 4300, lat: -9.2, rev: true },
-      { s: 2500, lat: -9.2, rev: true },
-      { s: 950, lat: -9.2, rev: true },
-    ];
-    return defs.map((def) => {
+    return SIGNALS.map((def) => {
       mainLine.sample(def.s, p);
-      return { s: def.s, x: p.x + p.lx * def.lat, y: 0, z: p.z + p.lz * def.lat, yaw: -p.heading + (def.rev ? Math.PI : 0), rev: def.rev };
+      return { s: def.s, x: p.x + p.lx * def.lat, y: p.y, z: p.z + p.lz * def.lat, yaw: -p.heading + (def.rev ? Math.PI : 0), rev: !!def.rev, aspect: def.aspect ?? 'green' };
     });
   }, []);
   const lightItems = useMemo(() => net.lights.map((l) => ({ x: l.x, y: 0, z: l.z, yaw: l.yaw })), [net]);
@@ -613,8 +606,19 @@ export default function Road() {
   });
 
   const far = quality.sceneryDistance;
+  const ASPECT = { red: [3.5, assets.mats.redSignal], yellow: [3.9, assets.mats.yellowSignal], green: [4.7, assets.mats.greenSignal] };
   return (
     <group>
+      {signals.map((sig, i) => (
+        <group key={`sig_${i}`} position={[sig.x, sig.y, sig.z]} rotation={[0, sig.yaw, 0]}>
+          <mesh geometry={assets.signalPost} material={assets.mats.vc} />
+          <mesh position={[0.22, ASPECT[sig.aspect][0], 0]} material={ASPECT[sig.aspect][1]}>
+            <sphereGeometry args={[0.08, 12, 12]} />
+          </mesh>
+        </group>
+      ))}
+      {/* the road network sits at its own (level) base height */}
+      <group position={[0, terrain.roadBase, 0]}>
       {net.surfaces.map((geo, i) => (
         <mesh key={`road${i}`} geometry={geo} material={assets.mats.road} receiveShadow />
       ))}
@@ -643,22 +647,13 @@ export default function Road() {
         </group>
       ))}
 
-      {signals.map((sig, i) => (
-        <group key={`sig_${i}`} position={[sig.x, sig.y, sig.z]} rotation={[0, sig.yaw, 0]}>
-          <mesh geometry={assets.signalPost} material={assets.mats.vc} />
-          <mesh position={[0.22, sig.s > 7500 ? 3.5 : sig.s === 6550 || sig.s === 7120 ? 3.9 : 4.7, 0]}>
-            <sphereGeometry args={[0.08, 12, 12]} />
-            <primitive object={sig.s > 7500 ? assets.mats.redSignal : sig.s === 6550 || sig.s === 7120 ? assets.mats.yellowSignal : assets.mats.greenSignal} attach="material" />
-          </mesh>
-        </group>
-      ))}
-
       {Object.entries(fleet).map(([type, f]) => (
         <group key={type}>
           <primitive object={f.body} />
           {f.lamp && <primitive object={f.lamp} />}
         </group>
       ))}
+      </group>
     </group>
   );
 }

@@ -15,6 +15,7 @@ const smoothstep = (a, b, x) => {
 
 /** Highway centre-line offset from the track: 32 m, curving away at the ends. */
 export function highwayOffset(s) {
+  if (!ROAD) return Infinity;
   return ROAD.lateral + 360 * (smoothstep(ROAD.from, ROAD.from - ROAD_END_VEER, s) + smoothstep(ROAD.to, ROAD.to + ROAD_END_VEER, s));
 }
 
@@ -30,7 +31,7 @@ export function crossRoadSpan(lc) {
  */
 export function roadClearance(s, lat, radius = 0) {
   let best = Infinity;
-  if (s > ROAD.from - ROAD_END_VEER && s < ROAD.to + ROAD_END_VEER) {
+  if (ROAD && s > ROAD.from - ROAD_END_VEER && s < ROAD.to + ROAD_END_VEER) {
     best = Math.min(best, Math.abs(lat - highwayOffset(s)) - ROAD.width / 2 - radius);
   }
   for (const lc of LEVEL_CROSSINGS) {

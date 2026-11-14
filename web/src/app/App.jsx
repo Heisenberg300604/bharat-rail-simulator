@@ -1,5 +1,5 @@
 import GameCanvas from '../game/GameCanvas.jsx';
-import { useGameSnapshot, game, publish, route } from '../game/state/gameStore.js';
+import { useGameSnapshot, game, publish, route, selectRoute, startJourney, setCamera } from '../game/state/gameStore.js';
 import { useKeyboardControls } from '../game/hooks/useKeyboardControls.js';
 import StartScreen from '../ui/StartScreen.jsx';
 import LoadingScreen from '../ui/LoadingScreen.jsx';
@@ -11,11 +11,17 @@ import { sceneRefs } from '../game/state/sceneRefs.js';
 import { audioEngine } from '../game/audio/audioEngine.js';
 
 // Development-only helper for testing in the browser console, e.g.
-//   __BRS__.teleport(7300, 40)   → jump near Ghaziabad at 40 km/h
+//   __BRS__.teleport(7300, 40)   → jump 7.3 km down the line at 40 km/h
+//   __BRS__.selectRoute('pamban') → switch route
 if (import.meta.env.DEV) {
   window.__BRS__ = {
     game,
-    route,
+    get route() {
+      return route;
+    },
+    selectRoute,
+    startJourney,
+    setCamera,
     sceneRefs,
     audioEngine,
     teleport(distance, kmh = 0) {
@@ -35,11 +41,11 @@ export default function App() {
     <div className="app">
       <GameCanvas />
       {s.screen === 'loading' && <LoadingScreen />}
-      {s.screen === 'title' && <StartScreen settings={s.settings} />}
+      {s.screen === 'title' && <StartScreen settings={s.settings} bests={s.bests} routeId={s.routeId} />}
       {inGame && <HUD s={s} />}
       {s.screen === 'paused' && <PauseMenu settings={s.settings} />}
       {s.screen === 'confirmRestart' && <RestartConfirm />}
-      {s.screen === 'completed' && <JourneyComplete result={s.result} />}
+      {s.screen === 'completed' && <JourneyComplete result={s.result} newBest={s.newBest} />}
     </div>
   );
 }

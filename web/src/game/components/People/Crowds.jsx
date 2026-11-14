@@ -11,24 +11,26 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { game, route, useGameValue, useQuality } from '../../state/gameStore.js';
 import { sceneRefs } from '../../state/sceneRefs.js';
-import { STATIONS, PLATFORMS, DOWN_LINE_OFFSET, STATION_TRACKS, LEVEL_CROSSINGS } from '../../config/gameConfig.js';
+import { STATIONS, DOWN_LINE_OFFSET, DOUBLE_LINE, LEVEL_CROSSINGS, TUNNELS, BRIDGES } from '../../config/gameConfig.js';
 import { mainLine } from '../../world/trackLayout.js';
+import { terrain } from '../../world/terrain.js';
 import { seededRandom } from '../../world/geometry.js';
 import { onEnvironmentChange } from '../../world/environment.js';
 import { buildPersonGeometry, createPeopleMaterial, makeCrowdMesh, randomPerson, ANIM } from '../../world/models/people.js';
 import { PLATFORM_TOP } from '../Stations/Station.jsx';
 
 const zOf = (lat) => -lat; // station-local frame: x along the track, z to the right
-const TRACK_Z = [0, DOWN_LINE_OFFSET, ...STATION_TRACKS.map((t) => t.offset)].map(zOf);
 const faceZ = (dir) => (dir > 0 ? -Math.PI / 2 : Math.PI / 2); // yaw that turns local +X towards ±Z
 
 function stationPeople(station, density, seed) {
   const rand = seededRandom(seed);
   const L = station.platformEnd - station.platformStart;
-  const canopy = Math.min(260, L - 60);
-  const busy = station.id === 'ndls' ? 1.25 : 0.95;
+  const canopy = Math.min(station.layout.canopy, L - 60);
+  const busy = station.crowd ?? (station.size === 'major' ? 0.95 : 0.75);
   const out = [];
   const y = PLATFORM_TOP;
+  const TRACK_Z = [0, ...(DOUBLE_LINE ? [DOWN_LINE_OFFSET] : []), ...station.layout.tracks.map((t) => t.offset)].map(zOf);
+  const PLATFORMS = station.layout.platforms;
 
   for (const pf of PLATFORMS) {
     const z0 = Math.min(zOf(pf.lat[0]), zOf(pf.lat[1]));
@@ -120,7 +122,7 @@ function tracksidePeople(density) {
     // face the track: local +X → towards lateral 0
     const dx = -p.lx * Math.sign(lat);
     const dz = -p.lz * Math.sign(lat);
-    out.push({ x, y: 0, z, yaw: Math.atan2(-dz, dx) + (rand() - 0.5) * 0.5, person, anim, phase: rand() });
+    out.push({ x, y: terrain.groundY(s, lat), z, yaw: Math.atan2(-dz, dx) + (rand() - 0.5) * 0.5, person, anim, phase: rand() });
   };
   for (const lc of LEVEL_CROSSINGS) {
     // waiting at both gates, on both sides of the road
@@ -134,12 +136,16 @@ function tracksidePeople(density) {
     // the gateman in his blue uniform, standing by the lodge facing the track
     at(lc.s - 9, 6.8, { top: '#2f4a7a', bottom: '#2f4a7a', skin: '#8d5524', sari: 0, headLoad: 0, bag: 0, scale: 1 }, ANIM.stand);
   }
-  // village children by the line
-  const spots = Math.round(7 * Math.max(0.5, density));
+  // village children by the line (never in a tunnel, on a bridge or in the sea)
+  KID_SPOTS.length = 0;
+  const L = mainLine.length;
+  const spots = Math.round(7 * Math.max(0.5, density) * (L / 8000));
   for (let i = 0; i < spots; i++) {
-    const s = 1500 + rand() * 5000;
-    if (STATIONS.some((st) => s > st.platformStart - 500 && s < st.platformEnd + 500)) continue;
+    const s = 1500 + rand() * (L - 3000);
     const lat = (rand() < 0.5 ? 1 : -1) * (13 + rand() * 10);
+    if (STATIONS.some((st) => s > st.platformStart - 500 && s < st.platformEnd + 500)) continue;
+    if (TUNNELS.some((t) => s > t.from - 150 && s < t.to + 150) || BRIDGES.some((b) => s > b.from - 80 && s < b.to + 80)) continue;
+    if (terrain.underwater(s, lat) || Math.abs(terrain.groundY(s, lat) - terrain.groundY(s, 0)) > 4) continue;
     const n = 2 + Math.floor(rand() * 3);
     if (!KID_SPOTS.includes(Math.round(s))) KID_SPOTS.push(Math.round(s));
     for (let k = 0; k < n; k++) at(s + (rand() - 0.5) * 6, lat + (rand() - 0.5) * 3, randomPerson(rand, rand() < 0.75 ? 'child' : undefined), ANIM.wave);
@@ -173,10 +179,10 @@ export default function Crowds() {
       const centerS = (st.platformStart + st.platformEnd) / 2;
       const pose = route.sample(centerS, {});
       const g = new THREE.Group();
-      g.position.set(pose.x, 0, pose.z);
+      g.position.set(pose.x, st.elevation, pose.z);
       g.rotation.set(0, -pose.heading, 0);
       g.add(makeCrowdMesh(stationPeople(st, density, 100 + i), geometry, material));
-      g.userData.center = new THREE.Vector3(pose.x, 0, pose.z);
+      g.userData.center = new THREE.Vector3(pose.x, st.elevation, pose.z);
       g.userData.radius = 900;
       return g;
     });

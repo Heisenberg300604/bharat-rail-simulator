@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { ModelBuilder } from '../modelBuilder.js';
 import { makeLhbSideTexture, LHB_SIDE, makeIcfSideTexture, ICF_SIDE } from '../textures.js';
 import { LIVERIES, COACH_TYPES } from '../../config/gameConfig.js';
+import { onRouteChange } from '../../routes/activeRoute.js';
 import { onEnvironmentChange } from '../environment.js';
 
 const HW = 1.62;
@@ -140,6 +141,34 @@ function boxnGeometry() {
 
 let shared = null;
 
+/** Destination boards on the coach sides follow the active route. */
+function routeBoards(r) {
+  const a = r.stations[0];
+  const b = r.stations[r.stations.length - 1];
+  return { route: [a.name.toUpperCase(), b.name.toUpperCase()], routeHi: `${a.hindi} ⇄ ${b.hindi}`, codes: `${b.code} ⇄ ${a.code}` };
+}
+let boards = null;
+function sideTextures() {
+  return {
+    'lhb-red': makeLhbSideTexture({ primary: LIVERIES.lhb.paint, secondary: LIVERIES.lhb.paint2, label: 'AC 3 TIER', ...boards }),
+    'lhb-blue': makeLhbSideTexture({ primary: LIVERIES.lhbBlue.paint, secondary: LIVERIES.lhbBlue.paint2, label: 'AC CHAIR CAR', ...boards }),
+    'icf-blue': makeIcfSideTexture({ primary: LIVERIES.icfBlue.paint, band: LIVERIES.icfBlue.paint2, codes: boards.codes }),
+  };
+}
+onRouteChange((r) => {
+  boards = routeBoards(r);
+  if (!shared) return;
+  // repaint the boards on the existing (shared) side materials
+  for (const [key, tex] of Object.entries(sideTextures())) {
+    const mat = shared[key][0].material;
+    mat.map?.userData.glow?.dispose();
+    mat.map?.dispose();
+    mat.map = tex;
+    mat.emissiveMap = tex.userData.glow ?? null;
+    mat.needsUpdate = true;
+  }
+});
+
 /** Coach side panel. Its windows glow (emissive mask) when the lights come on at dusk. */
 function sideMaterial(texture, type) {
   const mat = new THREE.MeshStandardMaterial({
@@ -172,10 +201,11 @@ export function getCoachVariants() {
       { geometry: g.body, material: bodyMat },
     ];
   };
+  const tex = sideTextures();
   shared = {
-    'lhb-red': make('lhb', 'lhb', makeLhbSideTexture({ primary: LIVERIES.lhb.paint, secondary: LIVERIES.lhb.paint2, label: 'AC 3 TIER' })),
-    'lhb-blue': make('lhb', 'lhbBlue', makeLhbSideTexture({ primary: LIVERIES.lhbBlue.paint, secondary: LIVERIES.lhbBlue.paint2, label: 'AC CHAIR CAR' })),
-    'icf-blue': make('icf', 'icfBlue', makeIcfSideTexture({ primary: LIVERIES.icfBlue.paint, band: LIVERIES.icfBlue.paint2 })),
+    'lhb-red': make('lhb', 'lhb', tex['lhb-red']),
+    'lhb-blue': make('lhb', 'lhbBlue', tex['lhb-blue']),
+    'icf-blue': make('icf', 'icfBlue', tex['icf-blue']),
   };
   const boxn = boxnGeometry();
   shared['boxn'] = [

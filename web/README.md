@@ -1,13 +1,16 @@
 # Bharat Rail Simulator — Web MVP
 
-Drive a WAP-7 electric locomotive with 8 LHB coaches from **New Delhi** to
-**Ghaziabad** in the browser. Built with React, Vite, Three.js and React Three
+Drive a WAP-7 electric locomotive with 8 LHB coaches over six famous Indian
+routes in the browser: the Delhi mainline, the **Bhor Ghat** climb, the
+**Konkan Railway**, the **Pamban sea bridge**, the **Gatimaan** corridor past the
+Taj, and the **Bengal suburban** run to Bandel. Built with React, Vite, Three.js and React Three
 Fiber. Runs on macOS and Windows (Chrome, Edge, Safari, Firefox), including
 laptops with Intel integrated graphics.
 The specification lives in [WEB_MVP_SPEC.MD](WEB_MVP_SPEC.MD).
 
-> The route is a short, **fictional** test segment (8 km), not a geographic
-> recreation. Independent hobby project — not affiliated with Indian Railways.
+> Every route is a short, condensed, **fictional** segment inspired by a real
+> line (8–22 km), not a geographic recreation. Independent hobby project — not
+> affiliated with Indian Railways. Route details: [docs/ROUTES_PLAN.md](docs/ROUTES_PLAN.md).
 
 ## Run it
 
@@ -24,16 +27,19 @@ npm run preview    # serve the production build locally
 
 ## How to play
 
-1. Click **Start Journey**. This also unlocks audio; browsers block sound until
+1. Pick a route on the title screen (the elevation profile shows tunnels and
+   bridges). "How to play" lists every control. At intermediate halts, wait
+   for the guard's whistle before departing.
+2. Click **Start journey**. This also unlocks audio; browsers block sound until
    you click.
-2. You're at New Delhi with the A9 brake applied (brake pipe 3.4 kg/cm²).
-3. Hold **X** to release the brake. Wait for the brake pipe to recharge to
+3. You're at the origin station with the A9 brake applied (brake pipe 3.4 kg/cm²).
+4. Hold **X** to release the brake. Wait for the brake pipe to recharge to
    5.0; traction is cut below 4.75, just as on the real loco.
-4. Hold **W** to notch up the TE/BE lever. Obey the speed limits: **30** km/h
+5. Hold **W** to notch up the TE/BE lever. Obey the speed limits: **30** km/h
    through the yard until the whole train has cleared it, then **110**.
-5. Plan your stop. A full-service stop from 110 km/h needs about **1 km**, and
+6. Plan your stop. A full-service stop from 110 km/h needs about **1 km**, and
    the HUD shows your current stopping distance.
-6. Stop with the loco front inside the **green zone** by the **STOP** board and
+7. Stop with the loco front inside the **green zone** by the **STOP** board and
    hold for 3 s. You get a score out of 100.
 
 | Key | Action |

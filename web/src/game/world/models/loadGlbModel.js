@@ -91,3 +91,42 @@ export function loadMergedModel(url, { forwardAxis = 'z', flip = false, fit = nu
   }
   return cache.get(url);
 }
+
+/**
+ * Where the lamps are on a loaded locomotive model (vehicle frame: x forward,
+ * y up from the rail top, z right). The licensed models are shorter than the
+ * procedural stand-in, so fixed coordinates would leave the glows floating
+ * in front of the cab: instead we find the actual nose at lamp height.
+ *   head:    the twin head lamp centred above the windscreen
+ *   markers: the two marker lamps low on the cab front
+ */
+export function measureLampAnchors(parts, { headY = 4.05, markerY = 2.35, markerZ = 1.05 } = {}) {
+  let maxX = -Infinity;
+  let frontTop = -Infinity;
+  const each = (fn) => {
+    for (const p of parts) {
+      const a = p.geometry.attributes.position;
+      for (let i = 0; i < a.count; i++) fn(a.getX(i), a.getY(i), a.getZ(i));
+    }
+  };
+  each((x) => (maxX = Math.max(maxX, x)));
+  // top of the cab front (ignore the pantograph and roof equipment above 4.8 m)
+  each((x, y, z) => {
+    if (x > maxX - 1.2 && Math.abs(z) < 0.6 && y < 4.8) frontTop = Math.max(frontTop, y);
+  });
+  const hy = Math.min(headY, frontTop - 0.2);
+  const noseAt = (y, zc, dz) => {
+    let best = -Infinity;
+    each((x, yy, z) => {
+      if (Math.abs(yy - y) < 0.3 && Math.abs(z - zc) < dz) best = Math.max(best, x);
+    });
+    return Number.isFinite(best) ? best : maxX;
+  };
+  return {
+    head: [noseAt(hy, 0, 0.6) + 0.05, hy, 0],
+    markers: [
+      [noseAt(markerY, markerZ, 0.35) + 0.05, markerY, markerZ],
+      [noseAt(markerY, -markerZ, 0.35) + 0.05, markerY, -markerZ],
+    ],
+  };
+}

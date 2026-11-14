@@ -1,8 +1,19 @@
 // Driving HUD (DOM overlay). Reads the ~10 Hz snapshot; never touches the 3D scene.
 import { origin, destination } from '../game/state/gameStore.js';
-import { TRAIN } from '../game/config/gameConfig.js';
+import { TRAIN, JOURNEY } from '../game/config/gameConfig.js';
 
 const CAMERA_LABELS = { cab: 'Cab', interior: 'Coach', door: 'Door', rear: 'Last coach', chase: 'Chase', orbit: 'Orbit', trackside: 'Trackside' };
+
+function formatClock(sec) {
+  const s = Math.max(0, Math.round(sec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/** "1 in 37 ↑" style gradient readout (Indian railways quote gradients as 1 in N). */
+function gradeLabel(g) {
+  if (Math.abs(g) < 1 / 600) return 'Level';
+  return `1 in ${Math.round(1 / Math.abs(g))} ${g > 0 ? '▲ rising' : '▼ falling'}`;
+}
 
 function formatDistance(m) {
   if (Math.abs(m) >= 1000) return `${(m / 1000).toFixed(2)} km`;
@@ -55,7 +66,10 @@ export default function HUD({ s }) {
   const overshoot = remaining < 0;
   const limit = Number.isFinite(s.speedLimit) ? s.speedLimit : TRAIN.sectionalSpeedKmh;
   const overspeed = s.speedKmh > limit + 1;
-  const tooLate = s.speedKmh > 5 && remaining > 0 && s.stoppingDistance > remaining;
+  const tooLate = s.speedKmh > 5 && remaining > 0 && s.stoppingDistance > remaining && s.dwell === null;
+  const next = s.nextStop;
+  const span = JOURNEY.stopMarker - JOURNEY.startDistance;
+  const late = next?.scheduled ? s.elapsed - next.scheduled : 0;
   return (
     <div className="hud" aria-live="off">
       <div className="hud__top">
@@ -63,14 +77,30 @@ export default function HUD({ s }) {
           <div className="hud__stations">
             <span>{origin.name}</span>
             <span className="hud__to">→</span>
-            <strong>{destination.name}</strong>
+            <strong>{next?.final ? destination.name : next?.name}</strong>
+            {!next?.final && <span className="hud__final">· then {destination.name}</span>}
           </div>
           <div className="progress">
             <div className="progress__fill" style={{ width: `${s.progress * 100}%` }} />
+            {JOURNEY.stops
+              .filter((st) => !st.final)
+              .map((st, i) => (
+                <span key={st.stationId} className={`progress__stop ${i < s.stopIndex ? 'is-done' : ''}`} style={{ left: `${((st.marker - JOURNEY.startDistance) / span) * 100}%` }} title={st.name} />
+              ))}
           </div>
           <div className="hud__remaining">
-            {overshoot ? `${formatDistance(-remaining)} past the stop marker` : `${formatDistance(remaining)} to stop marker`}
+            {s.dwell !== null
+              ? `Halt at ${next?.name} · right away in ${Math.ceil(s.dwell)} s`
+              : overshoot
+                ? `${formatDistance(-remaining)} past the stop marker`
+                : `${formatDistance(remaining)} to the ${next?.final ? 'stop marker' : `${next?.name} halt`}`}
           </div>
+          {next?.scheduled && s.journeyState !== 'ready' && (
+            <div className={`hud__timetable num ${late > 30 ? 'is-late' : ''}`}>
+              {formatClock(s.elapsed)} · due {next.name} {formatClock(next.scheduled)}
+              {late > 30 ? ` · ${formatClock(late)} late` : late > -15 ? ' · on time' : ''}
+            </div>
+          )}
         </div>
         <div className="hud__alerts">
           {s.emergency && <span className="alert alert--red">EMERGENCY BRAKE</span>}
@@ -126,6 +156,16 @@ export default function HUD({ s }) {
           <span>Horn</span>
           <strong className={s.horn ? 'on' : ''}>{s.horn ? 'Sounding' : '—'}</strong>
         </div>
+        <div className="status-row">
+          <span>Gradient</span>
+          <strong className={Math.abs(s.grade) > 1 / 100 ? 'warn' : ''}>{gradeLabel(s.grade)}</strong>
+        </div>
+        {s.banker && (
+          <div className="status-row">
+            <span>Bankers</span>
+            <strong className="on">{s.banker}</strong>
+          </div>
+        )}
         <div className="status-keys">
           W/S TE/BE · Space/X A9 brake · E emergency · F reverser · H horn · C/1–6 camera · drag to look · Esc menu
         </div>

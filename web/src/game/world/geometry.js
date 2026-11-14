@@ -8,7 +8,7 @@ import * as THREE from 'three';
  * a long strip of quads; vertices are not shared between edges so the
  * corners stay crisp.
  */
-export function buildRibbonGeometry(route, profile, { step = 4, from = 0, to = route.length, uvScale = 4 } = {}) {
+export function buildRibbonGeometry(route, profile, { step = 4, from = 0, to = route.length, uvScale = 4, followHeight = true } = {}) {
   const count = Math.max(2, Math.ceil((to - from) / step) + 1);
   const edges = profile.length - 1;
   const positions = new Float32Array(count * edges * 2 * 3);
@@ -24,7 +24,7 @@ export function buildRibbonGeometry(route, profile, { step = 4, from = 0, to = r
         const [lat, y] = profile[e + k];
         const v = (i * edges + e) * 2 + k;
         positions[v * 3] = p.x + p.lx * lat;
-        positions[v * 3 + 1] = y;
+        positions[v * 3 + 1] = y + (followHeight ? p.y ?? 0 : 0);
         positions[v * 3 + 2] = p.z + p.lz * lat;
         uvs[v * 2] = s / uvScale;
         uvs[v * 2 + 1] = k;

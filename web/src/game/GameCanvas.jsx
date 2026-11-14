@@ -1,8 +1,8 @@
 // The 3D view. Everything inside <Canvas> is Three.js, written as React
 // components via React Three Fiber.
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { STATIONS, JOURNEY } from './config/gameConfig.js';
+import { STATIONS } from './config/gameConfig.js';
 import { game, useGameValue, useQuality } from './state/gameStore.js';
 import { sceneRefs } from './state/sceneRefs.js';
 import SimulationDriver from './SimulationDriver.jsx';
@@ -11,13 +11,44 @@ import Train from './components/Train/Train.jsx';
 import Station from './components/Stations/Station.jsx';
 import Scenery from './components/Environment/Scenery.jsx';
 import Road from './components/Environment/Road.jsx';
-import { Sky, Ground, Lighting, EnvironmentLighting, EnvironmentController, HORIZON_COLOR } from './components/Environment/Atmosphere.jsx';
+import Terrain from './components/Environment/Terrain.jsx';
+import Structures from './components/Environment/Structures.jsx';
+import Landmarks from './components/Environment/Landmarks.jsx';
+import { Sky, Lighting, EnvironmentLighting, EnvironmentController, HORIZON_COLOR } from './components/Environment/Atmosphere.jsx';
 import Weather from './components/Environment/Weather.jsx';
 import Crowds from './components/People/Crowds.jsx';
 import CameraRig from './components/Cameras/CameraRig.jsx';
 
-export default function GameCanvas() {
+/**
+ * Everything built from the route. Keyed by route id: switching routes
+ * unmounts the old world (each builder disposes its GPU buffers) and builds
+ * the new one, so there is no partial hot-swap to get wrong.
+ */
+function RouteWorld() {
+  return (
+    <>
+      <SimulationDriver />
+      <Terrain />
+      <TrackRoute />
+      <Structures />
+      <Scenery />
+      <Landmarks />
+      <Road />
+      {STATIONS.map((st) => (
+        <Station key={st.id} station={st} />
+      ))}
+      <Crowds />
+    </>
+  );
+}
+
+/**
+ * Memoised: the App re-renders ~10×/s for the HUD, but the 3D tree only needs
+ * to re-render when its own subscribed values (screen, route, quality) change.
+ */
+export default memo(function GameCanvas() {
   const screen = useGameValue((s) => s.screen);
+  const routeId = useGameValue((s) => s.routeId);
   const quality = useQuality();
   // While a menu covers the game we only render on demand, which saves battery.
   const frameloop = screen === 'paused' || screen === 'confirmRestart' ? 'demand' : 'always';
@@ -34,7 +65,10 @@ export default function GameCanvas() {
       shadows="percentage"
       gl={{ antialias: quality.antialias, powerPreference: 'high-performance', stencil: false, logarithmicDepthBuffer: true }}
       camera={{ fov: 60, near: 0.25, far: quality.cameraFar, position: [0, 20, 40] }}
-      onCreated={({ gl }) => (sceneRefs.gl = gl)}
+      onCreated={({ gl, scene }) => {
+        sceneRefs.gl = gl;
+        sceneRefs.scene = scene;
+      }}
     >
       <CameraFar far={quality.cameraFar} />
       <AdaptiveResolution min={Math.min(quality.minDpr, maxDpr)} max={maxDpr} />
@@ -45,20 +79,13 @@ export default function GameCanvas() {
       <EnvironmentLighting enabled={quality.environment} />
       <Lighting shadows={quality.shadows} shadowMapSize={quality.shadowMapSize} />
       <Sky radius={quality.cameraFar * 0.9} />
-      <Ground />
-      <TrackRoute />
-      <Scenery />
-      <Road />
-      {STATIONS.map((st) => (
-        <Station key={st.id} station={st} isDestination={st.id === JOURNEY.destinationId} />
-      ))}
+      <RouteWorld key={routeId} />
       <Train />
-      <Crowds />
       <Weather />
       <CameraRig />
     </Canvas>
   );
-}
+});
 
 /** Applies the quality preset's view distance when it changes at runtime. */
 function CameraFar({ far }) {

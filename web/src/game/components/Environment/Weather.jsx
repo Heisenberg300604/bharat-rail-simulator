@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { game, useQuality } from '../../state/gameStore.js';
+import { sceneRefs } from '../../state/sceneRefs.js';
 import { envState, onEnvironmentChange } from '../../world/environment.js';
 import { seededRandom } from '../../world/geometry.js';
 import { audioEngine } from '../../audio/audioEngine.js';
@@ -112,7 +113,7 @@ export default function Weather() {
   useFrame((state, delta) => {
     const s = st.current;
     const amount = envState.rain;
-    rain.visible = amount > 0.01;
+    rain.visible = amount > 0.01 && (sceneRefs.tunnelDark ?? 0) < 0.5; // no rain inside a tunnel
     if (!rain.visible) {
       envState.lightning = 0;
       return;

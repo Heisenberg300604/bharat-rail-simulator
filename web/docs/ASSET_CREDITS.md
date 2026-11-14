@@ -55,7 +55,70 @@ the date it was checked.
   WebP). Before: 23.8 MB, 290k triangles. After: 1.74 MB, about 105k triangles.
 - Used as a selectable player loco and on the AI goods train.
 
-### Other locomotive candidates (CC BY 4.0, need a Sketchfab login to download)
+### Locomotive & stock candidates — surveyed 2026-11-14
+
+A full sweep of the Sketchfab catalogue (22 Indian-railway searches, filtered to
+`downloadable=true`) returned 61 models; 22 were relevant. **Every model below is
+CC BY 4.0 and marked downloadable**, verified through the public Sketchfab v3 API
+(`/v3/models/<uid>`) on 2026-11-14, and each one's render was inspected before
+being graded. None is mirrored on GitHub, so each needs a (free) Sketchfab
+login to download — the assistant cannot do this step.
+
+**Grade A — realistic, textured, ready to optimise and drop in.**
+
+| Model | Source page | Creator | Tris | Notes |
+| --- | --- | --- | --- | --- |
+| **WAP-4** | https://sketchfab.com/3d-models/wap-4-indian-electric-engine-locomotive-ed30919c961142c1a77c931dc13ad5bd | virtualmakes | 224k | The best-looking candidate found. Correct IR orange/yellow livery, fleet number 39270, pantograph, roof gear, detailed Co-Co bogies, buffers and cowcatcher grille. ⚠ The body texture carries the creator's own "VMAX / VIRTUAL MAKES" watermark on the skirt — repaint or crop that region before shipping. |
+| **WCAM-1** (listed as "WAM-4") | https://sketchfab.com/3d-models/wam-4-indian-electric-engine-locomotive-37aa5b915f9a4e44825da1c8a498a850 | virtualmakes | 210k | ⚠ Mislabelled: the body reads `WCAM-1 93727`, and the shape is a WCAM-1, not a WAM-4. Classic blue/teal Western Railway livery, louvred grilles, roof-mounted horns. Same quality as the WAP-4. Credit it as what it is. |
+| **WAP-7 (new design)** | https://sketchfab.com/3d-models/wap-7-new-design-low-poly-6d533d73faf34a8a811fee1fcb9c8878 | knitro_vedant | 389k | White/orange refreshed WAP-7 livery, red pantograph, fleet no. 30622. **Same creator as the WAP-7 and WAG-9 already in the game**, so the art style matches exactly. The cheapest way to add visible variety. |
+| **ICF coach (blue)** | https://sketchfab.com/3d-models/indian-express-train-passenger-compartment-1e5e4bd92b3b4da092af1ee3c802d3d8 | virtualmakes | 95k | A genuine ICF blue coach: correct two-tone blue, "A.C. TIER" lettering, IR crest, ICF all-coil bogies, and a last-vehicle "X" on the end panel. **This closes the long-standing gap recorded below — no licence-clear ICF model had been found before.** Would be added as a new consist option, not as a replacement for the procedural ICF. |
+
+**Grade B — usable, but needs work before it matches the existing stock.**
+
+| Model | Source page | Creator | Tris | Why it is not Grade A |
+| --- | --- | --- | --- | --- |
+| WAG-12 | https://sketchfab.com/3d-models/wag-12-3330081494cd436db99345ea7094caac | lakshyasharma11052002 | 90k | Correct twin-section shape and blue livery, but flat-shaded colour blocks with no PBR detail. Fine at distance, visibly stylised beside the WAP-7. |
+| BCNA covered wagon | https://sketchfab.com/3d-models/train-freight-compartment-2cd8d1032b53426a92abb64a71743aa6 | virtualmakes | 76k | Good geometry and CASNUB bogies, but untextured flat materials. Needs a painted side texture (the project already does this for coaches). |
+| Vande Bharat (4-car) | https://sketchfab.com/3d-models/vande-bharat-express-6f3ab314283a46259bbfadb20897c672 | rmihir560 | 36k | Textured white/blue and the right silhouette, but only 36k tris for four cars — low detail up close. The best Vande Bharat found, and still well short of Grade A. |
+| LHB generator car (EOG) | https://sketchfab.com/3d-models/lhb-generator-car-29719827d9ae444b9d8effa04fc4802d | niladri867 | 60k | Useful rake-end detail; quality unverified beyond the render. |
+
+**Grade C — rejected for a realistic look.** All are CC BY and downloadable, but
+shipping them would look worse than what the game already draws procedurally:
+
+| Model | Creator | Why rejected |
+| --- | --- | --- |
+| Indian Railways WAP 5 | idontknow23787 | **Untextured white clay.** 490k tris of geometry with no livery at all. Previously listed below as a wanted candidate — it is not usable without a full texturing pass. |
+| WDP 4D Indian Locomotive | Dustycrate | **Untextured white clay**, and no bogies or wheels visible in the render — essentially a body shell. Also previously listed as wanted; not usable as-is. |
+| Vande Bharat Express 3d model | hifrak958 | Crude untextured blob; no detail. |
+| Indian High-Speed Train | parijatch81 | Untextured; 314k tris wasted. |
+| Wap-4 (1) | murmuyash8 | 441k tris, superseded by the virtualmakes WAP-4 at half the count and better texturing. |
+| Darjeeling Toy Train landscape | Barneysbaddayatschool | **CC BY-NC** — non-commercial, so outside this project's licence policy. |
+
+**Conclusion.** The two models this project most wanted — WAP-5 and WDP-4D — are
+both bare untextured geometry, so neither can be added without a texturing pass.
+The realistic additions actually available today are the **WAP-4**, the
+**WCAM-1**, the **new-design WAP-7** and the **ICF coach**.
+
+### How to add a locomotive once the file is downloaded
+
+1. Download the **glTF/GLB** flavour from the source page (free Sketchfab account).
+2. Optimise it the same way as the existing two:
+   `npx @gltf-transform/cli optimize in.glb out.glb --texture-size 1024 --texture-compress webp`
+   Target under ~3 MB and ~130k triangles, matching `wap7.glb` (2.9 MB / 131k).
+3. Put the result in `public/assets/models/locomotive/<id>.glb` with its licence
+   text beside it as `<id>-LICENSE.txt`.
+4. Add an entry to `LOCOMOTIVES` in `src/game/config/gameConfig.js`
+   (`label`, `model`, `horn: null`, `physics: {}` to inherit the WAP-7 figures,
+   or real figures for that class).
+5. Add the attribution block to this file, above.
+6. Check it in the game: the loco picker in the pause menu, then the cab, orbit
+   and trackside cameras.
+
+Do **not** add the `LOCOMOTIVES` entry before the GLB exists: the loader falls
+back to the procedural locomotive, so the picker would offer a class that does
+not look like itself.
+
+### Earlier candidate list (superseded by the survey above)
 | Model | Source page | Creator | Triangles |
 | --- | --- | --- | --- |
 | WDP 4D Indian Locomotive (diesel) | https://sketchfab.com/3d-models/wdp-4d-indian-locomotive-bbfe229747864a7e87d2a5645e3a599f | Dustycrate | 67k |
@@ -137,7 +200,7 @@ behaviour (`src/game/audio/railAcoustics.js`).
 | "Indian Railway LHB Coach" | https://sketchfab.com/3d-models/indian-railway-lhb-coach-c6c3d4313425487d91f6174a64dd96d9 | shubham jha 3d | Free Standard, 1.67M tris | Tried and removed. It is a shortened (~13 m) stylised coach, so stretching it to 23.54 m distorted the windows. Replaced by an original coach built to real dimensions. |
 | "Exquisite 3D Indian LHB Train Model" | https://sketchfab.com/3d-models/exquisite-3d-indian-lhb-train-model-606e200f28c448c289f42c10738c3995 | lakshya11x | CC BY, 25k tris | Less detailed than the one used; Sketchfab login needed |
 | "LHB Coach (Red)" | https://sketchfab.com/3d-models/lhb-coach-red-6f69c29eedec4f45b5890ce2a39728d8 | niladri867 | CC BY, 56k tris | Untextured; Sketchfab login needed |
-| ICF (blue) coaches | various | — | — | No free model of acceptable accuracy and clear licence found. "icf blue" by kulvindertanwar36 is from an uploader with a suspected sim rip; the others are crude or not Indian. |
+| ICF (blue) coaches | various | — | — | **Superseded 2026-11-14:** no acceptable model had been found, but the survey above turned up a good CC BY ICF coach ("Indian Express Train \| Passenger Compartment" by virtualmakes, 95k tris). The earlier rejections stand: "icf blue" by kulvindertanwar36 is from an uploader with a suspected sim rip; the others are crude or not Indian. |
 
 ## Template for new assets
 

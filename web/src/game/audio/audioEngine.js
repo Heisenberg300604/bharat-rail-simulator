@@ -22,8 +22,13 @@
 // missing falls back to a synthesized version so the game is never silent.
 import { AUDIO_FILES, LOOPED, MIX, HORN, RAIL_INDEX_URL, HORN_INDEX_URL, AUDIO_BASE } from './audioManifest.js';
 import { trainAxles, nextJoint, specialJoints, timeToJoint, inverterTone, bandWeights, RAIL_JOINTS } from './railAcoustics.js';
+import { onRouteChange } from '../routes/activeRoute.js';
 
-const SPECIALS = specialJoints(RAIL_JOINTS);
+let SPECIALS = [];
+onRouteChange(() => {
+  SPECIALS = specialJoints(RAIL_JOINTS);
+});
+const MIX_SEA = 0.5;
 const SPEED_OF_SOUND = 343;
 const LOOKAHEAD = 0.14; // s: schedule joint impacts this far ahead
 const MAX_VOICES = 48;
@@ -179,6 +184,20 @@ class AudioEngine {
     this.ambBus = bus(18000);
     this.roofBus = ctx.createGain();
     this.roofBus.connect(this.master);
+    // Tunnel echo: the train and loco buses feed a short slap-back delay
+    this.echoSend = ctx.createGain();
+    this.echoSend.gain.value = 0;
+    const echo = ctx.createDelay(0.5);
+    echo.delayTime.value = 0.075;
+    const echoFb = ctx.createGain();
+    echoFb.gain.value = 0.42;
+    const echoLp = ctx.createBiquadFilter();
+    echoLp.type = 'lowpass';
+    echoLp.frequency.value = 2400;
+    this.trainBus.filter.connect(this.echoSend);
+    this.locoBus.filter.connect(this.echoSend);
+    this.echoSend.connect(echo).connect(echoLp).connect(this.master);
+    echoLp.connect(echoFb).connect(echo);
     this.uiBus = ctx.createGain();
     this.uiBus.connect(this.master);
 
@@ -187,6 +206,29 @@ class AudioEngine {
 
     // Synth rolling fallback (brown noise = rumble, never hiss)
     this.synthRoll = this.loopVoice(this.brown, this.trainBus.in, { filter: 'lowpass', freq: 250 });
+
+    // Sea surf (synthesized): low-passed rumble swelling with slow "waves"
+    {
+      const src = ctx.createBufferSource();
+      src.buffer = this.brown;
+      src.loop = true;
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = 900;
+      const wave = ctx.createGain();
+      wave.gain.value = 0.55;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 0.09;
+      const lfoAmt = ctx.createGain();
+      lfoAmt.gain.value = 0.45;
+      lfo.connect(lfoAmt).connect(wave.gain);
+      const level = ctx.createGain();
+      level.gain.value = 0;
+      src.connect(f).connect(wave).connect(level).connect(this.ambBus.in);
+      src.start(0, Math.random() * 3);
+      lfo.start();
+      this.sea = { gain: level };
+    }
 
     // Loco machinery (synth layers; recordings replace them when available)
     this.hum = ctx.createGain();
@@ -743,17 +785,20 @@ class AudioEngine {
     // smooth perspective changes
     if (pKey !== this.perspectiveKey) this.perspectiveKey = pKey;
     const k = 0.12;
-    this.trainBus.gain.gain.setTargetAtTime(P.train * trainAtten, now, k);
+    const encl = env.enclosure ?? 0; // 1 inside a tunnel: louder, echoing train, no outside world
+    this.trainBus.gain.gain.setTargetAtTime(P.train * trainAtten * (1 + 0.85 * encl), now, k);
+    this.echoSend.gain.setTargetAtTime(0.5 * encl, now, 0.2);
     this.trainBus.filter.frequency.setTargetAtTime(L.ext ? P.trainLp / (1 + dTrain / 400) : P.trainLp, now, k);
     this.locoBus.gain.gain.setTargetAtTime(P.loco * locoAtten, now, k);
     this.locoBus.filter.frequency.setTargetAtTime(P.locoLp, now, k);
-    this.ambBus.gain.gain.setTargetAtTime(P.amb, now, k);
+    this.ambBus.gain.gain.setTargetAtTime(P.amb * (1 - 0.88 * encl), now, k);
     this.ambBus.filter.frequency.setTargetAtTime(P.ambLp, now, k);
     this.roofBus.gain.setTargetAtTime(P.roof, now, k);
 
     // ---- 1. rolling beds, crossfaded by speed
     const moving = smoothstep(0.3, 4, v);
-    const bedLevel = MIX.rolling * moving * (0.35 + 0.65 * smoothstep(0, 30, v));
+    // open-deck bridges drum: the rolling sound swells while the train is on one
+    const bedLevel = MIX.rolling * moving * (0.35 + 0.65 * smoothstep(0, 30, v)) * (env.onBridge ? 1.3 : 1);
     const beds = pKey.startsWith('interior') && this.bedsInt?.length ? this.bedsInt : this.bedsExt ?? [];
     const otherBeds = beds === this.bedsInt ? this.bedsExt ?? [] : this.bedsInt ?? [];
     for (const b of otherBeds) b.voice.gain.gain.setTargetAtTime(0, now, 0.25);
@@ -906,8 +951,11 @@ class AudioEngine {
     t(a.rain, MIX.rain * e.rain);
     t(a.rainRoof, MIX.rainRoof * e.rain * (pKey === 'exterior' ? 0 : 1));
     t(a.traffic, MIX.traffic * trafficEp * road * (1 - e.night * 0.5), 3);
-    // stations: NDLS gets the Delhi recording + busy concourse, GZB the other platform
-    const atOrigin = env.stationId === 'ndls';
+    // stations: big city termini get the busy concourse recording, others the quieter platform
+    const atOrigin = !!env.stationBusy;
+    // the sea (Pamban, the Konkan estuaries): surf comes and goes like the other beds
+    const seaEp = this.episode('sea', mode, dt, [35, 75], [25, 60]);
+    t(this.sea, MIX_SEA * (env.water ?? 0) * seaEp * (1 - e.rain * 0.4), 2.5);
     t(a.station, MIX.station * station * (atOrigin ? 1 : 0.35));
     t(a.stationBusy1, MIX.station * 0.8 * station * (atOrigin ? 0.7 : 0.2));
     t(a.stationBusy2, MIX.station * 0.9 * station * (atOrigin ? 0.15 : 1));

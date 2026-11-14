@@ -4,69 +4,16 @@
 export const KMH_PER_MPS = 3.6;
 
 // ---------------------------------------------------------------------------
-// Route: built from straight lines and circular curves, like a real railway
-// alignment. "length" is measured along the track centre line.
-// This is a SHORT, FICTIONAL test route — not the real New Delhi–Ghaziabad line.
+// Route data lives in src/game/routes/ (one file per route). These are LIVE
+// re-exports of the active route: they change when the player picks another
+// route, and every importer sees the new values (ES-module live bindings).
 // ---------------------------------------------------------------------------
-export const ROUTE_SEGMENTS = [
-  { type: 'straight', length: 900 },
-  { type: 'arc', length: 600, radius: 1500, turn: 'left' },
-  { type: 'straight', length: 1800 },
-  { type: 'arc', length: 700, radius: 2000, turn: 'right' },
-  { type: 'straight', length: 1600 },
-  { type: 'arc', length: 500, radius: 1800, turn: 'left' },
-  { type: 'straight', length: 1900 },
-]; // total 8000 m
-
-export const STATIONS = [
-  {
-    id: 'ndls',
-    name: 'New Delhi',
-    hindi: 'नई दिल्ली',
-    code: 'NDLS',
-    platformStart: 30,
-    platformEnd: 440,
-    side: 1, // +1 = platform 1 on the left of the direction of travel
-  },
-  {
-    id: 'gzb',
-    name: 'Ghaziabad',
-    hindi: 'गाज़ियाबाद',
-    code: 'GZB',
-    platformStart: 7240,
-    platformEnd: 7660,
-    side: 1,
-  },
-];
-
-// Station yards: extra parallel tracks beside the main line (lateral offset in
-// metres, + = left). They branch off the main line with a smooth S-curve.
-// Layout (left → right): PF1 | UP main | DOWN main | island PF2/PF3 | T3 | T4 | PF4
-// The line is double track: our train runs on the UP main (offset 0); trains
-// in the opposite direction use the DOWN main, 5.3 m to the right.
-export const DOWN_LINE_OFFSET = -5.3;
-export const STATION_TRACKS = [
-  { id: 'T3', offset: -17.86 },
-  { id: 'T4', offset: -23.16 },
-];
-export const PLATFORMS = [
-  // lateral range [from, to] across the track, plus which tracks it serves
-  { id: '1', lat: [1.78, 10.78] },
-  { id: '2 3', lat: [-7.08, -16.08] },
-  { id: '4', lat: [-24.94, -32.94] },
-];
-export const YARD_TRANSITION = 260; // metres over which yard tracks fan out
-
-export const JOURNEY = {
-  originId: 'ndls',
-  destinationId: 'gzb',
-  startDistance: 410, // locomotive front position at the start
-  stopMarker: 7635, // ideal locomotive front position at the destination
-  stopZoneHalfLength: 30, // stop zone = marker ± this
-  approachDistance: 2000, // "approaching" state begins this far before the marker
-  stopHoldSeconds: 3, // must stay stopped in the zone this long
-  bufferStop: 7960, // end of track at the destination
-};
+export { ROUTE, ROUTE_SEGMENTS, STATIONS, JOURNEY, SPEED_LIMITS, AI_TRAINS, PARKED_TRAINS, ROAD, LEVEL_CROSSINGS, SIGNALS, BRIDGES, TUNNELS, DOUBLE_LINE } from '../routes/activeRoute.js';
+export { DOWN_LINE_OFFSET } from '../routes/stationLayouts.js';
+export { YARD_TRANSITION } from '../routes/buildRoute.js';
+import ndlsGzb from '../routes/ndls-gzb.js';
+/** The original LC-42 on the Delhi route (kept for the unit tests). */
+export const LEVEL_CROSSING = { ...ndlsGzb.levelCrossings[1], farLateral: -150 };
 
 // ---------------------------------------------------------------------------
 // Train physics — based on published Indian Railways / RDSO figures
@@ -156,15 +103,6 @@ export function trainConfigFor(locoId, consistId) {
   return cfg;
 }
 
-// Permanent speed restrictions (route distance ranges). Like the real railway,
-// a restriction applies until the REAR of the train has passed it.
-export const SPEED_LIMITS = [
-  { from: 0, to: 900, kmh: 30, reason: 'New Delhi yard turnouts' },
-  { from: 900, to: 6650, kmh: 110, reason: 'Sectional speed' },
-  { from: 6650, to: 7150, kmh: 60, reason: 'Ghaziabad approach' },
-  { from: 7150, to: 8000, kmh: 30, reason: 'Ghaziabad platform' },
-];
-
 export const FIXED_TIMESTEP = 1 / 60;
 export const MAX_FRAME_DELTA = 0.1; // ignore larger browser hiccups
 
@@ -187,30 +125,6 @@ export const COACH_TYPES = {
   boxn: { length: 10.713, bogieSpacing: 6.524, wheelRadius: 0.5, axleOffsets: [-1.0, 1.0], gap: 0.3 },
 };
 
-// Trains on the DOWN main (running towards New Delhi). They depart Ghaziabad
-// out of the player's sight and stop at New Delhi platform 2, so the player
-// meets them on the way. `departAt` = seconds after the journey starts.
-export const AI_TRAINS = [
-  { id: 'icf-express', type: 'icf', livery: 'icfBlue', coaches: 10, departAt: 12, startFront: 7880, stopFront: 120, maxKmh: 100 },
-  { id: 'lhb-rajdhani', type: 'lhb', livery: 'lhb', coaches: 9, departAt: 230, startFront: 7880, stopFront: 520, maxKmh: 110 },
-  // A goods train: WAG-9 + BOXN open wagons. It is held at New Delhi's outer
-  // signal (it can't take a platform), so it stops short of the station.
-  { id: 'goods-boxn', type: 'boxn', livery: 'boxn', loco: 'wag9', coaches: 28, departAt: 330, startFront: 7880, stopFront: 960, maxKmh: 65 },
-];
-
-// Road beside the line (left side) and a manned level crossing over both tracks.
-export const ROAD = { lateral: 32, from: 1250, to: 6350, width: 7 };
-// Manned level crossings (Indian Railways "LC gates"): lifting booms, a
-// gateman's lodge (gumti), whistle boards 600 m before each side, check rails
-// through the crossing, and a cross road with traffic that queues while the
-// booms are down. Gates close when a train is `closeAhead` metres away.
-export const LEVEL_CROSSINGS = [
-  { id: 'LC-41', s: 1120, closeAhead: 650, whistleBoard: 600 }, // just outside New Delhi
-  { id: 'LC-42', s: 4200, closeAhead: 650, whistleBoard: 600 }, // open country
-  { id: 'LC-43', s: 6760, closeAhead: 650, whistleBoard: 600 }, // Ghaziabad approach
-];
-export const LEVEL_CROSSING = { ...LEVEL_CROSSINGS[1], farLateral: -150 }; // the original one (kept for tests)
-
 // Livery colours (primary body, secondary band). Applied per vehicle instance,
 // so one coach model serves every scheme.
 export const LIVERIES = {
@@ -219,12 +133,6 @@ export const LIVERIES = {
   lhbBlue: { paint: '#1f4f9a', paint2: '#b9bdc1' }, // blue-grey (Shatabdi-style)
   icfBlue: { paint: '#24448f', paint2: '#a9d3e0' }, // classic ICF: dark blue body, pale-blue window band
 };
-
-// Stationary trains standing at other platforms (for atmosphere).
-export const PARKED_TRAINS = [
-  { line: 'ndls-T3', frontS: 430, coaches: 8, livery: 'icfBlue', type: 'icf' }, // classic blue ICF rake
-  { line: 'gzb-T4', frontS: 7640, coaches: 8, livery: 'contrast', type: 'lhb' }, // opposite of the player's coach colour
-];
 
 // ---------------------------------------------------------------------------
 // Track geometry. Indian broad gauge = 1676 mm.

@@ -54,8 +54,13 @@ export default function ChunkedInstances({ items, geometry, material, cellSize =
   const maxDist = useRef(maxDistance);
   maxDist.current = maxDistance;
   const frame = useRef(0);
+  const lastCheck = useRef(new THREE.Vector3(1e9, 0, 0));
   useFrame(({ camera }) => {
-    if (frame.current++ % 10 !== 0) return; // 6×/s is plenty for distance culling
+    // 6×/s is plenty for distance culling — but re-check at once after a jump
+    // (camera switch, restart, route change) so nothing pops in late
+    const jumped = lastCheck.current.distanceToSquared(camera.position) > 150 * 150;
+    if (frame.current++ % 10 !== 0 && !jumped) return;
+    lastCheck.current.copy(camera.position);
     for (const m of group.children) {
       const sphere = m.boundingSphere;
       m.visible = sphere.center.distanceTo(camera.position) - sphere.radius < maxDist.current;

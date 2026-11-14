@@ -1,7 +1,7 @@
 # Multiple routes: plan
 
-Status: proposal (2026-11-08). The game has one route today: a fictional
-8 km New Delhi → Ghaziabad test segment.
+Status: **implemented (2026-11-14)** — six famous routes, see §5 for what was
+built and how. (Original proposal: 2026-11-08.)
 
 Non-route enhancements (signalling, progression, onboarding, new rolling
 stock) are planned separately in [ENHANCEMENTS_PLAN.md](ENHANCEMENTS_PLAN.md).
@@ -71,38 +71,52 @@ A route file exports one object:
 | **Biome kits** | Each route looks different | Tree, building, field and colour sets per biome: palms and paddy (Konkan, Bengal), khejri and sand (Thar), Western Ghats rock and waterfalls in the monsoon. |
 | **Streaming** | 25 km routes | Already chunked; geometry is built for the whole route but drawn by distance. Above about 20 km, build chunks lazily as the train approaches. |
 
-## 2. Proposed routes
+## 2. Routes (as built)
 
-All fictional and condensed, each showing off something different.
+All fictional and condensed, each inspired by a famous line and showing off
+something different. Defined in `src/game/routes/<id>.js`.
 
-| # | Route (inspired by) | Length | Traction / stock | What makes it different |
-| --- | --- | --- | --- | --- |
-| 1 | **New Delhi → Ghaziabad** (existing) | 8 km | WAP-7 / WAG-9, LHB/ICF | Busy double line, three level crossings, highway |
-| 2 | **Karjat → Lonavala "Bhor Ghat"** (Western Ghats) | 14 km | WAG-9 banker at the rear + WAP-7 | Steep 1 in 37 climb with tunnels and viaducts. Braking downhill with regenerative brake; waterfalls in the monsoon. Needs gradients, tunnels, bridges. |
-| 3 | **Ratnagiri → Madgaon "Konkan coast"** | 18 km | WAP-7, LHB | Long tunnels and tall viaducts over rivers, palm groves, sea views, single line with a crossing station |
-| 4 | **Jodhpur → Luni "Thar desert"** | 16 km | WDP-4D diesel (when available), ICF | Single line in the desert: dunes, khejri trees, camels, heat haze, sandstorm weather, small halt stations |
-| 5 | **Howrah → Bandel "Bengal suburban"** | 12 km | WAP-7, ICF/EMU | Many short halts (frequent stop and dwell), dense crowds, ponds and paddy fields, Bengali name boards |
-| 6 | **Kanpur → Etawah "Rajdhani run"** | 25 km | WAP-5 (when available), LHB | High-speed 130 km/h line with automatic signals, fog-season variant; a test of braking distances |
+| Route | Length | Line | What makes it different |
+| --- | --- | --- | --- |
+| **Delhi Mainline** — New Delhi → Ghaziabad (`ndls-gzb`) | 8 km | double | The original route, unchanged: highway, three level crossings |
+| **Bhor Ghat** — Karjat → Lonavala (`bhor-ghat`) | 14 km | double | ~200 m climb at 1 in 37, 5 tunnels, 3 tall viaducts, Khandala halt, waterfalls, rock spire; two WAG-9 bankers for heavy freight |
+| **Konkan Railway** — Thivim → Karmali → Madgaon (`konkan`) | 16 km | single | Laterite cuttings, 3 tunnels, Mandovi (girder) and Zuari (truss) estuary bridges, crossing at Karmali with the opposing train in the loop, Goan churches |
+| **Pamban Bridge** — Mandapam → Pamban → Rameswaram (`pamban`) | 12 km | single | 2.1 km sea bridge with the vertical-lift span, the old Scherzer bridge and the road bridge alongside, island, gopuram, lighthouse, boats |
+| **Gatimaan Corridor** — Mathura → Agra Cantt (`gatimaan`) | 22 km | double | 130 km/h, automatic signals, NH-19 alongside, Yamuna truss bridge, Taj and Agra Fort on the horizon |
+| **Bengal Suburban** — Howrah → Belur → Shrirampur → Chandannagar → Bandel (`howrah-bandel`) | 13 km | double | Three halts with dwell and punctuality, level crossings, ponds and paddy, the Hooghly alongside, Bengali boards |
 
-## 3. Build order
+## 3. Decisions taken
+- Routes stay **fictional and condensed**, using real station names.
+- Built the engine features once (data model, gradients, terrain, bridges,
+  tunnels, multi-stop, presets, biomes) and all five new routes on top.
+- Diesel (WDP-4D) and WAP-5 models are still missing (Sketchfab login), so all
+  routes are driven with WAP-7/WAG-9; single-line routes have no running
+  opposing trains yet (the crossing train waits in the loop).
 
-1. **Route data model and loader.** Move today's route into `routes/ndls-gzb.js`,
-   add the registry, route picker and validation tests. No visible change
-   except the picker. Do this first: everything else plugs into it.
-2. **Multi-stop journeys and timetable.** Add one intermediate halt to route 1
-   (e.g. "Anand Vihar Halt") to prove it out.
-3. **Station presets and regional name boards.**
-4. **Route 5, Bengal suburban.** This needs only items 1–3, so it's the cheapest
-   new route.
-5. **Gradients, ground heightfield, bridges and tunnels.**
-6. **Route 2, Bhor Ghat**, and **route 3, Konkan**.
-7. **Single line and crossing loops, plus signalling.** Then **route 4, Thar**
-   (diesel loco needed), and **route 6** (WAP-5 model needed).
+## 4. Still open
+- Live signalling (aspects that change, SPAD checks) — see ENHANCEMENTS_PLAN.
+- Opposing trains on single lines (needs signalling + loop routing).
+- Diesel/WAP-5 traction, EMU stock for the Bengal suburban run.
 
-## 4. Open decisions for the owner
-- Which two routes to build first (my recommendation: Bengal suburban, then
-  Bhor Ghat).
-- Whether routes stay fictional and condensed (recommended) or follow real
-  station sequences and names more closely.
-- The diesel (WDP-4D) and WAP-5 models need a Sketchfab login to download;
-  see the candidates in `ASSET_CREDITS.md`.
+## 5. How it was implemented
+- **Data → built route.** `routes/<id>.js` is plain data. `buildRoute.js`
+  fills defaults (station layout presets, stop markers, timetable, auto
+  signals, turnouts for the joint sounds) and `validateRoute.js` checks it
+  (unit-tested per route; an auto-driver must complete every route).
+- **Switching.** `activeRoute.js` holds live `export let` bindings that
+  `gameConfig.js` re-exports; derived modules (track layout, terrain, rail
+  joints, coach boards) subscribe with `onRouteChange`. `selectRoute()` shows
+  the loading screen while `<RouteWorld key={routeId}>` rebuilds; the old
+  route's GPU buffers are disposed. No page reload.
+- **Gradients.** Vertical profile = grade points with parabolic vertical
+  curves (`createProfile`). Physics adds `m·g·grade` (no roll-back); the HUD
+  shows "1 in N".
+- **Terrain.** Height is a function of route coordinates (`world/terrain.js`):
+  zones of hills/valleys, noise, tunnel hills, ravines under viaducts, river
+  channels, sea and beaches, flat ground at stations/roads, then clamped to
+  the formation (cuttings 1:0.7, embankments 1:1.5). The mesh is a ~38-column
+  corridor (dense near the line), chunked every ~480 m for culling, with
+  holes at tunnel portals, plus a far plane and water planes.
+- **Cost (draw calls):** terrain ≈ 4–8 visible chunks + far plane + water;
+  all tunnels 3; bridges 3–6; landmarks 1–3. Everything is built once at
+  route load.

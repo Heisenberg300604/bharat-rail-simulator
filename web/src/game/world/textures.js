@@ -56,10 +56,22 @@ const DEVANAGARI = "'Kohinoor Devanagari','Devanagari Sangam MN','Nirmala UI','M
  * Yellow station name board in the familiar Indian style (Hindi + English).
  * Generic style only — no official logos.
  */
-export function makeStationBoardTexture(hindi, english) {
+const REGIONAL_FONTS = {
+  beng: "'Kohinoor Bangla', 'Bangla MN', 'Bangla Sangam MN', 'Nirmala UI', 'Vrinda', 'Noto Sans Bengali', sans-serif",
+  taml: "'Tamil MN', 'Tamil Sangam MN', 'Nirmala UI', 'Latha', 'Noto Sans Tamil', sans-serif",
+  deva: null, // Marathi/Konkani use Devanagari
+};
+
+/**
+ * Yellow Indian Railways station name board. With a regional name the board
+ * has three lines, as on the real thing: regional language, Hindi, English.
+ * Returns the texture; `tex.userData.aspect` is width / height.
+ */
+export function makeStationBoardTexture(hindi, english, regional = null, script = 'deva') {
+  const three = !!regional && regional !== hindi;
   const c = document.createElement('canvas');
   c.width = 1024;
-  c.height = 320;
+  c.height = three ? 440 : 320;
   const g = c.getContext('2d');
   g.fillStyle = '#f5c518';
   g.fillRect(0, 0, c.width, c.height);
@@ -69,12 +81,26 @@ export function makeStationBoardTexture(hindi, english) {
   g.fillStyle = '#111';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.font = `bold 100px ${DEVANAGARI}`;
-  g.fillText(hindi, c.width / 2, 105);
-  g.font = 'bold 96px Helvetica, Arial, sans-serif';
-  g.fillText(english.toUpperCase(), c.width / 2, 225);
+  const fit = (text, font, size, y) => {
+    let px = size;
+    g.font = `bold ${px}px ${font}`;
+    while (g.measureText(text).width > c.width - 80 && px > 40) {
+      px -= 4;
+      g.font = `bold ${px}px ${font}`;
+    }
+    g.fillText(text, c.width / 2, y);
+  };
+  if (three) {
+    fit(regional, REGIONAL_FONTS[script] ?? DEVANAGARI, 96, 95);
+    fit(hindi, DEVANAGARI, 92, 220);
+    fit(english.toUpperCase(), 'Helvetica, Arial, sans-serif', 88, 345);
+  } else {
+    fit(hindi, DEVANAGARI, 100, 105);
+    fit(english.toUpperCase(), 'Helvetica, Arial, sans-serif', 96, 225);
+  }
   const tex = canvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.userData.aspect = c.width / c.height;
   return tex;
 }
 
@@ -204,7 +230,7 @@ export function makeFacadeGlowTexture() {
  */
 export const LHB_SIDE = { length: 23.54, bottom: 1.05, top: 3.65 };
 
-export function makeLhbSideTexture({ primary, secondary = '#b9bdc1', label = 'AC 3 TIER', hindi = 'वातानुकूलित 3-टियर', route = ['NEW DELHI', 'GHAZIABAD'] }) {
+export function makeLhbSideTexture({ primary, secondary = '#b9bdc1', label = 'AC 3 TIER', hindi = 'वातानुकूलित 3-टियर', route = ['NEW DELHI', 'GHAZIABAD'], routeHi = 'नई दिल्ली ⇄ गाज़ियाबाद' }) {
   const W = 4096;
   const H = 512;
   const c = document.createElement('canvas');
@@ -314,7 +340,8 @@ export function makeLhbSideTexture({ primary, secondary = '#b9bdc1', label = 'AC
     g.fillRect(...rect(cx - 1.28, 3.2, cx + 1.28, 3.4));
     g.fillStyle = '#121212';
     g.font = `bold ${Math.round(0.13 * sy)}px Helvetica, Arial, sans-serif`;
-    const text = i === 1 ? `${route[0]}  ⇄  ${route[1]}` : i === 0 ? 'नई दिल्ली ⇄ गाज़ियाबाद' : `${route[0]}  ⇄  ${route[1]}`;
+    const text = i === 0 ? routeHi : `${route[0]}  ⇄  ${route[1]}`;
+    if (route[0].length + route[1].length > 22) g.font = `bold ${Math.round(0.105 * sy)}px Helvetica, Arial, sans-serif`;
     if (i === 0) g.font = `bold ${Math.round(0.14 * sy)}px 'Kohinoor Devanagari','Devanagari Sangam MN','Nirmala UI','Mangal','Noto Sans Devanagari',sans-serif`;
     g.fillText(text, X(cx), Y(3.3));
   }
@@ -349,7 +376,7 @@ export function makeLhbSideTexture({ primary, secondary = '#b9bdc1', label = 'AC
  */
 export const ICF_SIDE = { length: 21.337, bottom: 1.1, top: 3.62 };
 
-export function makeIcfSideTexture({ primary = '#24448f', band = '#a9d3e0' } = {}) {
+export function makeIcfSideTexture({ primary = '#24448f', band = '#a9d3e0', codes = 'GZB ⇄ NDLS' } = {}) {
   const W = 4096;
   const H = 512;
   const c = document.createElement('canvas');
@@ -467,7 +494,7 @@ export function makeIcfSideTexture({ primary = '#24448f', band = '#a9d3e0' } = {
     g.fillRect(...rect(cx - 0.59, 3.22, cx + 0.59, 3.4));
     g.fillStyle = '#111';
     g.font = `bold ${Math.round(0.11 * sy)}px Helvetica, Arial, sans-serif`;
-    g.fillText('GZB ⇄ NDLS', X(cx), Y(3.31));
+    g.fillText(codes, X(cx), Y(3.31));
   }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;

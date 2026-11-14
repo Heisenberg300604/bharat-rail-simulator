@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { HORN_INDEX_URL } from '../game/audio/audioManifest.js';
 import { togglePause, requestRestart, returnToTitle, updateSettings } from '../game/state/gameStore.js';
-import { QUALITY_PRESETS, LOCOMOTIVES, CONSISTS } from '../game/config/gameConfig.js';
+import { QUALITY_PRESETS, LOCOMOTIVES, CONSISTS, ROUTE } from '../game/config/gameConfig.js';
 import ControlsTable from './ControlsTable.jsx';
 import EnvironmentPicker from './EnvironmentPicker.jsx';
 
@@ -28,6 +28,9 @@ export default function PauseMenu({ settings }) {
     <div className="overlay">
       <div className="panel panel--menu" role="dialog" aria-label="Paused">
         <h2>Paused</h2>
+        <p className="pause-route">
+          {ROUTE.meta.shortName} · {ROUTE.meta.name} <small>(change route from the title screen)</small>
+        </p>
         <div className="menu-buttons">
           <button className="btn btn--primary" onClick={togglePause} autoFocus>
             Resume

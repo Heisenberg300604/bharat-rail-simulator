@@ -21,16 +21,18 @@ import { buildCabInterior } from './CabInterior.jsx';
 import { buildCoachInterior, createInteriorMaterials, coachEye, COACH_LAYOUTS, INTERIOR_FLOOR, buildDoorway, doorEye } from './CoachInterior.jsx';
 import { buildPersonGeometry, createPeopleMaterial, makeCrowdMesh, randomPerson, ANIM } from '../../world/models/people.js';
 import { seededRandom } from '../../world/geometry.js';
-import { loadMergedModel } from '../../world/models/loadGlbModel.js';
+import { loadMergedModel, measureLampAnchors } from '../../world/models/loadGlbModel.js';
 import { createGlowMaterial, createBeamMesh, makeGlowMesh, setGlow, disposeGlowMaterial } from '../../world/glow.js';
 import { envState } from '../../world/environment.js';
 
 // Lamp positions in the locomotive's local frame (x forward, y up, z right)
+// for the procedural stand-in; loaded models get their own (measureLampAnchors).
 const HEADLAMP = [10.3, 4.05, 0];
 const MARKERS = [
   [10.32, 2.35, 1.05],
   [10.32, 2.35, -1.05],
 ];
+const DEFAULT_ANCHORS = { head: HEADLAMP, markers: MARKERS };
 const _v = new THREE.Vector3();
 
 /** Retro-reflective paint (the X and the LV board): a little glow in its own colour. */
@@ -56,6 +58,13 @@ const _one = new THREE.Vector3(1, 1, 1);
 const _up = new THREE.Vector3(0, 1, 0);
 const _axis = new THREE.Vector3(0, 0, 1);
 const _c = new THREE.Color();
+const _qp = new THREE.Quaternion();
+/** Yaw about +Y, then pitch about the vehicle's own Z (nose up on a rising gradient). */
+function orient(q, yaw, pitch) {
+  q.setFromAxisAngle(_up, yaw);
+  if (pitch) q.multiply(_qp.setFromAxisAngle(_axis, pitch));
+  return q;
+}
 
 /**
  * Builds the list of all rail vehicles:
@@ -107,7 +116,7 @@ function buildVehicleList(coachSetting, playerLoco = 'wap7') {
     if (!line) continue;
     let back = 0;
     const L = FORMATION.locomotive.length;
-    list.push({ kind: 'locomotive', type: 'locomotive', line, centerS: pt.frontS - L / 2, livery: 'wap7', model: 'wap7', reverseHeading: false });
+    list.push({ kind: 'locomotive', type: 'locomotive', line, centerS: pt.frontS - L / 2, livery: 'wap7', model: pt.loco ?? 'wap7', reverseHeading: false });
     back = L;
     const ptType = pt.type || 'lhb';
     const ct = COACH_TYPES[ptType] || COACH_TYPES.lhb;
@@ -128,7 +137,8 @@ function buildVehicleList(coachSetting, playerLoco = 'wap7') {
     }
   }
 
-  // 3. AI Trains on the DOWN main line (running towards New Delhi)
+  // 3. AI Trains on the DOWN main line (running towards the route start)
+  if (!downLine) return list;
   AI_TRAINS.forEach((def, aiIdx) => {
     const ct = COACH_TYPES[def.type] || COACH_TYPES.lhb;
     const gap = ct.gap ?? 0.5;
@@ -185,7 +195,8 @@ function makeMaterials() {
 export default function Train() {
   const coachLivery = useGameValue((s) => s.settings.coachLivery);
   const playerLoco = useGameValue((s) => s.settings.locomotive) ?? 'wap7';
-  const vehicles = useMemo(() => buildVehicleList(coachLivery, playerLoco), [coachLivery, playerLoco]);
+  const routeId = useGameValue((s) => s.routeId);
+  const vehicles = useMemo(() => buildVehicleList(coachLivery, playerLoco), [coachLivery, playerLoco, routeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const assets = useMemo(() => {
     const loco = buildLocomotive();
@@ -291,6 +302,18 @@ export default function Train() {
     };
   }, []);
   const allLocosLoaded = Object.keys(LOCOMOTIVES).every((id) => glbModels[id]);
+  // lamps sit on each model's real nose, so the glows never float in front of the cab
+  const anchors = useMemo(() => Object.fromEntries(Object.entries(glbModels).map(([id, m]) => [id, measureLampAnchors(m.parts)])), [glbModels]);
+  const playerAnchors = anchors[playerLoco] ?? DEFAULT_ANCHORS;
+  useLayoutEffect(() => {
+    const [hx, hy, hz] = playerAnchors.head;
+    setGlow(lamps.head, 0, hx, hy, hz, 2.2, '#fff6e0');
+    playerAnchors.markers.forEach(([x, y, z], i) => setGlow(lamps.head, i + 1, x, y, z, 0.8, '#fff2d0'));
+    lamps.head.instanceMatrix.needsUpdate = true;
+    lamps.head.computeBoundingSphere();
+    lamps.beam.position.set(hx + 0.1, hy - 0.05, hz);
+    light.current?.position.set(hx + 0.1, hy - 0.05, hz);
+  }, [playerAnchors, lamps]);
 
   const coachVariants = useMemo(getCoachVariants, []);
 
@@ -424,23 +447,24 @@ export default function Train() {
   const pose = {};
   const pt = {};
 
-  function placeRunningGear(v, centerS, distance, bogieMesh, bogieIndex, wheelMesh, wheelIndex, spec, reverseHeading = false) {
+  function placeRunningGear(v, centerS, distance, bogieMesh, bogieIndex, wheelMesh, wheelIndex, spec, reverseHeading = false, pitch = 0) {
     if (!bogieMesh) return;
+    const rp = reverseHeading ? -pitch : pitch;
     for (let b = 0; b < 2; b++) {
       const bOffset = (b === 0 ? spec.bogieSpacing / 2 : -spec.bogieSpacing / 2) * (reverseHeading ? -1 : 1);
       const bs = centerS + bOffset;
       v.line.sample(bs, pt);
-      _q.setFromAxisAngle(_up, -pt.heading + (reverseHeading ? Math.PI : 0));
-      bogieMesh.setMatrixAt(bogieIndex + b, _m.compose(_p.set(pt.x, TRACK.railTop, pt.z), _q, _one));
+      orient(_q, -pt.heading + (reverseHeading ? Math.PI : 0), rp);
+      bogieMesh.setMatrixAt(bogieIndex + b, _m.compose(_p.set(pt.x, TRACK.railTop + pt.y, pt.z), _q, _one));
 
       if (wheelMesh) {
         spec.axleOffsets.forEach((ax, a) => {
           const axOffset = ax * (reverseHeading ? -1 : 1);
           v.line.sample(bs + axOffset, pt);
-          _q.setFromAxisAngle(_up, -pt.heading + (reverseHeading ? Math.PI : 0));
+          orient(_q, -pt.heading + (reverseHeading ? Math.PI : 0), rp);
           _qs.setFromAxisAngle(_axis, (-distance / spec.wheelRadius) * (reverseHeading ? -1 : 1));
           _q.multiply(_qs);
-          wheelMesh.setMatrixAt(wheelIndex + b * spec.axleOffsets.length + a, _m.compose(_p.set(pt.x, TRACK.railTop + spec.wheelRadius, pt.z), _q, _one));
+          wheelMesh.setMatrixAt(wheelIndex + b * spec.axleOffsets.length + a, _m.compose(_p.set(pt.x, TRACK.railTop + spec.wheelRadius + pt.y, pt.z), _q, _one));
         });
       }
     }
@@ -449,11 +473,12 @@ export default function Train() {
   /** Running AI locos show their headlight; parked ones only red marker lamps. Uses _m. */
   function addLocoGlows(v, idx) {
     if (idx > 60) return idx;
+    const a = anchors[v.model] ?? DEFAULT_ANCHORS;
     if (v.isAi) {
-      _v.set(...HEADLAMP).applyMatrix4(_m);
+      _v.set(...a.head).applyMatrix4(_m);
       setGlow(lamps.others, idx++, _v.x, _v.y, _v.z, 2.4, '#fff4dc');
     }
-    for (const mk of MARKERS) {
+    for (const mk of a.markers) {
       _v.set(...mk).applyMatrix4(_m);
       setGlow(lamps.others, idx++, _v.x, _v.y, _v.z, 0.7, v.isAi ? '#fff2d0' : '#ff3b2a');
     }
@@ -475,8 +500,8 @@ export default function Train() {
         // parked locos never move, but their marker lamps still need a glow slot
         if (isLoco && lit) {
           vehiclePose(v.line, v.centerS, spec.bogieSpacing, pose);
-          _q.setFromAxisAngle(_up, v.reverseHeading ? pose.yaw + Math.PI : pose.yaw);
-          _m.compose(_p.set(pose.x, TRACK.railTop, pose.z), _q, _one);
+          orient(_q, v.reverseHeading ? pose.yaw + Math.PI : pose.yaw, v.reverseHeading ? -pose.pitch : pose.pitch);
+          _m.compose(_p.set(pose.x, TRACK.railTop + pose.y, pose.z), _q, _one);
           glowIdx = addLocoGlows(v, glowIdx);
         }
         continue;
@@ -487,7 +512,7 @@ export default function Train() {
 
       if (v.isAi) {
         const aiTrain = game.aiTrains?.[v.aiIndex];
-        const front = aiTrain ? aiTrain.front : 7880;
+        const front = aiTrain ? aiTrain.front : AI_TRAINS[v.aiIndex]?.startFront ?? 0;
         centerS = front + v.offsetFromFront;
         dist = front;
       } else if (v.dynamic) {
@@ -500,20 +525,21 @@ export default function Train() {
 
       vehiclePose(v.line, centerS, spec.bogieSpacing, pose);
       const yaw = v.reverseHeading ? pose.yaw + Math.PI : pose.yaw;
-      _q.setFromAxisAngle(_up, yaw);
-      _m.compose(_p.set(pose.x, TRACK.railTop, pose.z), _q, _one);
+      const pitch = v.reverseHeading ? -pose.pitch : pose.pitch;
+      orient(_q, yaw, pitch);
+      _m.compose(_p.set(pose.x, TRACK.railTop + pose.y, pose.z), _q, _one);
 
       if (v.isPlayer && isLoco) {
         const g = locoGroup.current;
-        g.position.set(pose.x, TRACK.railTop, pose.z);
-        g.rotation.set(0, yaw, 0);
+        g.position.set(pose.x, TRACK.railTop + pose.y, pose.z);
+        g.rotation.set(0, yaw, pitch);
         g.updateMatrixWorld();
-        if (r.locoBogie) placeRunningGear(v, centerS, dist, r.locoBogie, 0, r.locoWheel, 0, spec, false);
+        if (r.locoBogie) placeRunningGear(v, centerS, dist, r.locoBogie, 0, r.locoWheel, 0, spec, false, pose.pitch);
       } else if (isLoco) {
         const pli = v.locoIndex;
         for (const part of partsByModel[v.model]) r[`ploco_${v.model}_${part.key}`]?.setMatrixAt(v.modelIndex, _m);
         if (lit) glowIdx = addLocoGlows(v, glowIdx);
-        if (r.locoBogie) placeRunningGear(v, centerS, dist, r.locoBogie, (pli + 1) * 2, r.locoWheel, (pli + 1) * 6, spec, v.reverseHeading);
+        if (r.locoBogie) placeRunningGear(v, centerS, dist, r.locoBogie, (pli + 1) * 2, r.locoWheel, (pli + 1) * 6, spec, v.reverseHeading, pose.pitch);
       } else {
         const variantKey = v.variantKey;
         const parts = coachVariants[variantKey] || coachVariants['lhb-red'];
@@ -525,7 +551,7 @@ export default function Train() {
         const bogieMesh = isBoxn ? r.boxnBogie : isIcf ? r.icfCoachBogie : r.lhbCoachBogie;
 
         extrasMesh?.setMatrixAt(v.typeIndex, _m);
-        placeRunningGear(v, centerS, dist, bogieMesh, v.typeIndex * 2, r.coachWheel, coachWheelIdx * 4, spec, v.reverseHeading);
+        placeRunningGear(v, centerS, dist, bogieMesh, v.typeIndex * 2, r.coachWheel, coachWheelIdx * 4, spec, v.reverseHeading, pose.pitch);
         coachWheelIdx++;
       }
     }
@@ -536,8 +562,8 @@ export default function Train() {
       const coachSpec = COACH_TYPES[firstCoach.type] || COACH_TYPES.lhb;
       const coachS = d - firstCoach.offset;
       vehiclePose(mainLine, coachS, coachSpec.bogieSpacing, pose);
-      coachInteriorGroup.current.position.set(pose.x, TRACK.railTop, pose.z);
-      coachInteriorGroup.current.rotation.set(0, pose.yaw, 0);
+      coachInteriorGroup.current.position.set(pose.x, TRACK.railTop + pose.y, pose.z);
+      coachInteriorGroup.current.rotation.set(0, pose.yaw, pose.pitch);
       coachInteriorGroup.current.updateMatrixWorld();
     }
 
@@ -546,8 +572,8 @@ export default function Train() {
       const c2 = vehicles[2];
       const spec2 = COACH_TYPES[c2.type] || COACH_TYPES.lhb;
       vehiclePose(mainLine, d - c2.offset, spec2.bogieSpacing, pose);
-      doorGroup.current.position.set(pose.x, TRACK.railTop, pose.z);
-      doorGroup.current.rotation.set(0, pose.yaw, 0);
+      doorGroup.current.position.set(pose.x, TRACK.railTop + pose.y, pose.z);
+      doorGroup.current.rotation.set(0, pose.yaw, pose.pitch);
       doorGroup.current.updateMatrixWorld();
     }
 
@@ -557,8 +583,8 @@ export default function Train() {
       const coachSpec = COACH_TYPES[lastCoach.type] || COACH_TYPES.lhb;
       const rearS = d - (lastCoach.offset + coachSpec.length / 2);
       vehiclePose(mainLine, rearS, coachSpec.bogieSpacing, pose);
-      rearEndGroup.current.position.set(pose.x, TRACK.railTop, pose.z);
-      rearEndGroup.current.rotation.set(0, pose.yaw, 0);
+      rearEndGroup.current.position.set(pose.x, TRACK.railTop + pose.y, pose.z);
+      rearEndGroup.current.rotation.set(0, pose.yaw, pose.pitch);
       rearEndGroup.current.updateMatrixWorld();
     }
 

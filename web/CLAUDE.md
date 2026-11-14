@@ -9,15 +9,17 @@ file describes, update this file in the same turn** — see §9.
 ## 1. What this is
 
 A browser Indian-railways driving sim: drive a WAP-7 (or WAG-9) with 8 LHB
-coaches over a fictional 8 km New Delhi → Ghaziabad segment. Real physics
-numbers, per-axle recorded rail audio, 60 FPS on cheap laptops.
+coaches over six condensed, fictional routes inspired by famous lines (Delhi
+mainline, Bhor Ghat, Konkan, Pamban Bridge, Gatimaan corridor, Bengal
+suburban). Real physics numbers, gradients, multi-stop timetables, per-axle
+recorded rail audio, 60 FPS on cheap laptops.
 
 Stack: **JavaScript (no TypeScript), React 19, Vite 8, Three.js 0.187,
 React Three Fiber 9.** No other dependencies, no backend, no paid services.
 
 ```bash
 npm run dev      # http://localhost:5173
-npm test         # node --test — 39 tests, all passing; run before claiming done
+npm test         # node --test — 66 tests, all passing; run before claiming done
 npm run build    # static dist/  (vite base: './' so it works in a sub-folder)
 ```
 
@@ -45,8 +47,10 @@ npm run build    # static dist/  (vite base: './' so it works in a sub-folder)
 
 ## 3. Architecture in ten lines
 
-- The track is a list of straights and arcs. **Any position in the world is
-  one number: `s`, metres along the route.** `route.sample(s)` → x/z + heading.
+- The track is a list of straights and arcs plus a vertical profile. **Any
+  position in the world is one number: `s`, metres along the route.**
+  `route.sample(s)` → x/z/y + heading. Scenery uses route coordinates
+  `(s, lat)`; `terrain.groundY(s, lat)` is the exact rendered ground height.
 - `game` (in `state/gameStore.js`) is a **plain mutable object** — the single
   source of truth. The frame loop writes it directly.
 - `SimulationDriver.jsx` runs first every frame (priority −3): fixed-timestep
@@ -76,10 +80,11 @@ can be unit-tested with `node --test`. Keep it that way.
 | `src/app/App.jsx` | Screen switch (loading/title/playing/paused/complete) + `window.__BRS__` dev helper |
 | `src/game/GameCanvas.jsx` | The `<Canvas>` and the whole scene graph; quality → GL settings |
 | `src/game/SimulationDriver.jsx` | **The heartbeat.** Per-frame order of operations |
-| `src/game/config/gameConfig.js` | **ALL tunable numbers**: route segments, stations, platforms, journey, physics, `LOCOMOTIVES`, `CONSISTS`, `COACH_TYPES`, speed limits, AI trains, road, level crossings, liveries, quality presets |
+| `src/game/config/gameConfig.js` | Physics, `LOCOMOTIVES`, `CONSISTS`, `COACH_TYPES`, liveries, quality presets; **re-exports the active route's data as live bindings** (`ROUTE`, `STATIONS`, `JOURNEY`, `SPEED_LIMITS`, `SIGNALS`, `BRIDGES`, `TUNNELS`…) |
+| `src/game/routes/` | One plain-data file per route (`ndls-gzb`, `bhor-ghat`, `konkan`, `pamban`, `gatimaan`, `howrah-bandel`), `index.js` registry, `buildRoute.js` (defaults, stops, signals, rail joints), `stationLayouts.js` (station presets + regional styles), `timetable.js`, `validateRoute.js`, `activeRoute.js` (live bindings + `onRouteChange`), `routes.test.js` |
 | `simulation/trainSimulation.js` | `stepTrain` — TE curve, Davis resistance, A9→BP→BC air brake, reverser, stopping-distance estimate |
 | `simulation/routeMath.js` | `createRoute`, `sample(s)`, curve radius |
-| `simulation/journeyManager.js` | Journey state machine, stop zone, hold timer, score, HUD hint |
+| `simulation/journeyManager.js` | Multi-stop journey: stop zones, hold, dwell + guard's right-away, missed/early stops, punctuality, score, HUD hint |
 | `simulation/aiTraffic.js` | AI trains on the down line |
 | `simulation/roadTraffic.js` | Intelligent Driver Model for road vehicles |
 | `simulation/simulation.test.js` | Physics / route / journey tests |
@@ -89,25 +94,34 @@ can be unit-tested with `node --test`. Keep it that way.
 | `audio/audioEngine.js` | The Web Audio graph: rolling beds, joints, horn, loco, ambience, mixing |
 | `audio/railAcoustics.js` | Pure: axle positions, rail-joint schedule, turnouts, inverter tone (tested) |
 | `audio/audioManifest.js` | File URLs + mix levels; rail recordings are **discovered at runtime** from `rail/sounds.json` |
-| `world/` | `modelBuilder`, `geometry`, `textures` (canvas-drawn), `trackLayout`, `roadLayout`, `environment` (time/weather state), `glow`, `ChunkedInstances.jsx` |
-| `world/models/` | `trainModels` (bogies, wheelsets, fallback loco), `coaches` (original ICF/LHB bodies), `loadGlbModel`, `roadVehicles`, `people` |
+| `world/` | `modelBuilder`, `geometry`, `textures` (canvas-drawn), `trackLayout` (rebuilt per route), `roadLayout`, `terrain` (height in route coords: zones, cuttings, tunnels hills, rivers, sea), `biomes` (per-route scenery kits), `environment`, `glow`, `ChunkedInstances.jsx` |
+| `world/models/` | `trainModels` (bogies, wheelsets, fallback loco), `coaches` (original ICF/LHB bodies; destination boards follow the route), `loadGlbModel` (+ `measureLampAnchors`: lamps sit on the model's real nose), `roadVehicles`, `people` |
 | `components/Train/` | `Train.jsx` (the rake), `CabInterior`, `CoachInterior` |
 | `components/Track/TrackRoute.jsx` | Rails, sleepers, ballast, OHE |
 | `components/Stations/Station.jsx` | Platforms, buildings, boards, lighting |
-| `components/Environment/` | `Atmosphere` (sky/sun/moon/lighting), `Weather` (rain/fog/lightning), `Scenery`, `Road.jsx` (road, traffic, level crossings, **signal posts**) |
+| `components/Environment/` | `Atmosphere` (sky/sun/moon/lighting, tunnel darkness), `Weather`, `Terrain` (chunked corridor mesh, far plane, water), `Structures` (bridges, tunnels), `Landmarks`, `Scenery` (biome-driven), `Road.jsx` (road, traffic, level crossings, **signal posts** from `SIGNALS`) |
 | `components/People/Crowds.jsx` | GPU-animated crowds; exports `KID_SPOTS` |
 | `components/Cameras/CameraRig.jsx` | Six camera modes + mouse look/orbit |
-| `src/ui/` | `StartScreen`, `HUD`, `PauseMenu`, `LoadingScreen`, `JourneyComplete`, `RestartConfirm`, `ControlsTable`, `EnvironmentPicker` |
+| `src/ui/` | `StartScreen` (route list + detail, How-to-play/Settings/About modals), `RoutePicker` (`RouteList`, `RouteDetail`, `Profile`), `HUD`, `PauseMenu`, `LoadingScreen`, `JourneyComplete`, `RestartConfirm`, `ControlsTable`, `EnvironmentPicker` |
 | `public/assets/` | `models/locomotive/*.glb` (+ per-model LICENSE), `audio/rail/`, `audio/ambience/` (each with `CREDITS.md`) |
 
 ## 5. Invariants — breaking these breaks the game
 
 - **Never call React state per frame.** Mutate `game`, let `publish()` batch.
-- **Route constants are read at module load.** ~20 modules import
-  `ROUTE_SEGMENTS`, `STATIONS`, `JOURNEY`, `SPEED_LIMITS`, `AI_TRAINS`, `ROAD`,
-  `LEVEL_CROSSINGS` straight from `gameConfig.js` and build geometry once. This
-  is precisely why multiple routes need the loader refactor in
-  `docs/ROUTES_PLAN.md` §1.2 — don't try to hot-swap route data without it.
+- **Route data are live bindings.** Change routes only via `selectRoute(id)`
+  (gameStore): it calls `setActiveRoute`, modules that derive data subscribe
+  with `onRouteChange`, and `<RouteWorld key={routeId}>` in `GameCanvas`
+  remounts (and disposes) every route-built component. Never cache route data
+  in a module-level `const`.
+- **Terrain winding:** terrain triangles must be counter-clockwise seen from
+  above (`Terrain.jsx`), or the ground is back-face culled and everything
+  appears to float above the far plane.
+- **Scenery height = `terrain.groundY`** (the rendered surface incl. edge
+  fade); never place objects with the raw formation/natural height.
+- Platforms, level crossings and the road must be on level track
+  (`validateRoute` enforces it; the road group sits at `terrain.roadBase`).
+- Gradient force: `stepTrain(..., { grade, bankerTE_kN })`; no roll-back — a
+  stopped train on a rising grade is held.
 - **A speed restriction applies until the REAR of the train clears it**
   (`speedLimitFor(limits, rear, front)`), as on the real railway.
 - **Traction is cut below BP 4.75 kg/cm²**, and above the loco's max speed.
@@ -125,20 +139,27 @@ can be unit-tested with `node --test`. Keep it that way.
 - **Changing antialias recreates the WebGL context** (the `<Canvas key>` flips).
   Expected, not a leak.
 - When paused, `frameloop` becomes `'demand'` to save battery.
-- Settings live in `localStorage` under **`brs-settings`**, validated on load so
-  retired values (e.g. the old blue LHB consist) fall back safely.
+- Settings live in `localStorage` under **`brs-settings`** (incl. `route`),
+  validated on load so retired values fall back safely. Best scores per route
+  live under **`brs-best`**.
+- `SimulationDriver` calls `gl.compile(scene, camera)` on its first frame so
+  far-away/culled objects don't hitch when first seen; `ChunkedInstances`
+  re-culls immediately after a camera jump > 150 m.
 - Tested modules must stay import-clean of Three.js/React.
 
 ## 6. Current state
 
-Milestones 0–6 done; milestone 7 (performance & release) partial. 39 tests
-pass. Measured on an M4: 46–88 draw calls, steady 60 FPS; 58–60 FPS on Low
+Milestones 0–6 done; milestone 7 (performance & release) partial. Six
+routes (routes plan steps 1–7 implemented). 66 tests pass. Measured on an M4: 46–88 draw calls, steady 60 FPS; 58–60 FPS on Low
 with the CPU throttled 4×.
 
 **Known limitations and quirks** (don't "fix" these by surprise):
 - Only tested in Chrome on macOS. Windows, Safari and Firefox unverified.
-- Signals are **decorative**: `Road.jsx:651` picks the aspect from the signal's
-  position `sig.s`. Nothing can change an aspect and nothing checks obedience.
+- Signals are **decorative**: static aspects from route data (`SIGNALS`).
+  Nothing can change an aspect and nothing checks obedience.
+- Single-line routes have no running opposing trains (they wait parked in
+  crossing loops). Bankers on Bhor Ghat are physics + HUD only (not drawn).
+- No diesel/WAP-5 models yet, so every route is driven with WAP-7/WAG-9.
 - `settings.kavach` exists in `gameStore.js:74` but **nothing reads it** — a
   placeholder for the planned ATP feature.
 - `public/assets/audio/horns/` does not exist, so `horns.json` 404s and the
@@ -151,7 +172,7 @@ with the CPU throttled 4×.
   an Indian three-phase loco exists.
 - The WAP-7 body texture carries real fleet numbers — see the open question in
   `docs/ASSET_CREDITS.md`.
-- One route, one stop, no persistence beyond settings.
+- Persistence: settings and best score per route only.
 
 ## 7. Which doc to read, and when
 

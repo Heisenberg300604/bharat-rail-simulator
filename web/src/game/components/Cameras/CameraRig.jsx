@@ -10,6 +10,8 @@ import * as THREE from 'three';
 import { game, useGameValue, formation } from '../../state/gameStore.js';
 import { sceneRefs } from '../../state/sceneRefs.js';
 import { mainLine } from '../../world/trackLayout.js';
+import { terrain } from '../../world/terrain.js';
+import { tunnelAt } from '../../routes/activeRoute.js';
 import { CAB_EYE, CAB_LOOK_PITCH_DEG } from '../Train/CabInterior.jsx';
 import { COACH_EYE, COACH_LOOK_PITCH_DEG, COACH_DEFAULT_YAW_DEG } from '../Train/CoachInterior.jsx';
 import { TRACK, FORMATION, COACH_TYPES } from '../../config/gameConfig.js';
@@ -113,7 +115,7 @@ export default function CameraRig() {
         const coachDist = game.renderDistance - coachOffset;
         vehiclePose(mainLine, coachDist, coachSpec.bogieSpacing, v.p);
         _coachMat.makeRotationY(v.p.yaw);
-        _coachMat.setPosition(v.p.x, TRACK.railTop, v.p.z);
+        _coachMat.setPosition(v.p.x, TRACK.railTop + (v.p.y ?? 0), v.p.z);
         v.eye.applyMatrix4(_coachMat);
         v.look.applyMatrix4(_coachMat);
         camera.position.copy(v.eye);
@@ -191,8 +193,9 @@ export default function CameraRig() {
       v.eye.set(Math.cos(o.yaw) * Math.cos(o.pitch), Math.sin(o.pitch), Math.sin(o.yaw) * Math.cos(o.pitch)).multiplyScalar(o.dist).add(v.look);
       loco.localToWorld(v.look);
       loco.localToWorld(v.eye);
-      // never below ground, and rise as you zoom out so buildings don't block the view
-      v.eye.y = Math.max(v.eye.y, 1.2, o.dist * 0.18);
+      // never below the track, and rise as you zoom out so buildings don't block the view
+      const base = loco.position.y - TRACK.railTop;
+      v.eye.y = Math.max(v.eye.y, base + 1.2, base + o.dist * 0.18);
       k = damp(10, dt);
     } else if (view === 'trackside') {
       const t = s.trackside;
@@ -201,11 +204,16 @@ export default function CameraRig() {
       // Pick a new spot once the whole train has passed (or the spot is too far ahead)
       if (t.s === null || rear > t.s + 40 || t.s - front > 900 || front > t.s + 900 || snap) {
         t.s = Math.min(front + 70 + game.train.speedMps * 6, mainLine.length - 5);
+        // never stand inside a tunnel: wait at the far portal instead
+        const tn = tunnelAt(t.s, 25);
+        if (tn) t.s = Math.min(tn.to + 40, mainLine.length - 5);
         t.side = -t.side;
       }
       mainLine.sample(t.s, v.p);
       const lat = t.side * 9;
-      v.eye.set(v.p.x + v.p.lx * lat, 2.2, v.p.z + v.p.lz * lat);
+      // on the ground beside the line (or level with the deck on a bridge)
+      const ground = Math.max(terrain.groundY(t.s, lat), v.p.y - 1);
+      v.eye.set(v.p.x + v.p.lx * lat, ground + 2.2, v.p.z + v.p.lz * lat);
       v.look.set(0, 2.5, 0);
       loco.localToWorld(v.look);
       camera.position.copy(v.eye);

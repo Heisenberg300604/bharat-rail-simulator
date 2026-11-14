@@ -10,34 +10,25 @@
 //   • 13 m rails (fishplated) vs. long welded rail (joints only every ~250 m)
 // The audio engine asks this module "when does each axle reach its next
 // joint?" and schedules a single wheel-impact sample for each, sample-exact.
-import { FORMATION, COACH_TYPES, LEVEL_CROSSINGS } from '../config/gameConfig.js';
+import { FORMATION, COACH_TYPES } from '../config/gameConfig.js';
+import { onRouteChange } from '../routes/activeRoute.js';
 
 /**
- * Rail joints along the player's line.
+ * Rail joints along the player's line (route.railJoints):
  * - Fishplated 13 m rails everywhere by default (the classic sound).
  * - Long-welded-rail (LWR) stretches only have a joint (switch expansion
  *   joint / glued joint) every `lwrSpacing` metres.
  * - Turnouts at station throats add a heel joint and a much heavier frog
  *   (crossing-nose) impact.
  */
-export const RAIL_JOINTS = {
-  spacing: 13,
-  lwr: [{ from: 2300, to: 3800 }],
-  lwrSpacing: 260,
-  // [s of the switch heel, s of the crossing nose (frog)]
-  turnouts: [
-    [470, 492],
-    [540, 562],
-    [612, 634],
-    [6860, 6882],
-    [6930, 6952],
-    [7010, 7032],
-  ],
-  levelCrossings: LEVEL_CROSSINGS.map((lc) => lc.s), // check rails and road timbers: an extra knock each side
-};
+export let RAIL_JOINTS = null; // the active route's joints (built in routes/buildRoute.js)
+onRouteChange((r) => {
+  RAIL_JOINTS = r.railJoints;
+});
 
 /** Every special (non-grid) joint, sorted: { s, kind: 'heel' | 'frog' | 'lc' }. */
 export function specialJoints(cfg = RAIL_JOINTS) {
+  if (!cfg) return [];
   const list = [];
   for (const [heel, frog] of cfg.turnouts) {
     list.push({ s: heel, kind: 'heel' }, { s: frog, kind: 'frog' });
@@ -56,6 +47,7 @@ function lwrAt(s, cfg) {
  * Returns { s, kind } where kind is 'joint' for ordinary rail joints.
  */
 export function nextJoint(s, dir, cfg = RAIL_JOINTS, specials = specialJoints(cfg)) {
+  cfg ??= RAIL_JOINTS;
   const eps = 1e-6;
   // periodic grid (13 m, or sparse inside LWR stretches)
   const r = lwrAt(s, cfg);

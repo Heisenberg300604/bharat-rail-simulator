@@ -5,8 +5,10 @@
 // immutable *snapshot* that we publish only when needed — ~10×/s for the HUD,
 // immediately for menu/screen changes.
 import { useSyncExternalStore } from 'react';
-import { JOURNEY, ROUTE_SEGMENTS, FORMATION, COACH_TYPES, AI_TRAINS, STATIONS, QUALITY_PRESETS, SPEED_LIMITS, LOCOMOTIVES, CONSISTS, consistFor, trainConfigFor } from '../config/gameConfig.js';
-import { createRoute, computeFormation } from '../simulation/routeMath.js';
+import { JOURNEY, FORMATION, COACH_TYPES, AI_TRAINS, STATIONS, QUALITY_PRESETS, SPEED_LIMITS, LOCOMOTIVES, CONSISTS, ROUTE, consistFor, trainConfigFor } from '../config/gameConfig.js';
+import { computeFormation } from '../simulation/routeMath.js';
+import { setActiveRoute, routeId as activeRouteId } from '../routes/activeRoute.js';
+import { isRouteId, DEFAULT_ROUTE_ID } from '../routes/index.js';
 import { createAiTrains } from '../simulation/aiTraffic.js';
 import {
   createTrainState,
@@ -24,13 +26,15 @@ import {
   journeyHint,
   journeyProgress,
   remainingDistance,
+  currentStop,
   JOURNEY_STATE,
 } from '../simulation/journeyManager.js';
 import { audioEngine } from '../audio/audioEngine.js';
 import { detectQuality } from './detectQuality.js';
 import { TIME_OF_DAY, WEATHER } from '../world/environment.js';
 
-export const route = createRoute(ROUTE_SEGMENTS);
+// The route geometry (live binding: changes with the selected route)
+export { route } from '../routes/activeRoute.js';
 /** Length/offsets of the player's train for a consist (passenger rake or freight). */
 function formationFor(consistId) {
   const c = consistFor(consistId);
@@ -39,8 +43,13 @@ function formationFor(consistId) {
 }
 // `let`: an ES-module live binding, so importers see the new value when the consist changes
 export let formation = formationFor('red');
-export const origin = STATIONS.find((s) => s.id === JOURNEY.originId);
-export const destination = STATIONS.find((s) => s.id === JOURNEY.destinationId);
+// live bindings, refreshed when the route changes
+export let origin = STATIONS.find((s) => s.id === JOURNEY.originId);
+export let destination = STATIONS.find((s) => s.id === JOURNEY.destinationId);
+function refreshEnds() {
+  origin = STATIONS.find((s) => s.id === JOURNEY.originId);
+  destination = STATIONS.find((s) => s.id === JOURNEY.destinationId);
+}
 
 function lengthOfAiTrain(def) {
   const ct = COACH_TYPES[def.type] || COACH_TYPES.lhb;
@@ -49,6 +58,27 @@ function lengthOfAiTrain(def) {
 
 export function initAiTrains() {
   return createAiTrains(AI_TRAINS, lengthOfAiTrain);
+}
+
+/**
+ * Banking locomotives (e.g. two WAG-9s on the Bhor Ghat) are attached at the
+ * rear of heavy trains on routes that use them: extra mass + extra push.
+ */
+export function bankerFor(cfg, consistId) {
+  const b = ROUTE.banker;
+  if (!b) return null;
+  const massT = cfg.loco.massT + consistFor(consistId).count * consistFor(consistId).massT;
+  if (massT < (b.minTrainMassT ?? 0)) return null;
+  const loco = { ...TRAIN_DEFAULTS(), ...(LOCOMOTIVES[b.loco]?.physics ?? {}) };
+  return { ...b, label: `${b.count} × ${LOCOMOTIVES[b.loco]?.label.split(' ')[0] ?? b.loco} banker${b.count > 1 ? 's' : ''}`, massT: b.count * cfg.loco.massT, loco };
+}
+function TRAIN_DEFAULTS() {
+  return trainConfigFor('wap7');
+}
+function trainCfgWithBanker(locoId, consistId) {
+  const cfg = trainConfigFor(locoId, consistId);
+  const b = bankerFor(cfg, consistId);
+  return b ? { ...cfg, bankerMassT: b.massT } : cfg;
 }
 
 function newTrain(cfg = game.trainCfg, consistId = game.settings.coachLivery) {
@@ -76,6 +106,7 @@ function loadSettings() {
     ambience: 'occasional', // background sounds: 'occasional' | 'always' | 'off'
     locomotive: 'wap7',
     horn: 'auto', // 'auto' = the locomotive's own horns, or a horn id from horns/horns.json
+    route: DEFAULT_ROUTE_ID,
   };
   try {
     const saved = JSON.parse(localStorage.getItem('brs-settings') || '{}');
@@ -85,6 +116,7 @@ function loadSettings() {
     if (!WEATHER[merged.weather]) merged.weather = defaults.weather;
     if (!LOCOMOTIVES[merged.locomotive]) merged.locomotive = defaults.locomotive;
     if (!CONSISTS[merged.coachLivery]) merged.coachLivery = defaults.coachLivery; // e.g. the retired blue LHB option
+    if (!isRouteId(merged.route)) merged.route = defaults.route;
     return merged;
   } catch {
     return defaults;
@@ -99,13 +131,15 @@ function saveSettings() {
 }
 
 const initialSettings = loadSettings();
-const initialTrainCfg = trainConfigFor(initialSettings.locomotive, initialSettings.coachLivery);
+if (setActiveRoute(initialSettings.route)) refreshEnds();
+const initialTrainCfg = trainCfgWithBanker(initialSettings.locomotive, initialSettings.coachLivery);
 formation = formationFor(initialSettings.coachLivery);
 
 export const game = {
   // 'loading' | 'title' | 'playing' | 'paused' | 'confirmRestart' | 'completed'
   screen: 'loading',
   trainCfg: initialTrainCfg, // TRAIN + the chosen locomotive's figures
+  banker: bankerFor(initialTrainCfg, initialSettings.coachLivery),
   train: newTrain(initialTrainCfg, initialSettings.coachLivery),
   journey: createJourney(),
   aiTrains: initAiTrains(),
@@ -118,7 +152,27 @@ export const game = {
   fps: 0,
   renderScale: 1,
   resetVersion: 0, // bumps on restart so the frame loop can reset its timers
+  routeId: activeRouteId,
+  bests: loadBests(), // best score per route id
 };
+
+function loadBests() {
+  try {
+    return JSON.parse(localStorage.getItem('brs-best') || '{}');
+  } catch {
+    return {};
+  }
+}
+function saveBest(id, score) {
+  if (!(score > (game.bests[id] ?? -1))) return false;
+  game.bests = { ...game.bests, [id]: score };
+  try {
+    localStorage.setItem('brs-best', JSON.stringify(game.bests));
+  } catch {
+    /* storage unavailable */
+  }
+  return true;
+}
 
 // ------------------------------------------------------------ snapshot / subscribe
 const listeners = new Set();
@@ -154,9 +208,17 @@ function buildSnapshot() {
     direction: t.direction,
     directionLabel: DIRECTION_LABEL[t.direction],
     journeyState: game.journey.state,
-    remaining: remainingDistance(t, JOURNEY),
+    remaining: remainingDistance(t, JOURNEY, game.journey),
     progress: journeyProgress(t, JOURNEY),
-    hint: journeyHint(game.journey, t, JOURNEY, destination.name),
+    hint: journeyHint(game.journey, t, JOURNEY),
+    nextStop: currentStop(game.journey, JOURNEY),
+    stopIndex: game.journey.stopIndex,
+    dwell: game.journey.state === JOURNEY_STATE.DWELL ? Math.max(0, game.journey.dwellTimer) : null,
+    grade: t.grade ?? 0,
+    banker: game.banker?.label ?? null,
+    routeId: game.routeId,
+    bests: game.bests,
+    newBest: game.newBest ?? false,
     result: game.journey.result,
     elapsed: game.journey.elapsed,
     cameraMode: game.cameraMode,
@@ -211,12 +273,14 @@ export function releaseAllInputs() {
   for (const key of Object.keys(game.input)) game.input[key] = false;
 }
 
-const _loadStartTime = Date.now();
+let loadStart = Date.now();
+let firstLoad = true;
 
 export function sceneReady() {
   if (game.screen === 'loading') {
-    const elapsed = Date.now() - _loadStartTime;
-    const minLoadingTime = 1500; // ms: gives time for shaders to warm up and for the user to enjoy the train & track animation
+    const elapsed = Date.now() - loadStart;
+    const minLoadingTime = firstLoad ? 1500 : 700; // ms: shader warm-up (and time to enjoy the loading animation)
+    firstLoad = false;
     if (elapsed < minLoadingTime) {
       setTimeout(() => {
         if (game.screen === 'loading') setScreen('title');
@@ -228,6 +292,9 @@ export function sceneReady() {
 }
 
 export function resetJourney() {
+  game.trainCfg = trainCfgWithBanker(game.settings.locomotive, game.settings.coachLivery);
+  game.banker = bankerFor(game.trainCfg, game.settings.coachLivery);
+  game.newBest = false;
   game.train = newTrain();
   game.journey = createJourney();
   game.aiTrains = initAiTrains();
@@ -265,7 +332,25 @@ export function returnToTitle() {
 }
 
 export function completeJourney() {
+  const score = game.journey.result?.score;
+  game.newBest = score !== undefined && saveBest(game.routeId, score);
   setScreen('completed');
+}
+
+/**
+ * Switch to another route. The 3D world is keyed by route id, so it rebuilds
+ * (behind the loading screen) and the old route's GPU memory is released.
+ */
+export function selectRoute(id) {
+  if (!isRouteId(id) || id === game.routeId) return;
+  if (!setActiveRoute(id)) return;
+  refreshEnds();
+  game.routeId = id;
+  game.settings = { ...game.settings, route: id };
+  saveSettings();
+  resetJourney();
+  loadStart = Date.now();
+  setScreen('loading');
 }
 
 const CAMERA_ORDER = ['cab', 'interior', 'door', 'rear', 'orbit', 'trackside'];
@@ -311,7 +396,8 @@ export function updateSettings(patch) {
   const prev = game.settings;
   game.settings = { ...game.settings, ...patch };
   // driving physics follow the chosen loco and what it hauls
-  game.trainCfg = trainConfigFor(game.settings.locomotive, game.settings.coachLivery);
+  game.trainCfg = trainCfgWithBanker(game.settings.locomotive, game.settings.coachLivery);
+  game.banker = bankerFor(game.trainCfg, game.settings.coachLivery);
   if (prev.coachLivery !== game.settings.coachLivery) {
     formation = formationFor(game.settings.coachLivery);
     const c = consistFor(game.settings.coachLivery);

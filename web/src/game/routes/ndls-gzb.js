@@ -10,7 +10,7 @@ export default {
     inspiredBy: 'Delhi–Howrah main line (Northern Railway)',
     region: 'Delhi NCR · Gangetic plain',
     difficulty: 'Easy',
-    features: ['Double line', 'Level crossings', 'Highway'],
+    features: ['3 level crossings', 'Highway alongside', 'Busy traffic'],
     accent: '#d8262b',
   },
   double: true,

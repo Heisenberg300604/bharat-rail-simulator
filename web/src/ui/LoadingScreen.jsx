@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
+import { origin, destination } from '../game/state/gameStore.js';
+import { ROUTE } from '../game/config/gameConfig.js';
 
 const LOADING_STEPS = [
   { en: 'Laying 52 kg/m broad-gauge continuous welded rails…', hi: '52 किग्रा/मीटर ब्रॉड-गेज पटरी बिछाई जा रही है…' },
   { en: 'Energizing 25 kV AC 50 Hz overhead catenary line…', hi: '25 केवी एसी ओवरहेड ट्रैक्शन लाइन सक्रिय हो रही है…' },
-  { en: 'Coupling classic blue ICF coach formation at New Delhi…', hi: 'नई दिल्ली यार्ड में क्लासिक नीले आईसीएफ कोच जोड़े जा रहे हैं…' },
+  { en: 'Coupling the coach formation in the yard…', hi: 'यार्ड में कोच जोड़े जा रहे हैं…' },
+  { en: 'Surveying cuttings, embankments, bridges and tunnels…', hi: 'कटिंग, तटबंध, पुल और सुरंगों का सर्वेक्षण…' },
   { en: 'WAP-7 dual-cab check & A9 air-brake pressure calibration…', hi: 'WAP-7 लोकोमोटिव और ए9 एयर ब्रेक की जांच जारी है…' },
   { en: 'Checking multi-aspect colour light signalling (MACLS)…', hi: 'सिग्नलिंग प्रणाली और पॉइंट इंटरलॉकिंग की पुष्टि हो रही है…' },
   { en: 'Line clear received — All systems ready for departure!', hi: 'लाइन क्लीयर मिल गई — प्रस्थान के लिए सब तैयार!' },
@@ -42,7 +45,7 @@ export default function LoadingScreen() {
               <span className="loading-logo__sub">भारतीय रेल सिम्युलेटर • Broad Gauge (1676 mm)</span>
             </div>
           </div>
-          <span className="loading-badge">WAP-7 + ICF</span>
+          <span className="loading-badge">{ROUTE.meta.shortName}</span>
         </div>
 
         {/* Animated Track and Train SVG Stage */}
@@ -300,8 +303,10 @@ export default function LoadingScreen() {
         {/* Route Progress Track & Station Markers */}
         <div className="loading-route">
           <div className="loading-station">
-            <span className="loading-station__code">NDLS</span>
-            <span className="loading-station__name">नई दिल्ली (New Delhi)</span>
+            <span className="loading-station__code">{origin.code}</span>
+            <span className="loading-station__name">
+              {origin.hindi} ({origin.name})
+            </span>
           </div>
 
           <div className="loading-bar-track">
@@ -311,8 +316,10 @@ export default function LoadingScreen() {
           </div>
 
           <div className="loading-station loading-station--dest">
-            <span className="loading-station__code">GZB</span>
-            <span className="loading-station__name">गाज़ियाबाद (Ghaziabad)</span>
+            <span className="loading-station__code">{destination.code}</span>
+            <span className="loading-station__name">
+              {destination.hindi} ({destination.name})
+            </span>
           </div>
         </div>
 

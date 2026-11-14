@@ -4,7 +4,8 @@
 // handful of draw calls no matter how many tracks there are.
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
-import { TRACK, JOURNEY, STATIONS, PLATFORMS, LEVEL_CROSSINGS } from '../../config/gameConfig.js';
+import { TRACK, JOURNEY, STATIONS, LEVEL_CROSSINGS, DOUBLE_LINE } from '../../config/gameConfig.js';
+import { tunnelAt } from '../../routes/activeRoute.js';
 import { buildRibbonGeometry, mergeGeometries } from '../../world/geometry.js';
 import { makeBallastTexture } from '../../world/textures.js';
 import { lines, mainLine } from '../../world/trackLayout.js';
@@ -42,11 +43,17 @@ const wireProfile = (y) => [
   [0.015, y + 0.015],
 ];
 
-/** Station zones where the yard exists (used for OHE portals). */
+/** Station zones (platforms + yard) where OHE portal frames span every track. */
 function stationZones() {
   return STATIONS.map((st) => {
-    const yard = lines.filter((l) => l.id.startsWith(st.id));
-    return { from: Math.max(0, Math.min(...yard.map((l) => l.from))), to: Math.max(...yard.map((l) => l.to)) };
+    const yard = lines.filter((l) => l.id.startsWith(`${st.id}-`));
+    const lats = st.layout.platforms.flatMap((pf) => pf.lat);
+    return {
+      from: Math.max(0, Math.min(st.platformStart - 30, ...yard.map((l) => l.from))),
+      to: Math.max(st.platformEnd + 30, ...yard.map((l) => l.to)),
+      farLat: Math.min(...lats, DOUBLE_LINE ? -5.3 : 0) - 1.5,
+      nearLat: Math.max(...lats) + 0.8,
+    };
   });
 }
 
@@ -117,35 +124,38 @@ export default function TrackRoute() {
     for (const line of lines) {
       for (let s = line.from + 0.4; s < line.to; s += TRACK.sleeperSpacing) {
         line.sample(s, p);
-        items.push({ x: p.x, y: TRACK.sleeperTop - 0.1, z: p.z, yaw: -p.heading });
+        items.push({ x: p.x, y: TRACK.sleeperTop - 0.1 + p.y, z: p.z, yaw: -p.heading });
       }
     }
     return items;
   }, []);
 
-  // OHE steel: single cantilever masts on open line, portal frames over station yards
+  // OHE steel: single cantilever masts on open line, portal frames over station
+  // yards, nothing inside tunnels (the wire hangs from the roof there)
   const ohe = useMemo(() => {
     const items = [];
     const zones = stationZones();
     const p = {};
-    const farLat = Math.min(...PLATFORMS.map((pf) => Math.min(...pf.lat))) - 1.5;
-    const nearLat = Math.max(...PLATFORMS.map((pf) => Math.max(...pf.lat))) + 0.8;
     const at = (s, lat, y, sx, sy, sz) => {
       mainLine.sample(s, p);
-      return { x: p.x + p.lx * lat, y, z: p.z + p.lz * lat, yaw: -p.heading, sx, sy, sz };
+      return { x: p.x + p.lx * lat, y: y + p.y, z: p.z + p.lz * lat, yaw: -p.heading, sx, sy, sz };
     };
-    for (let s = 20; s < mainLine.length; s += OHE_SPACING) {
-      const inStation = zones.some((z) => s >= z.from && s <= z.to);
-      if (inStation) {
-        const span = nearLat - farLat;
-        items.push(at(s, nearLat, 4.6, 0.45, 9.2, 0.45));
-        items.push(at(s, farLat, 4.6, 0.45, 9.2, 0.45));
-        items.push(at(s, (nearLat + farLat) / 2, MESSENGER_HEIGHT + 0.9, 0.35, 0.6, span));
-      } else {
-        for (const [mast, track] of [
+    const sides = DOUBLE_LINE
+      ? [
           [MAST_UP, 0],
           [MAST_DOWN, -5.3],
-        ]) {
+        ]
+      : [[MAST_UP, 0]];
+    for (let s = 20; s < mainLine.length; s += OHE_SPACING) {
+      if (tunnelAt(s, 6)) continue;
+      const zone = zones.find((z) => s >= z.from && s <= z.to);
+      if (zone) {
+        const span = zone.nearLat - zone.farLat;
+        items.push(at(s, zone.nearLat, 4.6, 0.45, 9.2, 0.45));
+        items.push(at(s, zone.farLat, 4.6, 0.45, 9.2, 0.45));
+        items.push(at(s, (zone.nearLat + zone.farLat) / 2, MESSENGER_HEIGHT + 0.9, 0.35, 0.6, span));
+      } else {
+        for (const [mast, track] of sides) {
           items.push(at(s, mast, 4.15, 0.32, 8.3, 0.32));
           items.push(at(s, (mast + track) / 2, MESSENGER_HEIGHT + 0.3, 0.12, 0.12, Math.abs(mast - track) + 0.6));
           items.push(at(s, track, (MESSENGER_HEIGHT + CONTACT_WIRE_HEIGHT) / 2, 0.05, MESSENGER_HEIGHT - CONTACT_WIRE_HEIGHT, 0.05));
@@ -165,7 +175,7 @@ export default function TrackRoute() {
       if (line.to >= JOURNEY.bufferStop) ends.push(JOURNEY.bufferStop + 1.5);
       for (const s of ends) {
         line.sample(s, p);
-        items.push({ x: p.x, y: TRACK.railTop + 0.6, z: p.z, yaw: -p.heading, sx: 0.7, sy: 1.2, sz: 2.6 });
+        items.push({ x: p.x, y: TRACK.railTop + 0.6 + p.y, z: p.z, yaw: -p.heading, sx: 0.7, sy: 1.2, sz: 2.6 });
       }
     }
     return items;

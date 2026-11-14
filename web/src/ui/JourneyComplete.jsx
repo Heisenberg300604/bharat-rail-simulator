@@ -6,8 +6,9 @@ function formatTime(sec) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-export default function JourneyComplete({ result }) {
+export default function JourneyComplete({ result, newBest }) {
   if (!result) return null;
+  const halts = (result.stops ?? []).slice(0, -1);
   const off = result.stopOffset;
   const where = Math.abs(off) < 0.5 ? 'right on the marker' : `${Math.abs(off).toFixed(1)} m ${off > 0 ? 'past' : 'short of'} the marker`;
   return (
@@ -39,7 +40,10 @@ export default function JourneyComplete({ result }) {
           )}
           <div>
             <dt>Driving score</dt>
-            <dd className="num">{result.score} / 100</dd>
+            <dd className="num">
+              {result.score} / 100
+              {newBest && <small className="new-best">New best for this route!</small>}
+            </dd>
           </div>
           <div>
             <dt>Stop</dt>
@@ -48,7 +52,37 @@ export default function JourneyComplete({ result }) {
               <small>{where}</small>
             </dd>
           </div>
+          {result.scheduled && (
+            <div>
+              <dt>Punctuality</dt>
+              <dd>
+                {result.lateSeconds <= 30 ? 'On time' : `${formatTime(result.lateSeconds)} late`}
+                <small>due {formatTime(result.scheduled)}</small>
+              </dd>
+            </div>
+          )}
         </dl>
+        {halts.length > 0 && (
+          <table className="halts">
+            <thead>
+              <tr>
+                <th>Halt</th>
+                <th>Stop</th>
+                <th>Arrived</th>
+              </tr>
+            </thead>
+            <tbody>
+              {halts.map((h) => (
+                <tr key={h.stationId}>
+                  <td>{h.name}</td>
+                  <td>{h.missed ? <span className="bad">Missed (−20)</span> : `${h.rating} · ${Math.abs(h.offset).toFixed(1)} m`}</td>
+                  <td className="num">{h.missed ? '—' : `${formatTime(h.arrivedAt)}${h.late > 30 ? ` (+${formatTime(h.late)})` : ''}`}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {result.earlyDepartures > 0 && <p className="halts-note">Left {result.earlyDepartures} halt(s) before the right-away (−8 each)</p>}
         <div className="menu-buttons menu-buttons--row">
           <button className="btn btn--primary" onClick={confirmRestart} autoFocus>
             Drive again

@@ -14,7 +14,7 @@ const DT = 0.5;
  * @param opts    { trainLength, maxKmh, margin, roundTo }
  * @returns       [{ stationId, runSeconds, arrive, depart }] (times since start, s)
  */
-export function computeTimetable(route, { trainLength = 215, maxKmh = 110, margin = 0.1, pad = 20, roundTo = 15 } = {}) {
+export function computeTimetable(route, { trainLength = 215, maxKmh = 110, margin = 0.15, pad = 30, roundTo = 15 } = {}) {
   const limits = route.speedLimits;
   const stops = route.journey.stops;
   let s = route.journey.startDistance;
