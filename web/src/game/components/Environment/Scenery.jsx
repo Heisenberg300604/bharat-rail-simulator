@@ -6,31 +6,21 @@
 // seeded-random (identical every run) and thinned out on lower presets.
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
-import { route, useQuality } from '../../state/gameStore.js';
-import { STATIONS, ROUTE, TUNNELS, BRIDGES } from '../../config/gameConfig.js';
+import { route, useQuality, useGameValue } from '../../state/gameStore.js';
+import { ROUTE, STATIONS, TUNNELS, BRIDGES } from '../../config/gameConfig.js';
 import { seededRandom } from '../../world/geometry.js';
 import { onRoad } from '../../world/roadLayout.js';
 import { ModelBuilder } from '../../world/modelBuilder.js';
 import { makeFacadeTexture } from '../../world/textures.js';
 import { onEnvironmentChange } from '../../world/environment.js';
-import { terrain } from '../../world/terrain.js';
 import { biomeFor } from '../../world/biomes.js';
 import ChunkedInstances from '../../world/ChunkedInstances.jsx';
+import { inStationYard, townAt, onBridgeOrPortal, footprint } from '../../world/placement.js';
+import ChunkedMeshes from '../../world/ChunkedMeshes.jsx';
+import { buildRichScenery, setRichPeople } from '../../world/richScenery.js';
+import { makeSceneryAtlas, makeKitMaterial, kitGlow } from '../../world/sceneryAtlas.js';
 
 const CELL = 600;
-
-const inStationYard = (s, lat) => STATIONS.some((st) => s > st.platformStart - 450 && s < st.platformEnd + 450 && lat < 55 && lat > -60);
-/** 1 inside a town (around big stations), smaller for halts, 0 in the country. */
-const townAt = (s) => {
-  let t = 0;
-  for (const st of STATIONS) {
-    const r = st.size === 'major' ? 1400 : 600;
-    if (Math.abs(s - st.centerS) < r) t = Math.max(t, st.size === 'major' ? 1 : 0.6);
-  }
-  return t;
-};
-const onBridgeOrPortal = (s, lat) =>
-  BRIDGES.some((b) => s > b.from - 30 && s < b.to + 30 && Math.abs(lat - (b.lat ?? 0)) < 26) || TUNNELS.some((t) => (Math.abs(s - t.from) < 40 || Math.abs(s - t.to) < 40) && Math.abs(lat) < 30);
 
 function pickWeighted(rand, weights) {
   const total = Object.values(weights).reduce((n, w) => n + w, 0);
@@ -42,33 +32,12 @@ function pickWeighted(rand, weights) {
 function generate() {
   const rand = seededRandom(2024);
   const biome = biomeFor(ROUTE);
-  const T = terrain;
   const L = route.length;
   const p = {};
   const out = { roundTrees: [], tallTrees: [], palms: [], fields: [], ponds: [], buildings: [], tanks: [], kmPosts: [], rocks: [] };
   const place = (s, lat) => {
     route.sample(s, p);
     return { x: p.x + p.lx * lat, z: p.z + p.lz * lat, yaw: -p.heading };
-  };
-  /** Ground under a footprint: { min, max } of the corners, or null if it is wet. */
-  const footprint = (s, lat, w, d) => {
-    let min = Infinity;
-    let max = -Infinity;
-    for (const [i, j] of [
-      [0, 0],
-      [-1, -1],
-      [1, -1],
-      [-1, 1],
-      [1, 1],
-    ]) {
-      const ss = s + (i * w) / 2;
-      const ll = lat + (j * d) / 2;
-      if (T.underwater(ss, ll)) return null;
-      const h = T.groundY(ss, ll);
-      min = Math.min(min, h);
-      max = Math.max(max, h);
-    }
-    return { min, max };
   };
   const leafTints = ['#ffffff', '#e8f5d8', '#f4ffe6', '#dbe9c8', '#fff8e0'];
 
@@ -97,6 +66,10 @@ function generate() {
         sz: scale,
         color: leafTints[Math.floor(rand() * leafTints.length)],
         r: rand(),
+        s: ts,
+        lat,
+        kind,
+        short,
       });
     }
   }
@@ -117,9 +90,9 @@ function generate() {
       const pond = rand() < biome.ponds;
       if (pond) {
         const r = Math.min(w, d) * 0.35;
-        out.ponds.push({ ...place(s, lat), y: fp.max + 0.04, sx: r, sy: 1, sz: r * (0.7 + rand() * 0.5), r: rand() });
+        out.ponds.push({ ...place(s, lat), y: fp.max + 0.04, sx: r, sy: 1, sz: r * (0.7 + rand() * 0.5), r: rand(), s, lat, rad: r });
       } else {
-        out.fields.push({ ...place(s, lat), y: (fp.min + fp.max) / 2 + 0.02, sx: w, sy: fp.max - fp.min + 0.12, sz: d, color: biome.fields[Math.floor(rand() * biome.fields.length)], r: rand() });
+        out.fields.push({ ...place(s, lat), y: (fp.min + fp.max) / 2 + 0.02, sx: w, sy: fp.max - fp.min + 0.12, sz: d, color: biome.fields[Math.floor(rand() * biome.fields.length)], r: rand(), s, lat });
       }
     }
   }
@@ -136,12 +109,13 @@ function generate() {
     const pos = place(s, lat);
     const base = fp.min - 0.3;
     const hh = h + (fp.max - base);
-    out.buildings.push({ ...pos, y: base + hh / 2, sx: w, sy: hh, sz: d, color: biome.plaster[Math.floor(rand() * biome.plaster.length)], r: rand() });
+    const building = { ...pos, y: base + hh / 2, sx: w, sy: hh, sz: d, color: biome.plaster[Math.floor(rand() * biome.plaster.length)], r: rand(), s, lat, floors, base, big };
+    out.buildings.push(building);
     if (rand() < 0.6) {
       // the ubiquitous black plastic water tank on the roof
       route.sample(s, p);
       const off = (rand() - 0.5) * (w * 0.5);
-      out.tanks.push({ x: pos.x + Math.cos(p.heading) * off, y: base + hh + 0.75, z: pos.z + Math.sin(p.heading) * off, r: rand() });
+      out.tanks.push({ x: pos.x + Math.cos(p.heading) * off, y: base + hh + 0.75, z: pos.z + Math.sin(p.heading) * off, r: rand(), building });
     }
   };
   // towns around stations
@@ -277,11 +251,39 @@ function makeBuildingMaterial() {
 export default function Scenery() {
   const quality = useQuality();
   const all = useMemo(generate, []);
+  const rich = useGameValue((s) => s.settings.scenery) !== 'classic';
+  // Rich scenery: built on top of the classic placement (see world/richScenery.js)
+  const richWorld = useMemo(() => {
+    if (!rich) return null;
+    const t0 = performance.now();
+    const out = buildRichScenery(all, quality.sceneryDensity);
+    if (import.meta.env.DEV) console.info(`[scenery] rich world built in ${Math.round(performance.now() - t0)} ms: ${out.far.size} far + ${out.near.size} near patches, ${out.people.length} people`);
+    return out;
+  }, [rich, all, quality.sceneryDensity]);
+  useEffect(() => {
+    setRichPeople(richWorld?.people ?? []);
+    return () => setRichPeople([]);
+  }, [richWorld]);
   const data = useMemo(() => {
-    // Lower presets keep a deterministic subset (each item has a random r in 0..1)
-    const keep = (list) => list.filter((it) => it.r === undefined || it.r < quality.sceneryDensity);
+    // Lower presets keep a deterministic subset (each item has a random r in 0..1);
+    // rich mode also drops the classic items it replaced with richer models
+    const removed = richWorld?.removed;
+    const keep = (list) => list.filter((it) => (it.r === undefined || it.r < quality.sceneryDensity) && !removed?.has(it));
     return Object.fromEntries(Object.entries(all).map(([k, v]) => [k, keep(v)]));
-  }, [all, quality.sceneryDensity]);
+  }, [all, quality.sceneryDensity, richWorld]);
+  const kitRes = useMemo(() => {
+    if (!rich) return null;
+    const script = STATIONS.find((st) => st.regionalScript && st.regionalScript !== 'deva')?.regionalScript ?? 'deva';
+    const atlas = makeSceneryAtlas(script);
+    return { atlas, material: makeKitMaterial(atlas) };
+  }, [rich]);
+  useEffect(
+    () => () => {
+      kitRes?.atlas.dispose();
+      kitRes?.material.dispose();
+    },
+    [kitRes],
+  );
 
   const assets = useMemo(() => {
     const trees = buildTreeGeometries();
@@ -317,6 +319,7 @@ export default function Scenery() {
     () =>
       onEnvironmentChange((env) => {
         windowGlow.value = 1.4 * env.lamps * env.night;
+        kitGlow.value = 1.4 * env.lamps * env.night;
       }),
     [],
   );
@@ -333,6 +336,12 @@ export default function Scenery() {
       <ChunkedInstances items={data.buildings} geometry={assets.unitBox} material={assets.buildingMat} cellSize={CELL} maxDistance={far} />
       <ChunkedInstances items={data.tanks} geometry={assets.tank} material={assets.tankMat} cellSize={CELL} maxDistance={quality.detailDistance} />
       <ChunkedInstances items={data.kmPosts} geometry={assets.unitBox} material={assets.postMat} cellSize={CELL} maxDistance={quality.detailDistance} />
+      {richWorld && kitRes && (
+        <>
+          <ChunkedMeshes kits={richWorld.far} material={kitRes.material} maxDistance={far} />
+          <ChunkedMeshes kits={richWorld.near} material={kitRes.material} maxDistance={quality.detailDistance} />
+        </>
+      )}
     </group>
   );
 }

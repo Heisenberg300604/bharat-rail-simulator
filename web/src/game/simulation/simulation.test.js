@@ -392,3 +392,23 @@ test('station departure announcement attenuation fades as train leaves station',
   assert.ok(volAt(0.2) < 0.06);  // Exiting yard: barely a whisper
   assert.equal(volAt(0.02), 0);  // Clear of station: completely silent
 });
+
+test('AI train calls at an intermediate halt, waits its dwell, then carries on to its platform', () => {
+  const [tr] = createAiTrains([{ id: 'h', departAt: 0, startFront: 6000, stopFront: 200, maxKmh: 80, halts: [{ front: 3000, dwell: 20 }] }], () => 200);
+  const DT = 1 / 60;
+  let t = 0;
+  let stoodAt = null;
+  let dwellSeen = 0;
+  while (tr.state !== 'arrived' && t < 2000) {
+    stepAiTrains([tr], DT, t, { limits: [], playerFront: 0 });
+    if (tr.dwellLeft > 0) {
+      stoodAt ??= tr.front;
+      dwellSeen += DT;
+    }
+    t += DT;
+  }
+  assert.equal(tr.state, 'arrived');
+  assert.ok(Math.abs(stoodAt - 3000) < 1, `stood at ${stoodAt}`);
+  assert.ok(dwellSeen > 19 && dwellSeen < 21.5, `dwelt ${dwellSeen.toFixed(1)} s`);
+  assert.ok(Math.abs(tr.front - 200) < 1);
+});

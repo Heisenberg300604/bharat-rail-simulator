@@ -6,7 +6,7 @@
 // Each group is a single InstancedMesh animated on the GPU (see
 // world/models/people.js). The CPU only updates three uniforms per frame and
 // hides groups that are far from the camera.
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { game, route, useGameValue, useQuality } from '../../state/gameStore.js';
@@ -17,6 +17,7 @@ import { terrain } from '../../world/terrain.js';
 import { seededRandom } from '../../world/geometry.js';
 import { onEnvironmentChange } from '../../world/environment.js';
 import { buildPersonGeometry, createPeopleMaterial, makeCrowdMesh, randomPerson, ANIM } from '../../world/models/people.js';
+import { getRichPeople, subscribeRichPeople } from '../../world/richScenery.js';
 import { PLATFORM_TOP } from '../Stations/Station.jsx';
 
 const zOf = (lat) => -lat; // station-local frame: x along the track, z to the right
@@ -173,6 +174,7 @@ export default function Crowds() {
     [geometry, material],
   );
 
+  const villagers = useSyncExternalStore(subscribeRichPeople, getRichPeople);
   const groups = useMemo(() => {
     const density = quality.crowdDensity;
     const list = STATIONS.map((st, i) => {
@@ -190,8 +192,24 @@ export default function Crowds() {
     t.add(makeCrowdMesh(tracksidePeople(density), geometry, material));
     t.userData.radius = Infinity;
     list.push(t);
+    // rich scenery: villagers, shopkeepers, farmers and walkers, one crowd per 600 m patch
+    const cells = new Map();
+    for (const pp of villagers) {
+      if (pp.anim === undefined) continue;
+      const k = `${Math.floor(pp.x / 600)},${Math.floor(pp.z / 600)}`;
+      if (!cells.has(k)) cells.set(k, []);
+      cells.get(k).push(pp);
+    }
+    for (const people of cells.values()) {
+      const g = new THREE.Group();
+      g.add(makeCrowdMesh(people, geometry, material));
+      const c = people.reduce((v, pp) => v.add(new THREE.Vector3(pp.x, pp.y, pp.z)), new THREE.Vector3()).multiplyScalar(1 / people.length);
+      g.userData.center = c;
+      g.userData.radius = Math.min(quality.detailDistance, 650) + 450;
+      list.push(g);
+    }
     return list;
-  }, [quality.crowdDensity, geometry, material]);
+  }, [quality.crowdDensity, quality.detailDistance, geometry, material, villagers]);
   useEffect(
     () => () => {
       for (const g of groups) for (const m of g.children) m.geometry.dispose(); // per-crowd geometry copies

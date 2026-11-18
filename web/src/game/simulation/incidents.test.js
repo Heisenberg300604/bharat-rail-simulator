@@ -193,3 +193,19 @@ test('arrival announcement: Hindi opens with "यात्रीगण कृप
   const fin = arrivalAnnouncement({ origin: o, destination: d, station: d });
   assert.ok(fin.english.includes(`The train from ${o.name} is arriving`));
 });
+
+test('derailment scenario: a site off stations and crossings, with a caution order and its four boards', () => {
+  for (const id of ['ndls-gzb', 'howrah-bandel', 'gatimaan']) {
+    const r = routes[id];
+    const st = planIncidents(r, { seed: 42, mode: 'derailment' });
+    assert.ok(st.derailment, `${id}: site planned`);
+    const d = st.derailment;
+    assert.equal(st.tsr.kmh, INCIDENT_RULES.derailKmh);
+    assert.ok(st.tsr.from < d.s && st.tsr.to > d.s, 'restriction covers the site');
+    assert.equal(st.boards.length, 4);
+    for (const s of r.stations) assert.ok(d.to < s.platformStart - 300 || d.from > s.platformEnd + 300, `${id}: clear of ${s.id}`);
+    for (const lc of r.levelCrossings) assert.ok(Math.abs(lc.s - d.s) > INCIDENT_RULES.derailLoopHalf, `${id}: clear of ${lc.id}`);
+    assert.equal(st.acp, null, 'only the derailment in this mode');
+    assert.equal(st.failedSignal, null);
+  }
+});

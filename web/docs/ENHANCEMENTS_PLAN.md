@@ -1,6 +1,6 @@
 # Future enhancements: product plan
 
-Status: proposal (2026-11-14). **Progress (2026-11-14):** D1 announcements +
+Status: proposal (2026-11-14). **Progress (2026-11-19):** rich scenery (Settings → Scenery: Rich, default — Indian houses, towns, slums, walls with ads, poles, towers, kilns, regional trees, animals, villagers), the derailment-site practice scenario on a new loop line (B5), down trains calling at intermediate halts, and the level-crossing gates now waiting for the rear of the train. **Earlier (2026-11-14):** D1 announcements +
 guard (flag/lamp, horn acknowledgement, spoken announcement), B5 incidents
 (caution order, failed automatic signal, alarm chain; cattle and gates not yet)
 and the rest of D4 (Doppler, dust) done. Wave 1 done (C1

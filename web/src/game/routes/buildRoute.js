@@ -87,7 +87,21 @@ export function buildRoute(def) {
     speedLimits,
     road: def.road ?? null,
     levelCrossings: def.levelCrossings ?? [],
-    aiTrains: double ? def.aiTrains ?? [] : [], // single line: opposing trains wait in loops (parked)
+    // single line: opposing trains wait in loops (parked). `haltAt: [station ids]`
+    // makes a down train call at those stations' down-side platform (platform 2)
+    aiTrains: double
+      ? (def.aiTrains ?? []).map((t) =>
+          t.haltAt
+            ? {
+                ...t,
+                halts: t.haltAt
+                  .map((id) => def.stations.find((x) => x.id === id))
+                  .filter(Boolean)
+                  .map((x) => ({ front: x.platformStart + 12, dwell: t.dwell ?? 30, station: x.id })),
+              }
+            : t,
+        )
+      : [],
     parkedTrains: def.parkedTrains ?? [],
     bridges: (def.bridges ?? []).map((b) => ({ type: 'girder', span: 30, ...b })),
     tunnels: def.tunnels ?? [],

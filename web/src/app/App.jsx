@@ -1,5 +1,5 @@
 import GameCanvas from '../game/GameCanvas.jsx';
-import { useGameSnapshot, game, publish, route, selectRoute, startJourney, setCamera } from '../game/state/gameStore.js';
+import { useGameSnapshot, game, publish, route, selectRoute, startJourney, setCamera, updateSettings } from '../game/state/gameStore.js';
 import { useKeyboardControls } from '../game/hooks/useKeyboardControls.js';
 import StartScreen from '../ui/StartScreen.jsx';
 import LoadingScreen from '../ui/LoadingScreen.jsx';
@@ -11,6 +11,7 @@ import PhotoMode from '../ui/PhotoMode.jsx';
 import LessonPanel from '../ui/LessonPanel.jsx';
 import { sceneRefs } from '../game/state/sceneRefs.js';
 import { audioEngine } from '../game/audio/audioEngine.js';
+import * as gameConfig from '../game/config/gameConfig.js';
 
 // Development-only helper for testing in the browser console, e.g.
 //   __BRS__.teleport(7300, 40)   → jump 7.3 km down the line at 40 km/h
@@ -23,6 +24,8 @@ if (import.meta.env.DEV) {
     },
     selectRoute,
     startJourney,
+    updateSettings,
+    cfg: gameConfig, // live route data (STATIONS, ROUTE, AI_TRAINS…)
     setCamera,
     sceneRefs,
     audioEngine,
@@ -31,7 +34,33 @@ if (import.meta.env.DEV) {
       game.train.speedMps = kmh / 3.6;
       publish();
     },
+    /**
+     * Fixed debug camera in route coordinates (for repeatable screenshots):
+     * __BRS__.view(s, lat, height, lookS, lookLat, lookHeight); __BRS__.view(null) releases it.
+     * Heights are above the ground at that spot.
+     */
+    view(s, lat = 0, h = 20, ts = s + 200, tlat = 0, th = 0) {
+      if (s == null) {
+        sceneRefs.debugCam = null;
+        return;
+      }
+      const g = (ss, ll) => window.__BRS__.terrain?.groundY(ss, ll) ?? 0;
+      const a = route.sample(s, {});
+      const b = route.sample(ts, {});
+      sceneRefs.debugCam = {
+        pos: [a.x + a.lx * lat, g(s, lat) + h, a.z + a.lz * lat],
+        look: [b.x + b.lx * tlat, g(ts, tlat) + th, b.z + b.lz * tlat],
+      };
+    },
+    /** Draw calls and triangles of the last frame. */
+    stats() {
+      const i = sceneRefs.gl?.info.render;
+      return i && { calls: i.calls, triangles: i.triangles };
+    },
   };
+  import('../game/world/terrain.js').then((m) => {
+    Object.defineProperty(window.__BRS__, 'terrain', { get: () => m.terrain, configurable: true });
+  });
 }
 
 export default function App() {

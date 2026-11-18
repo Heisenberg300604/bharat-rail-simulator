@@ -61,8 +61,9 @@ export default {
     { type: 'boats', s: 6500, lat: -700, count: 18, spread: 4000 },
   ],
   aiTrains: [
-    { id: 'down-local', type: 'icf', livery: 'icfBlue', coaches: 12, departAt: 30, startFront: 12880, stopFront: 520, maxKmh: 80 },
+    { id: 'down-local', type: 'icf', livery: 'icfBlue', coaches: 12, departAt: 30, startFront: 12880, stopFront: 520, maxKmh: 80, haltAt: ['cgr', 'srp', 'bly'], dwell: 25 },
     { id: 'down-goods', type: 'boxn', livery: 'boxn', loco: 'wag9', coaches: 30, departAt: 280, startFront: 12880, stopFront: 1050, maxKmh: 60 },
+    { id: 'down-express', type: 'lhb', livery: 'lhb', coaches: 10, departAt: 520, startFront: 12880, stopFront: 1480, maxKmh: 100, haltAt: ['srp'], dwell: 40 },
   ],
   parkedTrains: [
     { line: 'hwh-T3', frontS: 440, coaches: 10, livery: 'icfBlue', type: 'icf' },
