@@ -121,6 +121,7 @@ can be unit-tested with `node --test`. Keep it that way.
 | `components/People/Guard.jsx` | D1 guard waving the right-away (green flag / night lamp) beyond the rear of the train (`sceneRefs.guardSignal`) |
 | `components/Cameras/CameraRig.jsx` | Six camera modes + mouse look/orbit |
 | `src/ui/` | `StartScreen` (route list + detail, difficulty, Driver school/How-to-play/Settings/Records/About modals), `JourneyComplete` (run card + PNG), `PhotoMode`, `LessonPanel`, `RoutePicker` (`RouteList`, `RouteDetail`, `Profile`), `HUD`, `PauseMenu`, `LoadingScreen`, `JourneyComplete`, `RestartConfirm`, `ControlsTable`, `EnvironmentPicker` |
+| `index.html`, `public/` (root files) | SEO: title/description/canonical, Open Graph + Twitter card, VideoGame JSON-LD, `<noscript>` text; `robots.txt`, `sitemap.xml`, `site.webmanifest`, `favicon.svg`, `icon-192/512.png`, `apple-touch-icon.png`, `og-image.jpg` (1200×630, the game's own cab view). Production URL: https://bharat-rail-simulator.vercel.app (update canonical/OG/sitemap if the domain changes) |
 | `public/assets/` | `models/station/station-building.glb` (wayside station building, `Station.jsx`; procedural office until it loads), `models/locomotive/*.glb` (WAP-7, WAG-9, WAP-4, WCAM-1; + per-model LICENSE), `models/stock/` (`bvzi.glb` brake van, `bcna.glb` covered wagon, `btpn.glb` petrol tank wagon — any `COACH_TYPES` entry with `model` is drawn from its GLB), `audio/rail/`, `audio/ambience/` (each with `CREDITS.md`) |
 
 ## 5. Invariants — breaking these breaks the game
