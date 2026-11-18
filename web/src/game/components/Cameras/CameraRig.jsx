@@ -27,7 +27,20 @@ const _coachMat = new THREE.Matrix4();
 export const CAMERA_MODES = ['cab', 'interior', 'door', 'rear', 'orbit', 'trackside'];
 export const CAMERA_LABELS = { cab: 'Cab', interior: 'Coach', door: 'Door', rear: 'Last coach', orbit: 'Orbit', trackside: 'Trackside' };
 
-function setFov(camera, fov) {
+// Every FOV in this file is the vertical FOV a 16:9 window would use. In a
+// narrower window (half-screen, 4:3, portrait phone) a fixed vertical FOV
+// crops the sides and the view looks zoomed in, so there we widen the
+// vertical FOV until the HORIZONTAL view matches 16:9. 16:9 and wider screens
+// are unchanged.
+const REF_ASPECT = 16 / 9; // (DEG is declared above)
+export function fovForAspect(vfov16x9, aspect) {
+  if (!(aspect > 0) || aspect >= REF_ASPECT) return vfov16x9;
+  const halfH = Math.atan(Math.tan((vfov16x9 * DEG) / 2) * REF_ASPECT); // horizontal half-angle at 16:9
+  return Math.min(120, (2 * Math.atan(Math.tan(halfH) / aspect)) / DEG);
+}
+
+function setFov(camera, fov16x9) {
+  const fov = fovForAspect(fov16x9, camera.aspect);
   if (Math.abs(camera.fov - fov) > 0.01) {
     camera.fov = fov;
     camera.updateProjectionMatrix();
