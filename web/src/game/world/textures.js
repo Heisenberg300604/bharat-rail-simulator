@@ -50,13 +50,13 @@ export function makeNoiseTexture({ size = 256, base = '#888', speckles = [], den
 }
 
 // macOS fonts first, then Windows (Nirmala UI / Mangal), then Linux/Android (Noto)
-const DEVANAGARI = "'Kohinoor Devanagari','Devanagari Sangam MN','Nirmala UI','Mangal','Noto Sans Devanagari',sans-serif";
+export const DEVANAGARI = "'Kohinoor Devanagari','Devanagari Sangam MN','Nirmala UI','Mangal','Noto Sans Devanagari',sans-serif";
 
 /**
  * Yellow station name board in the familiar Indian style (Hindi + English).
  * Generic style only — no official logos.
  */
-const REGIONAL_FONTS = {
+export const REGIONAL_FONTS = {
   beng: "'Kohinoor Bangla', 'Bangla MN', 'Bangla Sangam MN', 'Nirmala UI', 'Vrinda', 'Noto Sans Bengali', sans-serif",
   taml: "'Tamil MN', 'Tamil Sangam MN', 'Nirmala UI', 'Latha', 'Noto Sans Tamil', sans-serif",
   deva: null, // Marathi/Konkani use Devanagari

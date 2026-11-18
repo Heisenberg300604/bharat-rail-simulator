@@ -24,6 +24,16 @@
 //    GAME ASSUMPTION: 15 km/h when the view is clear — GR 9.02 gives no
 //    figure there, only "great caution".
 //
+// 4. DERAILMENT SITE ON THE ADJACENT LINE (practice scenario, Incidents →
+//    "Derailment site"): the coaches of a blue ICF passenger rake have
+//    derailed on the loop line beside the running line; the passengers have
+//    been evacuated, the Accident Relief Train's breakdown crane is re-railing
+//    the coaches and staff are working on the track. Trains on the
+//    running line pass on a caution order, using the same indicators as a
+//    temporary restriction (GR 15.09(1)(d), above). GAME ASSUMPTIONS: the
+//    30 km/h figure, the 520 m restricted length, and that the main line is
+//    unobstructed (only the loop is fouled). No injuries are depicted.
+//
 // 3. ALARM CHAIN PULLING (ACP): the chain opens a vent valve on the coach,
 //    the brake pipe pressure falls (the loco pilot sees it on the BP gauge)
 //    and the brakes apply; the cab lamp and buzzer stay on until the device
@@ -46,9 +56,42 @@ export const INCIDENT_RULES = {
   autoKmhClear: 15, // game assumption
   acpResetSeconds: 120, // game assumption
   occasionalChance: 0.5,
+  derailKmh: 30, // game assumption
+  derailHalf: 260, // restricted length either side of the site centre (game assumption)
+  derailLoopHalf: 330, // the loop line the derailed rake stands on
+  derailLat: 9, // loop centre-line, left of the up line (outside the OHE masts at 3.6 m)
 };
 
-export const INCIDENT_MODES = ['off', 'occasional', 'always'];
+export const INCIDENT_MODES = ['off', 'occasional', 'always', 'derailment'];
+
+/**
+ * Site for the derailment scenario; null when the route has no room.
+ * siteOk(s) → true where the ground beside the line is level enough for the loop.
+ */
+export function planDerailment(route, rand, blocked = () => false, siteOk = () => true) {
+  const R = INCIDENT_RULES;
+  const start = route.journey.startDistance;
+  const end = route.journey.stopMarker;
+  const lcs = route.levelCrossings ?? [];
+  for (let i = 0; i < 160; i++) {
+    const s = start + 700 + R.cautionBefore + R.derailHalf + rand() * (end - start);
+    const from = s - R.derailHalf;
+    const to = s + R.derailHalf;
+    if (from - R.cautionBefore < start + 300 || to + R.terminationG > end - 400) continue;
+    if (nearStation(route.stations, s - R.derailLoopHalf - 300, s + R.derailLoopHalf + 300, 0)) continue;
+    if (lcs.some((lc) => Math.abs(lc.s - s) < R.derailLoopHalf + 150)) continue;
+    if (speedLimitFor(route.speedLimits, from - R.cautionBefore, to) < R.derailKmh + 20) continue;
+    let ok = true;
+    for (let k = -R.derailLoopHalf; k <= R.derailLoopHalf && ok; k += 40) ok = !blocked(s + k) && siteOk(s + k);
+    for (const b of [from - R.cautionBefore, from - R.speedBoardBefore, to + R.terminationP, to + R.terminationG]) if (blocked(b)) ok = false;
+    if (!ok) continue;
+    return {
+      site: { s: Math.round(s), from: Math.round(s - R.derailLoopHalf), to: Math.round(s + R.derailLoopHalf), lat: R.derailLat, seed: Math.floor(rand() * 1e6) },
+      tsr: { from: Math.round(from), to: Math.round(to), kmh: R.derailKmh, reason: 'Caution order: derailed coaches on the adjacent loop line, staff on line' },
+    };
+  }
+  return null;
+}
 
 function seeded(seed) {
   let a = seed >>> 0;
@@ -104,11 +147,20 @@ export function tsrBoards(tsr) {
  *                  coachCount, night (bool), autoSignals: [{ s, name }],
  *                  blocked(s) → true where no board can stand (tunnel/bridge) }
  */
-export function planIncidents(route, { seed = 1, mode = 'off', passenger = true, coachCount = 12, night = false, autoSignals = [], blocked = () => false } = {}) {
+export function planIncidents(route, { seed = 1, mode = 'off', passenger = true, coachCount = 12, night = false, autoSignals = [], blocked = () => false, siteOk = () => true } = {}) {
   const st = createIncidentState();
   if (!INCIDENT_MODES.includes(mode) || mode === 'off') return st;
   const rand = seeded(seed);
   const R = INCIDENT_RULES;
+  if (mode === 'derailment') {
+    const d = planDerailment(route, rand, blocked, siteOk);
+    if (d) {
+      st.derailment = d.site;
+      st.tsr = { ...d.tsr, maxOverKmh: 0 };
+      st.boards = tsrBoards(d.tsr);
+    }
+    return st;
+  }
   const start = route.journey.startDistance;
   const end = route.journey.stopMarker;
 
@@ -146,7 +198,7 @@ export function planIncidents(route, { seed = 1, mode = 'off', passenger = true,
 }
 
 export function createIncidentState() {
-  return { tsr: null, boards: [], failedSignal: null, acp: null, restriction: null };
+  return { tsr: null, boards: [], failedSignal: null, acp: null, restriction: null, derailment: null };
 }
 
 /** The route's speed restrictions plus this run's caution order. */
@@ -228,7 +280,8 @@ export function summarizeIncidents(st) {
   const out = [];
   if (st.tsr) {
     const over = st.tsr.maxOverKmh;
-    out.push({ kind: 'tsr', title: `Caution order · ${st.tsr.kmh} km/h at km ${(st.tsr.from / 1000).toFixed(1)}`, ok: over <= 1, note: over > 1 ? `exceeded by ${Math.round(over)} km/h` : 'observed' });
+    const what = st.derailment ? 'Derailment site' : 'Caution order';
+    out.push({ kind: 'tsr', title: `${what} · ${st.tsr.kmh} km/h at km ${(st.tsr.from / 1000).toFixed(1)}`, ok: over <= 1, note: over > 1 ? `exceeded by ${Math.round(over)} km/h` : 'observed' });
   }
   if (st.failedSignal) {
     const f = st.failedSignal;

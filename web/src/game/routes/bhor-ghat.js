@@ -92,6 +92,7 @@ export default {
   aiTrains: [
     { id: 'deccan', type: 'lhb', livery: 'lhbBlue', coaches: 12, departAt: 45, startFront: 13900, stopFront: 150, maxKmh: 45 },
     { id: 'ghat-goods', type: 'boxn', livery: 'boxn', loco: 'wag9', coaches: 30, departAt: 320, startFront: 13900, stopFront: 1000, maxKmh: 40 },
+    { id: 'ghat-passenger', type: 'icf', livery: 'icfBlue', coaches: 10, departAt: 560, startFront: 13900, stopFront: 1420, maxKmh: 40, haltAt: ['khi'], dwell: 30 },
   ],
   parkedTrains: [
     { line: 'kjt-T3', frontS: 440, coaches: 8, livery: 'icfBlue', type: 'icf' },

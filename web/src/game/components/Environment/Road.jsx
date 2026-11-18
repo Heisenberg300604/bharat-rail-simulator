@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { game, useQuality } from '../../state/gameStore.js';
+import { game, formation, useQuality } from '../../state/gameStore.js';
 import { sceneRefs } from '../../state/sceneRefs.js';
 import { mainLine } from '../../world/trackLayout.js';
 import { ROAD, LEVEL_CROSSINGS, TRACK, STATIONS } from '../../config/gameConfig.js';
@@ -467,8 +467,12 @@ export default function Road() {
     net.crossings.forEach((lc, i) => {
       // Is any train approaching or on this level crossing?
       let closing = false;
-      const playerDist = lc.s - playerS;
-      if (playerDist > -40 && playerDist < lc.closeAhead) closing = true;
+      // Gates stay shut until the REAR of the player's train has cleared the
+      // crossing (it used to be the front only, so road traffic drove through
+      // the coaches). Reversing, the rear is the end approaching the crossing.
+      const playerRear = playerS - formation.totalLength;
+      if (lc.s > playerRear - 30 && lc.s < playerS + lc.closeAhead) closing = true;
+      if ((game.train.direction ?? 1) < 0 && lc.s > playerRear - lc.closeAhead && lc.s < playerS + 30) closing = true;
       if (game.aiTrains) {
         for (const ai of game.aiTrains) {
           if (ai.state !== 'running') continue;

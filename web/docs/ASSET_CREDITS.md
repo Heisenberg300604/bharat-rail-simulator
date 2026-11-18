@@ -322,3 +322,44 @@ Found through the Freesound API (search plus geotag filter for India), shortlist
 - Original: glTF, 1,911 triangles, 2 meshes, 1 material (PBR, 2K-4K base colour, normal and ORM maps), modelled in centimetres.
 - Processing: scaled ×0.01 to metres (17.74 × 7.66 × 10.56 m), textures to WebP 2048, meshopt. The result is 1.35 MB, one draw call per station.
 - Used at every wayside station (`layout.building` other than `grand`), behind platform 1. The termini keep the procedural grand building.
+
+## Cab interior (`components/Train/CabInterior.jsx`, `cabDisplays.js`, rebuilt 2026-11-19)
+
+**Original procedural model.** No third-party geometry, textures or photos are used in the game. Photos were viewed only as reference for the layout (researched 2026-11-19):
+
+**Sources**
+- IRFCA, "Under the hood – WAP7" album, captions by Khalid Kagzi (2009) — panel-by-panel identification. Items:
+  - 332225 (Panel B gauges; LP desk)
+  - 332733 (Panel A switches/lamps; cab key)
+  - 332189 (Panel C, DDU, BZ V-O-F buzzer)
+  - 332177 (ALP Panel D)
+  - 332181 (LP side window)
+  - 332257 (corridor)
+  - 24744 (throttle, speedometer, horn switch)
+  - 24760 (floor pedals SANDING / PVEF / VIGILANCE)
+  - 24731 (ALP desk, horn handle)
+  - 73917 (WAG-9 #31082: same desk)
+  - All at `https://irfca.org/gallery/main.php?g2_itemId=<id>`
+- IRFCA, "WAP-5/WAG-9 braking procedures" (https://www.irfca.org/docs/wap5-wag9-brakes.doc): one A9 lever per loco; emergency stop drops VCB + pantograph; spring parking brake (no handbrake wheel).
+- RDSO/2007/EL/SPEC/0048 (3-phase drive spec): stepless TE/BE lever with forward/reverse and cab activation in the master controller; one menu-driven DDU per cab.
+- RDSO RM/0197 (2021) Kavach display integration: the DMI goes "in space above Panel-B" (Scheme-II).
+- RDSO MS/0494: folding inspector's seat on the cab back wall, 75 cm above the floor.
+
+**Reproduced as documented**
+- LP on the left, ALP on the right with a truncated desk.
+- Panel B: AR PR parking gauge, BC 1/2 duplex, MR/FP duplex, BP, air-flow indicator.
+- Panel A: battery and OHE voltmeters, TE/BE meters, lamps LSDJ/LSHO/LSP/LSAF/LSVW/LSCE, switches ZPT/BLDJ/BLCP/BLHO/ZBAN/ZTEL, buttons BPVR/BPPB/BPCS, red-on-yellow EMERGENCY STOP.
+- Panel C: DDU with keypad, LSFI and BPFA, BZ V-O-F buzzer.
+- Yellow SA9 handle on a low left pedestal, A9 plate with application zones, black-ball TE/BE stick.
+- Speedometer box on the centre pillar (analog dial, digital window, keypad).
+- Three floor pedals, blue high-back seats, corner fans, two front panes with a wide centre pillar.
+
+**Game approximations** (no source found)
+- All dimensions.
+- Which way the TE/BE stick moves (TE forward).
+- The reverser's form.
+- The side of the corridor door.
+- The DDU text (the real DDU is a diagnostic menu).
+- MR / feed-pipe / parking-brake pressures, OHE and battery voltages.
+- Exact switch positions on each panel.
+- The same three-phase cab is used for every loco, including the WAP-4 and WCAM-1, whose real cabs differ: tap-changer handwheel, notch indicator.

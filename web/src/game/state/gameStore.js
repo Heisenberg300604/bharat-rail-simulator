@@ -13,7 +13,8 @@ import { createSignalling, nextSignal as findNextSignal } from '../simulation/si
 import { createKavach } from '../simulation/kavach.js';
 import { planIncidents, createIncidentState, runSpeedLimits, incidentLimitAt, summarizeIncidents, INCIDENT_MODES } from '../simulation/incidents.js';
 import { failSignal } from '../simulation/signalling.js';
-import { tunnelAt, bridgeAt } from '../routes/activeRoute.js';
+import { tunnelAt, bridgeAt, route as routeGeometry } from '../routes/activeRoute.js';
+import { terrain } from '../world/terrain.js';
 import { createVcd, vcdSecondsLeft } from '../simulation/vcd.js';
 import { computeFormation } from '../simulation/routeMath.js';
 import { setActiveRoute, routeId as activeRouteId } from '../routes/activeRoute.js';
@@ -143,6 +144,7 @@ function loadSettings() {
     showStandIns: false, // offer locos whose licensed 3D model isn't downloaded yet (procedural stand-in body)
     incidents: 'off', // B5: 'off' | 'occasional' | 'always' (caution orders, failed signals, alarm chain)
     spokenAnnouncements: false, // D1: speak a route-specific station announcement (browser speech) at halts
+    scenery: 'rich', // 'rich' (dense Indian towns, villages, trees, animals) | 'classic' (the original sparse lineside)
   };
   try {
     const saved = JSON.parse(localStorage.getItem('brs-settings') || '{}');
@@ -157,6 +159,7 @@ function loadSettings() {
     if (!['auto', 'on', 'off'].includes(merged.kavach)) merged.kavach = 'auto'; // was an unused boolean
     if (!INCIDENT_MODES.includes(merged.incidents)) merged.incidents = defaults.incidents;
     merged.spokenAnnouncements = merged.spokenAnnouncements === true;
+    if (!['rich', 'classic'].includes(merged.scenery)) merged.scenery = defaults.scenery;
     return merged;
   } catch {
     return defaults;
@@ -463,6 +466,11 @@ export function resetJourney() {
     night: game.settings.timeOfDay === 'night',
     autoSignals: game.signalling.up.filter((x) => x.kind === 'auto'),
     blocked: (s) => !!tunnelAt(s, 15) || !!bridgeAt(s, 15),
+    // derailment scenario: the loop beside the line needs level, dry ground
+    siteOk: (s) => {
+      const h = routeGeometry.heightAt(s);
+      return [6, 9, 12, 24, 40].every((lat) => !terrain.underwater(s, lat) && Math.abs(terrain.groundY(s, lat) - h) < 1.6);
+    },
   });
   if (game.incidents.failedSignal) failSignal(game.signalling, game.incidents.failedSignal.s, game.incidents.failedSignal.waitS);
   game.runLimits = runSpeedLimits(SPEED_LIMITS, game.incidents);

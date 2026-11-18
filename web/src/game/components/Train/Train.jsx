@@ -10,14 +10,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { game, formation, useGameValue, setLocoModelAvailable } from '../../state/gameStore.js';
+import { game, formation, useGameValue, setLocoModelAvailable, kavachActive } from '../../state/gameStore.js';
 import { sceneRefs } from '../../state/sceneRefs.js';
 import { FORMATION, COACH_TYPES, LIVERIES, PARKED_TRAINS, AI_TRAINS, TRACK, LOCOMOTIVES, consistFor, locoLength } from '../../config/gameConfig.js';
 import { vehiclePose } from '../../simulation/routeMath.js';
 import { lines, mainLine, downLine } from '../../world/trackLayout.js';
 import { buildLocomotive, buildBogieFrame, buildWheelset, buildCoachExtras, buildRearEndIndicators, tailLampPosition } from '../../world/models/trainModels.js';
 import { getCoachVariants, coachVariantKey } from '../../world/models/coaches.js';
-import { buildCabInterior, buildCabMoving, SPEEDO_MAX_KMH } from './CabInterior.jsx';
+import { buildCabInterior, buildCabMoving } from './CabInterior.jsx';
 import { buildCoachInterior, createInteriorMaterials, coachEye, COACH_LAYOUTS, INTERIOR_FLOOR, buildDoorway, doorEye } from './CoachInterior.jsx';
 import { buildPersonGeometry, createPeopleMaterial, makeCrowdMesh, randomPerson, ANIM } from '../../world/models/people.js';
 import { seededRandom } from '../../world/geometry.js';
@@ -443,10 +443,9 @@ export default function Train() {
 
   const locoGroup = useRef();
   const cabGroup = useRef();
-  // moving cab parts: speedometer needle (with a little lag, like a real gauge), wipers, cab lamp
+  // moving cab parts: live instrument canvas, TE/BE stick, reverser, A9 handle, horn stick, wipers, cab lamp
   const cabMoving = useMemo(buildCabMoving, []);
   useEffect(() => () => cabMoving.dispose(), [cabMoving]);
-  const cabAnim = useRef({ speed: 0, wipe: 0 });
   const coachInteriorGroup = useRef();
   const rearEndGroup = useRef();
   const doorGroup = useRef();
@@ -699,16 +698,17 @@ export default function Train() {
     sceneRefs.cabShift = cabShift;
 
     if (isCab) {
-      const ca = cabAnim.current;
-      const dt = Math.min(delta, 0.1);
-      ca.speed += (game.train.speedMps * 3.6 - ca.speed) * Math.min(1, dt / 0.35);
-      const f = Math.min(1, Math.max(0, ca.speed / SPEEDO_MAX_KMH));
-      cabMoving.needle.rotation.y = Math.PI * (2 / 3) - f * Math.PI * (4 / 3);
-      // wipers sweep while it rains, and park when it stops
-      const raining = envState.rain > 0.15;
-      if (raining || Math.abs(Math.sin(ca.wipe)) > 0.02) ca.wipe += dt * (Math.PI / 0.75);
-      const ang = -1.25 + 1.15 * (0.5 - 0.5 * Math.cos(ca.wipe));
-      cabMoving.wipers.forEach((w, i) => (w.arm.rotation.x = i ? ang : -ang));
+      cabMoving.update(Math.min(delta, 0.1), {
+        train: game.train,
+        kavach: game.kavach,
+        kavachOn: kavachActive(),
+        vcd: game.vcd,
+        headlight: game.headlight,
+        cabLight: game.cabLight,
+        horn: game.input.horn,
+        env: envState,
+        hotelLoad: consistFor(coachLivery).type === 'lhb', // LHB rakes take hotel load from the loco
+      });
       // cab light (K) after dark: warm fill on the cab walls
       const lit = game.cabLight && envState.lamps > 0.3 ? 1 : 0;
       cabMoving.lamp.material.emissiveIntensity = lit * 2.5;
@@ -756,11 +756,7 @@ export default function Train() {
           ))}
         </group>
         <group ref={cabGroup} visible={false}>
-          <primitive object={cabMoving.speedo} />
-          <primitive object={cabMoving.lamp} />
-          {cabMoving.wipers.map((w, i) => (
-            <primitive key={i} object={w.group} />
-          ))}
+          <primitive object={cabMoving.group} />
           {Object.entries(assets.cab).map(([key, geo]) => (
             <mesh key={key} geometry={geo} material={assets.locoMats[key] ?? assets.locoMats.body} />
           ))}

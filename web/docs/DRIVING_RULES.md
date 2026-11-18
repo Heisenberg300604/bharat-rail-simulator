@@ -94,6 +94,15 @@ Primary text for GR 9.02 and GR 15.09 comes from the G&SR (1976) transcriptions 
   - Once the train is at a stand, the guard and ALP take 120 s to reset the coach; then the driver releases the A9 and recharges.
 - **Game assumptions:** the vent rate (0.5 kg/cm² per second, slower than an emergency application) and the 120 s reset time. No penalty is applied. The run card records the `o o --` code.
 
+**Derailment site on the adjacent line (Settings → Incidents → "Derailment site", practice only)**
+- A blue ICF passenger rake has derailed on a loop line laid 9 m left of the up line. The Accident Relief Train's breakdown crane is re-railing the coaches, staff are on the track, and the passengers have been evacuated. No injuries are shown.
+- The driver passes on a caution order with the same indicators as a temporary restriction: caution board, speed board, T/P and T/G (GR 15.09(1)(d), above). The run card records whether it was observed.
+- **Game assumptions:** 30 km/h past the site, a 520 m restricted length, and that the running line itself is unobstructed (only the loop is fouled). No source was found giving a speed for passing an accident site on an adjacent line.
+
+**Level-crossing gates** (`Road.jsx`): the booms stay down until the **rear** of the player's train has cleared the crossing, as they already did for AI trains. Previously they lifted 40 m after the front passed, and road traffic drove through the coaches.
+
+**Opposite-line trains calling at halts** (`aiTraffic.js`, route `aiTrains[].haltAt`): down trains can call at intermediate stations on platform 2 (the down-side platform), wait their dwell (25–40 s, **game assumption**), then carry on. Used on Howrah–Bandel and Bhor Ghat.
+
 **Horn codes** (`hornCodes.js`): notation per IRFCA (`o` short, `--` long, `-----` longer). **Game assumption:** the rulebook gives no durations, so the game reads a blast under 0.8 s as short, 0.8–2.5 s as long and 2.5 s or more as longer. A code ends after 1.6 s of silence.
 
 ## 10. Station announcements (`audio/announcements.js`; Settings → Spoken station announcements, default **off**)

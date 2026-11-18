@@ -1,7 +1,7 @@
 # CLAUDE.md — Bharat Rail Simulator (web)
 
 Read this first and you should not need to explore the repo to start work.
-Everything here is current as of 2026-11-14 (refreshed after D1, B5, D4). **If you change something this
+Everything here is current as of 2026-11-19 (refreshed after rich scenery, the derailment scenario and AI halts). **If you change something this
 file describes, update this file in the same turn** — see §9.
 
 ---
@@ -20,7 +20,7 @@ React Three Fiber 9.** No other dependencies, no backend, no paid services.
 
 ```bash
 npm run dev      # http://localhost:5173
-npm test         # node --test — 109 tests, all passing; run before claiming done
+npm test         # node --test — 115 tests, all passing; run before claiming done
 npm run build    # static dist/  (vite base: './' so it works in a sub-folder)
 ```
 
@@ -92,13 +92,13 @@ can be unit-tested with `node --test`. Keep it that way.
 | `simulation/trainSimulation.js` | `stepTrain` — TE curve, Davis resistance, A9→BP→BC air brake, reverser, stopping-distance estimate |
 | `simulation/routeMath.js` | `createRoute`, `sample(s)`, curve radius |
 | `simulation/journeyManager.js` | Multi-stop journey: stop zones, hold, dwell + guard's right-away, missed/early stops, punctuality, score, HUD hint |
-| `simulation/aiTraffic.js` | AI trains on the down line |
+| `simulation/aiTraffic.js` | AI trains on the down line; optional intermediate halts (`halts`, built from a route's `aiTrains[].haltAt`) |
 | `simulation/signalling.js` | Live MACLS aspects (chain, starters held until right-away, held homes, AI occupancy on the down line), SPAD + passed events, `nextSignal` |
 | `simulation/kavach.js` | Simplified Kavach ATP: permitted speed, braking curve to EoA/PSR, warn/service/full/emergency/trip (RDSO defaults) |
 | `simulation/vcd.js` | Vigilance control device (60 s / 8 s / penalty / 160 s reset) |
 | `simulation/runStats.js` | Run-card stats: energy, regen, comfort (peak accel/jerk), safety counters |
 | `simulation/driverSchool.js` | Lessons (steps with checks) for the driver school |
-| `simulation/incidents.js` | B5 incidents: plan per run (caution order + boards, failed automatic signal, alarm chain), `runSpeedLimits`, GR 9.02 cautious run, run-card summary |
+| `simulation/incidents.js` | B5 incidents: plan per run (caution order + boards, failed automatic signal, alarm chain; mode `derailment` = derailment site on a loop + caution order), `runSpeedLimits`, GR 9.02 cautious run, run-card summary |
 | `simulation/hornCodes.js` | Reads horn presses as IRFCA codes (`o`, `--`, `-----`, e.g. `o o --`) |
 | `audio/announcements.js` | D1 spoken platform announcement (Web Speech API, Hindi + English); pure text builder is tested |
 | `state/records.js` | Personal records + driving log (localStorage `brs-records`) |
@@ -110,12 +110,13 @@ can be unit-tested with `node --test`. Keep it that way.
 | `audio/audioEngine.js` | The Web Audio graph: rolling beds, joints, horn, loco, ambience, mixing |
 | `audio/railAcoustics.js` | Pure: axle positions, rail-joint schedule, turnouts, inverter tone (tested) |
 | `audio/audioManifest.js` | File URLs + mix levels; rail recordings are **discovered at runtime** from `rail/sounds.json` |
+| `world/` (rich scenery) | `richScenery.js` (placement: houses, towns, slums, walls, poles, towers, kilns, trees, animals, villagers → per-600 m `Kit`s), `kit.js` (merged flat-shaded mesh builder, 1 draw call per patch), `sceneryAtlas.js` (canvas atlas + the kit material, night windows), `ChunkedMeshes.jsx`, `occupancy.js` (+test), `placement.js` (yard/town/bridge/footprint helpers shared with `Scenery.jsx`), `models/houses.js`, `models/props.js`, `models/plants.js`, `models/animals.js` |
 | `world/` | `modelBuilder`, `geometry`, `textures` (canvas-drawn), `trackLayout` (rebuilt per route), `roadLayout`, `terrain` (height in route coords: zones, cuttings, tunnels hills, rivers, sea), `biomes` (per-route scenery kits), `environment`, `glow`, `ChunkedInstances.jsx` |
 | `world/models/` | `trainModels` (bogies, wheelsets, fallback loco), `coaches` (original ICF/LHB bodies; destination boards follow the route), `loadGlbModel` (+ `measureLampAnchors`: lamps sit on the model's real nose), `roadVehicles`, `people` |
-| `components/Train/` | `Train.jsx` (the rake), `CabInterior`, `CoachInterior` |
+| `components/Train/` | `Train.jsx` (the rake), `CabInterior` (WAP-7/WAG-9 cab after IRFCA/RDSO, sources in ASSET_CREDITS; `buildCabMoving().update(dt, ctx)` moves the TE/BE stick, reverser, A9, horn stick, wipers), `cabDisplays.js` (ONE live canvas for every gauge, lamp, DDU, speedometer and the Kavach DMI, redrawn ~8×/s in cab view), `CoachInterior` |
 | `components/Track/TrackRoute.jsx` | Rails, sleepers, ballast, OHE |
 | `components/Stations/Station.jsx` | Platforms, buildings, boards, lighting |
-| `components/Environment/` | `Atmosphere` (sky/sun/moon/lighting, tunnel darkness), `Weather`, `Terrain` (chunked corridor mesh, far plane, water), `Structures` (bridges, tunnels), `Landmarks`, `Scenery` (biome-driven), `Road.jsx` (road, traffic, level crossings), `Signals` (instanced posts + live lamps, A/P plates), `SpeedBoards`, `IncidentBoards` (caution/speed/T-P/T-G boards of this run's caution order), `PassDust` (D4 dust when an AI train passes; 1 draw call) |
+| `components/Environment/` | `Atmosphere` (sky/sun/moon/lighting, tunnel darkness), `Weather`, `Terrain` (chunked corridor mesh, far plane, water), `Structures` (bridges, tunnels), `Landmarks`, `Scenery` (biome-driven), `Road.jsx` (road, traffic, level crossings), `Signals` (instanced posts + live lamps, A/P plates), `SpeedBoards`, `IncidentBoards` (caution/speed/T-P/T-G boards of this run's caution order), `DerailmentSite` (loop line, derailed ICF rake, ART crane, staff; ~8 draw calls within 2.5 km), `PassDust` (D4 dust when an AI train passes; 1 draw call) |
 | `components/People/Crowds.jsx` | GPU-animated crowds; exports `KID_SPOTS` |
 | `components/People/Guard.jsx` | D1 guard waving the right-away (green flag / night lamp) beyond the rear of the train (`sceneRefs.guardSignal`) |
 | `components/Cameras/CameraRig.jsx` | Six camera modes + mouse look/orbit |
@@ -185,12 +186,17 @@ can be unit-tested with `node --test`. Keep it that way.
   engine calls `stationProximityAt(L.s)` / `roadProximityAt(L.s)`), never from
   the train's rear; station sound is gone about 400 m from the platform.
 - The cab buzzer is shared: `audioEngine.setBuzzer(on, key)` ('vcd', 'acp').
+- Pass-by recordings that already contain a horn are tagged `"containsHorn": true` in `rail/sounds.json`; while one plays, `playAiHorn()` stays silent (otherwise the player hears two horns). Tag any new pass-by clip that has a horn.
+- Cab instruments: panel faces are UV-mapped regions of the `cabDisplays.js` canvas (`REGIONS`, 610 px/m); 3D parts that sit on a panel (E-stop, toggles) use the same pixel coordinates via `FRAMES[x].at(px, py)`. Move both together.
+- Setting **`scenery`**: `'rich'` (default) | `'classic'`. Classic = exactly the original `Scenery.jsx` output. Rich builds on it (`buildRichScenery(classic, density)`): classic items it converts are filtered out via `removed`; its random stream is separate (seed 9001), so Classic placement never changes. Rich villagers reach `Crowds.jsx` through `setRichPeople` / `subscribeRichPeople`.
+- Level-crossing gates stay down until the player's **rear** clears (`formation.totalLength`); scenery walkers must never path across the track.
+- Dev only: `window.__BRS__` has `view(s, lat, h, lookS, lookLat, lookH)` (fixed camera, `view(null)` releases), `stats()` (draw calls), `updateSettings`, `cfg` — use these from a console/CDP script, never `import()` store modules (after HMR that loads a second copy of the store).
 
 ## 6. Current state
 
 Milestones 0–6 done; milestone 7 (performance & release) partial. Six
 routes (routes plan steps 1–7 implemented). Wave 1 of ENHANCEMENTS_PLAN done,
-plus A1/A2/A3/A5, D1, B5 (partial), D4 and the WAP-4/WCAM-1/BVZI/BCNA models. 109 tests pass. Measured on an M4: 46–88 draw calls, steady 60 FPS; 58–60 FPS on Low
+plus A1/A2/A3/A5, D1, B5 (partial), D4, the WAP-4/WCAM-1/BVZI/BCNA models, rich scenery (default), the derailment-site scenario and AI halts. 115 tests pass. Rich scenery measured on an M4 (High): draw calls about the same as Classic (merged patches replace instanced boxes), +0.2–0.5 M triangles, built in 55–450 ms at route load. Measured on an M4: 46–88 draw calls, steady 60 FPS; 58–60 FPS on Low
 with the CPU throttled 4×.
 
 **Known limitations and quirks** (don't "fix" these by surprise):
@@ -232,6 +238,7 @@ with the CPU throttled 4×.
   licence, used with the author's permission as reported by the owner
   (2026-11-15). Keep that permission in writing; if it is withdrawn, delete
   `models/station/` and the procedural building returns automatically.
+- Rich scenery: signboards and wall ads use generic words only (no brands) in English + the route's script (Devanagari / Bengali / Tamil, falls back to system fonts). Animals are static. The loop line at the derailment site is scenery only (not drivable). Low-preset FPS with rich scenery not yet re-measured on a weak GPU.
 - Persistence is localStorage only (settings, bests, records, school); no server yet.
 - `docs/ROUTES_PLAN.md` is deleted in the owner's working copy (still in git
   history); the routes are documented in `src/game/routes/` and §3–§5 here.

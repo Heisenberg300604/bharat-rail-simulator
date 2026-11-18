@@ -62,6 +62,12 @@ export default function CameraRig() {
   useFrame((state, delta) => {
     const loco = sceneRefs.locomotive;
     if (!loco) return;
+    if (import.meta.env.DEV && sceneRefs.debugCam) {
+      // dev-only fixed camera (window.__BRS__.view) for repeatable screenshots
+      camera.position.set(...sceneRefs.debugCam.pos);
+      camera.lookAt(...sceneRefs.debugCam.look);
+      return;
+    }
     const s = st.current;
     const input = consumePointer();
     const dt = Math.min(delta, 0.1);

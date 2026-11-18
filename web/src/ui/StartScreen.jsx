@@ -84,6 +84,13 @@ function Settings({ settings }) {
         <span className="num">{Math.round(settings.volume * 100)}%</span>
       </label>
       <label className="setting">
+        <span>Scenery</span>
+        <select value={settings.scenery ?? 'rich'} onChange={(e) => updateSettings({ scenery: e.target.value })}>
+          <option value="rich">Rich (busy towns, villages, regional trees, animals)</option>
+          <option value="classic">Classic (the original, sparse lineside)</option>
+        </select>
+      </label>
+      <label className="setting">
         <span>Background sounds</span>
         <select value={settings.ambience ?? 'occasional'} onChange={(e) => updateSettings({ ambience: e.target.value })}>
           <option value="occasional">Occasional (comes and goes)</option>
@@ -105,9 +112,10 @@ function Settings({ settings }) {
           <option value="off">Off</option>
           <option value="occasional">Occasional (about one run in two)</option>
           <option value="always">Every run (practice)</option>
+          <option value="derailment">Derailment site beside the line (practice)</option>
         </select>
       </label>
-      <p className="modal__note">Incidents: a caution order for track work, an automatic signal failed at danger (GR 9.02), or the alarm chain pulled. Each follows the rulebook, and the HUD tells you the procedure.</p>
+      <p className="modal__note">Incidents: a caution order for track work, an automatic signal failed at danger (GR 9.02), or the alarm chain pulled. Each follows the rulebook, and the HUD tells you the procedure. "Derailment site": coaches have derailed on the loop beside your line and the relief crane is at work; pass it on a 30 km/h caution order.</p>
       <label className="setting">
         <span>Field of view</span>
         <input type="range" min="50" max="90" step="1" value={settings.fov} onChange={(e) => updateSettings({ fov: Number(e.target.value) })} />

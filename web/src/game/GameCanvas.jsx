@@ -18,6 +18,7 @@ import Signals from './components/Environment/Signals.jsx';
 import SpeedBoards from './components/Environment/SpeedBoards.jsx';
 import IncidentBoards from './components/Environment/IncidentBoards.jsx';
 import PassDust from './components/Environment/PassDust.jsx';
+import DerailmentSite from './components/Environment/DerailmentSite.jsx';
 import Guard from './components/People/Guard.jsx';
 import { Sky, Lighting, EnvironmentLighting, EnvironmentController, HORIZON_COLOR } from './components/Environment/Atmosphere.jsx';
 import Weather from './components/Environment/Weather.jsx';
@@ -42,6 +43,7 @@ function RouteWorld() {
       <Signals />
       <SpeedBoards />
       <IncidentBoards />
+      <DerailmentSite />
       <PassDust />
       <Guard />
       {STATIONS.map((st) => (
