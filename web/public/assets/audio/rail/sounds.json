@@ -696,6 +696,8 @@
     "processing": "Audio extracted from the Commons transcode; HP 25 Hz; 1.5 s fade-in/out; peak-normalised -1 dBFS; LAME -q:a 2.",
     "recordedSpeedKmh": 100,
     "loopable": false,
+    "containsHorn": true,
+    "containsHornNote": "horn audible through most of the clip (spectrogram 2026-11-19: harmonics ~270/530/800 Hz, 2.5–13.5 s)",
     "notes": "INDIAN express (12479 Suryanagari Exp.) passing Basni station: approach, locomotive, then coaches (fades out while coaches still pass — it is a long train, so there is no full recede). CAVEATS: smartphone audio, the loudest second (15–21 s) was near/over full scale in the source (some clipping distortion likely), and a steady 411 Hz tone at 19–24 s (horn or loco auxiliary — could not tell).",
     "qc": {
       "durationS": 15.0,
@@ -718,6 +720,7 @@
     "processing": "HP 25 Hz; 1.0 s fade-in, 1.5 s fade-out; peak-normalised -1 dBFS; LAME -q:a 2.",
     "recordedSpeedKmh": 55,
     "loopable": false,
+    "containsHorn": false,
     "notes": "Clean full approach–peak–recede of an electric passenger train, omni pair close to the wheels, with clear joint clacks. Not Indian (European). Best technical quality of the three.",
     "qc": {
       "durationS": 15.0,
@@ -740,6 +743,8 @@
     "processing": "HP 25 Hz; 1.5 s fade-in, 2.0 s fade-out; peak-normalised -1 dBFS; LAME -q:a 2.",
     "recordedSpeedKmh": 26,
     "loopable": false,
+    "containsHorn": true,
+    "containsHornNote": "one horn blast at 10.5–11.3 s (spectrogram 2026-11-19)",
     "notes": "INDIAN, slow: locomotive of a passenger train passing Yelahanka Jn (Bangalore) 2 m from the binaural mics, approach–peak–recede. Heavy LF engine rumble (traction type not stated — may be diesel). Small tonal event at ~10 s into the file.",
     "qc": {
       "durationS": 15.0,

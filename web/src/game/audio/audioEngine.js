@@ -420,7 +420,7 @@ class AudioEngine {
           else if (name.startsWith('turnout')) r.turnout.push(buf);
           else if (name.startsWith('brake-squeal')) r.brakeSqueal ??= makeSeamless(this.ctx, buf, 0.3);
           else if (name.startsWith('squeal')) r.squeal ??= makeSeamless(this.ctx, buf, 0.4);
-          else if (name.startsWith('passby')) (r.passby ??= []).push({ name, buf });
+          else if (name.startsWith('passby')) (r.passby ??= []).push({ name, buf, containsHorn: e.containsHorn === true });
           else if (name.startsWith('horn-alt-onboard')) this.buffers.hornOnboard = buf;
           else if (/^loco-.*(traction-idle|transformer)/.test(name)) r.locoIdle ??= makeSeamless(this.ctx, buf, 0.6);
           else if (/^loco-.*(aux|blower|fan)/.test(name)) r.locoBlower ??= makeSeamless(this.ctx, buf, 0.6);
@@ -582,6 +582,7 @@ class AudioEngine {
     if (!this.ready) return;
     const now = this.ctx.currentTime;
     if (now - this.lastAiHornTime < 10) return;
+    if (now < (this.aiHornQuietUntil ?? 0)) return; // the pass-by recording already has a horn
     this.lastAiHornTime = now;
     const distant = Object.values(this.horns).filter((h) => h.kind === 'distant');
     if (distant.length) {
@@ -657,11 +658,16 @@ class AudioEngine {
 
   playPassby(level = 1) {
     const list = this.rail.passby;
-    const buf = list?.length ? list[Math.floor(Math.random() * list.length)].buf : this.buffers.passby;
+    const pick = list?.length ? list[Math.floor(Math.random() * list.length)] : null;
+    const buf = pick ? pick.buf : this.buffers.passby;
     if (!this.ready || !buf) return;
     const now = this.ctx.currentTime;
     if (now - this.lastPassbyTime < 12) return;
     this.lastPassbyTime = now;
+    // Some pass-by recordings already carry the passing train's horn (sounds.json
+    // "containsHorn"); then the separate AI horn stays quiet for this pass, or the
+    // player hears two horns. (The fallback train-passby-india.mp3 has no horn.)
+    if (pick?.containsHorn) this.aiHornQuietUntil = now + buf.duration;
     this.playOneShot(buf, MIX.passby * level, this.ambBus.in);
   }
 
