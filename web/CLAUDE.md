@@ -122,7 +122,7 @@ can be unit-tested with `node --test`. Keep it that way.
 | `components/Cameras/CameraRig.jsx` | Six camera modes + mouse look/orbit |
 | `src/ui/` | `StartScreen` (route list + detail, difficulty, Driver school/How-to-play/Settings/Records/About modals), `JourneyComplete` (run card + PNG), `PhotoMode`, `LessonPanel`, `RoutePicker` (`RouteList`, `RouteDetail`, `Profile`), `HUD`, `PauseMenu`, `LoadingScreen`, `JourneyComplete`, `RestartConfirm`, `ControlsTable`, `EnvironmentPicker` |
 | `index.html`, `public/` (root files) | SEO: title/description/canonical, Open Graph + Twitter card, VideoGame JSON-LD, `<noscript>` text; `robots.txt`, `sitemap.xml`, `site.webmanifest`, `favicon.svg`, `icon-192/512.png`, `apple-touch-icon.png`, `og-image.jpg` (1200×630, the game's own cab view). Production URL: https://bharat-rail-simulator.vercel.app (update canonical/OG/sitemap if the domain changes) |
-| `public/assets/` | `models/station/station-building.glb` (wayside station building, `Station.jsx`; procedural office until it loads), `models/locomotive/*.glb` (WAP-7, WAG-9, WAP-4, WCAM-1; + per-model LICENSE), `models/stock/` (`bvzi.glb` brake van, `bcna.glb` covered wagon, `btpn.glb` petrol tank wagon — any `COACH_TYPES` entry with `model` is drawn from its GLB), `audio/rail/`, `audio/ambience/` (each with `CREDITS.md`) |
+| `public/assets/` | `models/station/station-building.glb` (wayside station building, `Station.jsx`; procedural office until it loads), `models/locomotive/*.glb` (WAP-7, WAG-9, WAP-4, WCAM-1; + per-model LICENSE), `models/stock/` (`bvzi.glb` brake van, `bcna.glb` covered wagon, `btpn.glb` petrol tank wagon, `icf-blue.glb` the owner's blue ICF coach (see `COACH_MODELS`) — any `COACH_TYPES` entry with `model` is drawn from its GLB), `audio/rail/`, `audio/ambience/` (each with `CREDITS.md`) |
 
 ## 5. Invariants — breaking these breaks the game
 
@@ -174,6 +174,9 @@ can be unit-tested with `node --test`. Keep it that way.
   far-away/culled objects don't hitch when first seen; `ChunkedInstances`
   re-culls immediately after a camera jump > 150 m.
 - Tested modules must stay import-clean of Three.js/React.
+- **A zero-scaled instance still costs every vertex.** Detailed GLB coaches are packed into the first
+  slots of their `InstancedMesh` and `mesh.count` is set (Train.jsx `glbSlots`); never "hide" a heavy
+  instance by scaling it to zero.
 - **Exactly one `<SimulationDriver />`, inside `RouteWorld`.** A second copy
   steps the physics twice per frame (the game ran at 2× real time from the
   routes commit until 2026-11-14 because of this).
@@ -228,9 +231,10 @@ with the CPU throttled 4×.
   `bakedDoppler`: no extra Doppler) for opposing trains. `horn-india.mp3` is
   only the fallback. The recordists don't name the loco classes. Player horns
   are WAV so their loop points stay sample-accurate.
-- The ICF and LHB coaches are **original procedural** bodies built to real
-  dimensions (a CC BY ICF model is catalogued in ASSET_CREDITS but not yet
-  downloaded).
+- The LHB and the brick/Utkrisht ICF coaches are **original procedural** bodies built to real
+  dimensions. The **blue ICF** is the owner's own Blender model (`stock/icf-blue.glb`, `COACH_MODELS`),
+  drawn only within `COACH_MODEL_LOD_M` (150 m) of the camera, with the procedural coach beyond that
+  and as the fallback. Its decals were exported without images, so they were removed (ASSET_CREDITS).
 - The WAP-7 traction-motor sound is synthesized; no licence-clean recording of
   an Indian three-phase loco exists.
 - The WAP-7 body texture carries real fleet numbers — see the open question in

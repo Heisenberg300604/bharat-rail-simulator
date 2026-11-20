@@ -8,11 +8,11 @@
 // - Bogies and wheelsets are placed at their OWN position on the rails, so on
 //   curves the wheels stay on the track while the body forms a chord.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { game, formation, useGameValue, setLocoModelAvailable, kavachActive } from '../../state/gameStore.js';
 import { sceneRefs } from '../../state/sceneRefs.js';
-import { FORMATION, COACH_TYPES, LIVERIES, PARKED_TRAINS, AI_TRAINS, TRACK, LOCOMOTIVES, consistFor, locoLength } from '../../config/gameConfig.js';
+import { FORMATION, COACH_TYPES, COACH_MODELS, COACH_MODEL_LOD_M, LIVERIES, PARKED_TRAINS, AI_TRAINS, TRACK, LOCOMOTIVES, consistFor, locoLength } from '../../config/gameConfig.js';
 import { vehiclePose } from '../../simulation/routeMath.js';
 import { lines, mainLine, downLine } from '../../world/trackLayout.js';
 import { buildLocomotive, buildBogieFrame, buildWheelset, buildCoachExtras, buildRearEndIndicators, tailLampPosition } from '../../world/models/trainModels.js';
@@ -23,7 +23,7 @@ import { buildPersonGeometry, createPeopleMaterial, makeCrowdMesh, randomPerson,
 import { seededRandom } from '../../world/geometry.js';
 import { loadMergedModel, measureLampAnchors } from '../../world/models/loadGlbModel.js';
 import { createGlowMaterial, createBeamMesh, makeGlowMesh, setGlow, disposeGlowMaterial } from '../../world/glow.js';
-import { envState } from '../../world/environment.js';
+import { envState, onEnvironmentChange } from '../../world/environment.js';
 
 // Lamp positions in the locomotive's local frame (x forward, y up, z right)
 // for the procedural stand-in; loaded models get their own (measureLampAnchors).
@@ -46,6 +46,8 @@ function makeReflectiveMaterial() {
 
 // Licensed WAP-7 model (CC-BY-4.0, see docs/ASSET_CREDITS.md). Until it has
 // loaded — or if it fails — the procedural locomotive is shown instead.
+// Shadow-map stand-in: draws nothing in the main pass, casts the shadow of a detailed GLB coach
+const SHADOW_ONLY_MAT = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
 const locoUrl = (id) => `${import.meta.env.BASE_URL}assets/models/locomotive/${LOCOMOTIVES[id].model}`;
 
 export const FRAME_PRIORITY_TRAIN = -2; // after the simulation (-3), before cameras (-1)
@@ -351,6 +353,54 @@ export default function Train() {
 
   const coachVariants = useMemo(getCoachVariants, []);
 
+  // GLB coach bodies (COACH_MODELS) replace their procedural variant once loaded
+  const [coachModels, setCoachModels] = useState({});
+  useEffect(() => {
+    let alive = true;
+    const unsubs = [];
+    const disposables = [];
+    for (const [variant, file] of Object.entries(COACH_MODELS)) {
+      loadMergedModel(`${import.meta.env.BASE_URL}assets/models/stock/${file}`, { forwardAxis: 'z' })
+        .then((m) => {
+          if (!alive) return;
+          for (const p of m.parts) {
+            // the loader sits the lowest point (the wheel flanges) on the rail; the treads belong
+            // there, 28 mm higher (measured on the model). Once only: the loader caches the parts.
+            if (!p.geometry.userData.onTread) {
+              p.geometry.translate(0, -0.028, 0);
+              p.geometry.computeBoundingSphere();
+              p.geometry.userData.onTread = true;
+            }
+            // saloon lights (emissive strength > 1) come on with the lamps at dusk, like the procedural windows
+            const mat = p.material;
+            if (mat.emissiveIntensity > 1) {
+              mat.userData.lampIntensity ??= mat.emissiveIntensity;
+              unsubs.push(onEnvironmentChange((env) => (mat.emissiveIntensity = mat.userData.lampIntensity * env.lamps)));
+            } else if (mat.transparent) {
+              // window glass glows warm with the saloon lights after dark (seen from outside)
+              mat.emissiveMap = null;
+              mat.emissive.set('#ffd49a');
+              mat.needsUpdate = true;
+              unsubs.push(onEnvironmentChange((env) => (mat.emissiveIntensity = 0.9 * env.lamps)));
+            }
+          }
+          // the detailed body casts no shadow; an invisible coach-sized box casts it (last part)
+          const shadowBox = new THREE.BoxGeometry(21.0, 3.05, 3.24).translate(0, 2.5, 0);
+          disposables.push(shadowBox);
+          const shadowOnly = { geometry: shadowBox, material: SHADOW_ONLY_MAT, shadowOnly: true };
+          setCoachModels((prev) => ({ ...prev, [variant]: { ...m, parts: [...m.parts, shadowOnly] } }));
+        })
+        .catch((err) => console.warn(`${variant} coach model failed to load, using the procedural coach:`, err));
+    }
+    return () => {
+      alive = false;
+      unsubs.forEach((u) => u());
+      disposables.forEach((g) => g.dispose());
+    };
+  }, []);
+  const camera = useThree((s) => s.camera);
+  const LOD_FAR = COACH_MODEL_LOD_M + 10; // hysteresis: no flicker at the boundary
+
   // Inside the first coach: the interior for the chosen coach type, with
   // passengers sitting on the berths around you.
   const consist = consistFor(coachLivery);
@@ -422,6 +472,7 @@ export default function Train() {
     // Index coaches per type for extras and bogies
     const typeIdx = { lhb: 0, icf: 0, boxn: 0 };
     for (const v of coaches) v.typeIndex = typeIdx[v.type in typeIdx ? v.type : 'lhb']++;
+    coaches.forEach((v, i) => (v.coachIndex = i)); // wheelset slot
 
     const locos = vehicles.filter((v) => v.kind === 'locomotive');
     const otherLocos = locos.filter((v) => !v.isPlayer);
@@ -490,7 +541,7 @@ export default function Train() {
     }
     for (const id of Object.keys(LOCOMOTIVES)) for (const key of ['paint', 'paint2']) if (r[`ploco_${id}_${key}`]?.instanceColor) r[`ploco_${id}_${key}`].instanceColor.needsUpdate = true;
     updateAll(true);
-  }, [partsByModel, coachVariants, counts]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [partsByModel, coachVariants, coachModels, counts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pose = {};
   const pt = {};
@@ -544,8 +595,9 @@ export default function Train() {
   function updateAll(includeParked) {
     const r = refs.current;
     const d = game.renderDistance;
-    let coachWheelIdx = 0;
     let glowIdx = 0;
+    let parkedFlip = false; // a parked coach crossed the GLB detail distance
+    const glbSlots = {}; // near coaches packed into the first instances of each GLB mesh
     const lit = envState.lamps > 0.02;
 
     for (const v of vehicles) {
@@ -555,6 +607,8 @@ export default function Train() {
       const ownGear = isLoco && LOCOMOTIVES[v.model]?.ownRunningGear && glbModels[v.model];
 
       if (!v.dynamic && !includeParked) {
+        // parked GLB coaches never move, but switch detail level as the camera comes and goes
+        if (v.lodPos && camera.position.distanceTo(v.lodPos) < (v.lodNear ? LOD_FAR : COACH_MODEL_LOD_M) !== v.lodNear) parkedFlip = true;
         // parked locos never move, but their marker lamps still need a glow slot
         if (isLoco && lit) {
           vehiclePose(v.line, v.centerS, spec.bogieSpacing, pose);
@@ -608,17 +662,39 @@ export default function Train() {
         else if (r.locoBogie) placeRunningGear(v, centerS, dist, r.locoBogie, (pli + 1) * 2, r.locoWheel, (pli + 1) * 6, spec, v.reverseHeading, pose.pitch);
       } else {
         const variantKey = v.variantKey;
-        const parts = coachVariants[variantKey] || coachVariants['lhb-red'];
-        parts.forEach((_, k) => r[`cv_${v.variant}_${k}`]?.setMatrixAt(v.variantIndex, _m));
+        const glbBody = coachModels[variantKey];
+        // GLB body near the camera, procedural body further away (COACH_MODEL_LOD_M)
+        let near = false;
+        if (glbBody) {
+          v.lodPos = (v.lodPos ?? new THREE.Vector3()).copy(_p);
+          // in the saloon view the game's own interior (inside the procedural shell, as before) is the first coach
+          const saloon = v.isPlayer && v === vehicles[1] && game.cameraMode === 'interior';
+          near = !saloon && camera.position.distanceTo(_p) < (v.lodNear ? LOD_FAR : COACH_MODEL_LOD_M);
+          v.lodNear = near;
+          if (near) {
+            // only near coaches are instances at all: a zero-scaled instance still costs every vertex
+            const slot = glbSlots[v.variant] ?? 0;
+            glbSlots[v.variant] = slot + 1;
+            glbBody.parts.forEach((_, k) => r[`cv_${v.variant}g_${k}`]?.setMatrixAt(slot, _m));
+          }
+        }
+        const procParts = coachVariants[variantKey] || coachVariants['lhb-red'];
+        procParts.forEach((_, k) => r[`cv_${v.variant}_${k}`]?.setMatrixAt(v.variantIndex, near ? _zero : _m));
 
         const isIcf = v.type === 'icf';
         const isBoxn = v.type === 'boxn';
         const extrasMesh = isBoxn ? null : isIcf ? r.icfCoachExtras : r.lhbCoachExtras;
         const bogieMesh = isBoxn ? r.boxnBogie : isIcf ? r.icfCoachBogie : r.lhbCoachBogie;
 
-        extrasMesh?.setMatrixAt(v.typeIndex, _m);
-        placeRunningGear(v, centerS, dist, bogieMesh, v.typeIndex * 2, r.coachWheel, coachWheelIdx * 4, spec, v.reverseHeading, pose.pitch);
-        coachWheelIdx++;
+        if (near) {
+          // the model has its own bogies, wheelsets, buffers and couplers
+          extrasMesh?.setMatrixAt(v.typeIndex, _zero);
+          for (let b = 0; b < 2; b++) bogieMesh?.setMatrixAt(v.typeIndex * 2 + b, _zero);
+          for (let w = 0; w < 4; w++) r.coachWheel?.setMatrixAt(v.coachIndex * 4 + w, _zero);
+        } else {
+          extrasMesh?.setMatrixAt(v.typeIndex, _m);
+          placeRunningGear(v, centerS, dist, bogieMesh, v.typeIndex * 2, r.coachWheel, v.coachIndex * 4, spec, v.reverseHeading, pose.pitch);
+        }
       }
     }
 
@@ -668,6 +744,19 @@ export default function Train() {
       mesh.instanceMatrix.needsUpdate = true;
       if (includeParked || mesh.userData.dynamic) mesh.computeBoundingSphere();
     }
+
+    // GLB coach meshes draw only their packed near instances (parked ones: set in the full pass)
+    for (const variant of Object.keys(counts.variantCounts)) {
+      const glb = coachModels[variant.replace('-parked', '')];
+      if (!glb || (!includeParked && variant.endsWith('-parked'))) continue;
+      glb.parts.forEach((_, k) => {
+        const mesh = r[`cv_${variant}g_${k}`];
+        if (!mesh) return;
+        mesh.count = glbSlots[variant] ?? 0;
+        mesh.computeBoundingSphere();
+      });
+    }
+    if (parkedFlip) updateAll(true);
   }
 
   useFrame((state, delta) => {
@@ -811,16 +900,19 @@ export default function Train() {
       {/* Instanced meshes for coach body shells by variant */}
       {Object.entries(counts.variantCounts).flatMap(([variant, n]) => {
         const variantKey = variant.replace('-parked', '');
-        const parts = coachVariants[variantKey] || coachVariants['lhb-red'];
-        return parts.map((p, k) => (
+        // procedural body, plus the GLB body (near-camera level of detail) once loaded, as `${variant}g`
+        const sets = [['', coachVariants[variantKey] || coachVariants['lhb-red']]];
+        if (coachModels[variantKey]) sets.push(['g', coachModels[variantKey].parts]);
+        const parked = variant.endsWith('parked');
+        return sets.flatMap(([g, parts]) => parts.map((p, k) => (p.shadowOnly && parked ? null : (
           <instancedMesh
-            key={`${variant}${k}`}
-            ref={register(`cv_${variant}_${k}`, !variant.endsWith('parked'))}
+            key={`${variant}${g}${k}`}
+            ref={register(`cv_${variant}${g}_${k}`, !parked)}
             args={[p.geometry, p.material, n]}
-            castShadow={!variant.endsWith('parked')}
-            receiveShadow
+            castShadow={!parked && (g === '' || p.shadowOnly)}
+            receiveShadow={!p.shadowOnly}
           />
-        ));
+        ))));
       })}
 
       {/* LHB coach extras (bellows, water tanks, CBC couplers) */}

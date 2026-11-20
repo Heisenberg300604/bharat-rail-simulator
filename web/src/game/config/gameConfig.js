@@ -242,6 +242,16 @@ export const COACH_TYPES = {
   btpn: { length: 12.42, bogieSpacing: 8.43, wheelRadius: 0.5, axleOffsets: [-1.0, 1.0], gap: 0.1, model: 'btpn.glb' },
 };
 
+// GLB bodies that replace a procedural coach variant (coaches.js) once loaded; the
+// procedural coach stays as the fallback. They bring their own bogies, wheels, buffers
+// and couplers, so the procedural running gear and extras are hidden under them.
+//   icf-blue: the owner's own Blender model (stock/icf-blue.glb, see ASSET_CREDITS)
+export const COACH_MODELS = { 'icf-blue': 'icf-blue.glb' };
+// The GLB body (~76k triangles) is drawn only for coaches this close to the camera;
+// further away the procedural body (a few hundred) stands in. Every ICF in the world
+// as a GLB measured 5.2 M triangles a frame against 1.9 M (2026-11-21).
+export const COACH_MODEL_LOD_M = 150;
+
 // Livery colours (primary body, secondary band). Applied per vehicle instance,
 // so one coach model serves every scheme.
 export const LIVERIES = {
