@@ -72,12 +72,14 @@ export const LOCOMOTIVES = {
     label: 'WAP-7 · passenger',
     model: 'wap7.glb',
     horn: null, // default horn id from public/assets/audio/horns/horns.json
+    couplerReach: 0.384, // model is 21.33 m against its 20.56 m slot: buffers/couplers reach this far past each end
     physics: {},
   },
   wag9: {
     label: 'WAG-9 · freight',
     model: 'wag9.glb',
     horn: null,
+    couplerReach: 0.384,
     physics: { startingTE_kN: 460, power_kW: 4350, regenMax_kN: 260, locoMaxKmh: 100, teRamp_kNps: 70 },
   },
   // Wave 3 fleet. Figures from the IRFCA electric-loco FAQ and Wikipedia (see
@@ -138,6 +140,20 @@ export const CONSISTS = {
   icfBrick: { label: 'Heritage brick-red ICF (1955–1990s) + SLR', type: 'icf', livery: 'icfBrick', count: 8, massT: 50, passenger: true, slr: true },
   icfUtkrisht: { label: 'Utkrisht ICF, beige & maroon (2018) + SLR', type: 'icf', livery: 'icfUtkrisht', count: 8, massT: 50, passenger: true, slr: true },
 };
+/**
+ * Gap between a locomotive and the first vehicle behind it, as drawn. The coach gap assumes
+ * the loco's couplers reach past its length (WAP-7/WAG-9 do); behind a loco whose model ends
+ * exactly at its length (WAP-4, WCAM-1) that left 0.27–0.35 m of daylight, so the slack is
+ * taken out and the couplers/buffers meet. Never widens a gap. Drawing only: physics keeps
+ * the formation length.
+ */
+export function firstCoachGap(locoId, type) {
+  const ct = COACH_TYPES[type] || COACH_TYPES.lhb;
+  const gap = ct.gap ?? FORMATION.couplingGap;
+  const slack = gap - (ct.couplerReach ?? 0) - (LOCOMOTIVES[locoId]?.couplerReach ?? 0);
+  return slack > 0 ? gap - slack : gap;
+}
+
 /** Length of a locomotive (its model's real length; the default body otherwise). */
 export function locoLength(id) {
   return LOCOMOTIVES[id]?.length ?? FORMATION.locomotive.length;
@@ -226,8 +242,10 @@ export const FORMATION = {
 // Coach types. LHB: modern (Germany-designed, 2000s+). ICF: the classic
 // Integral Coach Factory design, still common in blue livery.
 export const COACH_TYPES = {
-  lhb: { length: 23.54, bogieSpacing: 14.9, wheelRadius: 0.4575, axleOffsets: [-1.28, 1.28], gap: 0.5 },
-  icf: { length: 21.337, bogieSpacing: 14.783, wheelRadius: 0.4575, axleOffsets: [-1.448, 1.448], gap: 0.7 },
+  // couplerReach: how far the coach model's couplers/buffers reach past each end of `length`
+  // (lhb-red.glb: 24.00 m over couplers; icf-blue.glb: 22.037 m over buffers). See firstCoachGap().
+  lhb: { length: 23.54, bogieSpacing: 14.9, wheelRadius: 0.4575, axleOffsets: [-1.28, 1.28], gap: 0.5, couplerReach: 0.23 },
+  icf: { length: 21.337, bogieSpacing: 14.783, wheelRadius: 0.4575, axleOffsets: [-1.448, 1.448], gap: 0.7, couplerReach: 0.35 },
   // BOXN open wagon (bulk coal/ore), CASNUB bogies, centre-buffer couplers
   boxn: { length: 10.713, bogieSpacing: 6.524, wheelRadius: 0.5, axleOffsets: [-1.0, 1.0], gap: 0.3 },
   // BVZI brake van (guard's van at the rear of goods trains): "BVZI_ Brake_ Van_indian_train" by
@@ -250,19 +268,44 @@ export const COACH_TYPES = {
 // procedural coach stays as the fallback. They bring their own bogies, wheels, buffers
 // and couplers, so the procedural running gear and extras are hidden under them.
 // treadDrop: how far the wheel flanges reach below the rail top (the loader sits the
-// lowest point on the rail). livery: painted in the shader (world/models/coachLiveries.js).
-// lodM: detail distance for a heavy model (default COACH_MODEL_LOD_M).
-//   icf-blue: the owner's own Blender model (stock/icf-blue.glb, see ASSET_CREDITS)
-//   lhb-red, lhb-humsafar, lhb-blue: "IR Hamsafar LHB 3AC" by kaushal_krishna, CC BY 4.0 (stock/lhb.glb),
-//     one uncoloured model in three liveries
+// lowest point on the rail). lodM: detail distance (default COACH_MODEL_LOD_M).
+// recolour + livery / swap: repaint some of the model's own colours (coachLiveries.js).
+// Both models are the owner's own Blender work (see ASSET_CREDITS):
+//   icf-blue.glb: blue ICF; icf-utkrisht repaints its blue body and band cream + maroon
+//   lhb-red.glb: red-grey LHB 3AC (LWACCN); lhb-blue and lhb-humsafar repaint its red
+const LHB_RED = '#c4222b'; // lhb-red.glb: red band and doors
+const LHB_GREY_BAND = '#b4b7bb'; // lhb-red.glb: grey lower and upper bands
 export const COACH_MODELS = {
-  'icf-blue': { file: 'icf-blue.glb', treadDrop: 0.028, lodM: 100 }, // 76.5k triangles: closer than the 30k LHB
-  'lhb-red': { file: 'lhb.glb', treadDrop: 0.03, livery: 'lhbRed' },
-  'lhb-humsafar': { file: 'lhb.glb', treadDrop: 0.03, livery: 'humsafar' },
-  'lhb-blue': { file: 'lhb.glb', treadDrop: 0.03, livery: 'lhbBlue' }, // Shatabdi/Gatimaan chair cars (player + AI)
+  'icf-blue': { file: 'icf-blue.glb', treadDrop: 0.028, lodM: 100 }, // 76.5k triangles
+  'icf-utkrisht': {
+    file: 'icf-blue.glb',
+    treadDrop: 0.028,
+    lodM: 100,
+    livery: 'icfUtkrisht',
+    recolour: ['#24448f', '#a9d3e0'], // the blue body and band
+    swap: [
+      ['#84c6cc', '#4b4f53'], // teal window frames → dark grey
+      ['#8ccdd2', '#5a5e62'], // teal shutters → grey
+      ['#e6c63a', '#22409a'], // gold lettering → blue, as on the Utkrisht coaches
+    ],
+  },
+  'lhb-red': { file: 'lhb-red.glb', treadDrop: 0.028, lodM: 100 }, // 63.6k triangles, own colours
+  // Shatabdi/Gatimaan chair cars (player + AI): the red-grey layout in sky blue
+  'lhb-blue': { file: 'lhb-red.glb', treadDrop: 0.028, lodM: 100, swap: [[LHB_RED, '#3a8ee2']] },
+  'lhb-humsafar': {
+    file: 'lhb-red.glb',
+    treadDrop: 0.028,
+    lodM: 100,
+    livery: 'humsafar',
+    recolour: [LHB_RED, LHB_GREY_BAND], // the whole side takes the Humsafar artwork
+    swap: [
+      ['#a7a9ab', '#eef0ef'], // grey roof → white
+      ['#8f9296', '#d9dcdc'], // end walls → light grey
+    ],
+  },
 };
-// The GLB body (~76k triangles) is drawn only for coaches this close to the camera;
-// further away the procedural body (a few hundred) stands in. Every ICF in the world
+// The GLB body (tens of thousands of triangles) is drawn only for coaches this close to the
+// camera; further away the procedural body (a few hundred) stands in. Every ICF in the world
 // as a GLB measured 5.2 M triangles a frame against 1.9 M (2026-11-21).
 export const COACH_MODEL_LOD_M = 150;
 
@@ -280,7 +323,7 @@ export const LIVERIES = {
   // (colours per Wikipedia "ICF coach" / Business Standard 2018; the exact
   // stripe layout of Utkrisht is approximated as a maroon window band).
   icfBrick: { paint: '#8a3726', paint2: '#7d3022' },
-  icfUtkrisht: { paint: '#d8c39a', paint2: '#6b1f26' },
+  icfUtkrisht: { paint: '#e6d4a6', paint2: '#e6d4a6' }, // cream (owner's photo 2026-11-21; the maroon stripe is on the GLB coach only)
 };
 
 // ---------------------------------------------------------------------------

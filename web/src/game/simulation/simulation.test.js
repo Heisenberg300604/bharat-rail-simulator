@@ -6,7 +6,7 @@ import { createRoute, vehiclePose, computeFormation } from './routeMath.js';
 import { createTrainState, stepTrain, cycleDirection, createFixedStepper, applyEmergency, speedLimitFor, DIRECTION } from './trainSimulation.js';
 import { createJourney, updateJourney, JOURNEY_STATE } from './journeyManager.js';
 import { createAiTrains, stepAiTrains } from './aiTraffic.js';
-import { TRAIN, ROUTE_SEGMENTS, JOURNEY, FORMATION, COACH_TYPES, AI_TRAINS, LEVEL_CROSSING, FIXED_TIMESTEP, SPEED_LIMITS, trainConfigFor, CONSISTS, LIVERIES, COACH_MODELS } from '../config/gameConfig.js';
+import { TRAIN, ROUTE_SEGMENTS, JOURNEY, FORMATION, COACH_TYPES, AI_TRAINS, LEVEL_CROSSING, FIXED_TIMESTEP, SPEED_LIMITS, trainConfigFor, CONSISTS, LIVERIES, COACH_MODELS, firstCoachGap } from '../config/gameConfig.js';
 import { coachVariantKey } from '../world/models/coaches.js';
 
 const DT = FIXED_TIMESTEP;
@@ -298,7 +298,7 @@ test('the Humsafar rake is an LHB passenger consist with its own coach variant',
   assert.equal(coachVariantKey(c.type, c.livery), 'lhb-humsafar');
   assert.ok(LIVERIES.humsafar, 'procedural stand-in livery');
   // every GLB coach body replaces an existing procedural variant
-  for (const key of Object.keys(COACH_MODELS)) assert.ok(['icf-blue', 'lhb-red', 'lhb-humsafar', 'lhb-blue'].includes(key), key);
+  for (const key of Object.keys(COACH_MODELS)) assert.ok(['icf-blue', 'icf-utkrisht', 'lhb-red', 'lhb-humsafar', 'lhb-blue'].includes(key), key);
 });
 
 test('the Shatabdi rake uses the blue-grey LHB chair cars', () => {
@@ -307,7 +307,9 @@ test('the Shatabdi rake uses the blue-grey LHB chair cars', () => {
   assert.equal(c.type, 'lhb');
   assert.equal(c.passenger, true);
   assert.equal(coachVariantKey(c.type, c.livery), 'lhb-blue');
-  assert.equal(COACH_MODELS['lhb-blue'].livery, 'lhbBlue');
+  // the owner's red LHB model with its red swapped for sky blue
+  assert.equal(COACH_MODELS['lhb-blue'].file, COACH_MODELS['lhb-red'].file);
+  assert.ok(COACH_MODELS['lhb-blue'].swap.length > 0);
 });
 
 test('AI train formation lengths respect coach types (ICF vs LHB)', () => {
@@ -432,4 +434,19 @@ test('AI train calls at an intermediate halt, waits its dwell, then carries on t
   assert.ok(Math.abs(stoodAt - 3000) < 1, `stood at ${stoodAt}`);
   assert.ok(dwellSeen > 19 && dwellSeen < 21.5, `dwelt ${dwellSeen.toFixed(1)} s`);
   assert.ok(Math.abs(tr.front - 200) < 1);
+});
+
+test('first coach couples to the loco: couplers meet, and a gap is never widened', () => {
+  // WAP-4 / WCAM-1 models end at their length: the coach closes up so the couplers/buffers meet
+  assert.ok(Math.abs(firstCoachGap('wap4', 'lhb') - COACH_TYPES.lhb.couplerReach) < 1e-9);
+  assert.ok(Math.abs(firstCoachGap('wcam1', 'icf') - COACH_TYPES.icf.couplerReach) < 1e-9);
+  // WAP-7's couplers already reach the coach: unchanged
+  assert.equal(firstCoachGap('wap7', 'lhb'), COACH_TYPES.lhb.gap);
+  assert.equal(firstCoachGap('wap7', 'icf'), COACH_TYPES.icf.gap);
+  for (const loco of ['wap7', 'wag9', 'wap4', 'wcam1']) {
+    for (const type of ['lhb', 'icf', 'boxn', 'bcna', 'btpn']) {
+      const g = firstCoachGap(loco, type);
+      assert.ok(g >= 0 && g <= (COACH_TYPES[type].gap ?? FORMATION.couplingGap), `${loco}+${type}: ${g}`);
+    }
+  }
 });
