@@ -333,7 +333,7 @@ Found through the Freesound API (search plus geotag filter for India), shortlist
   - Measured 2026-11-21 (M4, High, NDLS start): every ICF as a GLB was 5.2 M triangles a frame, against 1.87 M procedural.
   - With LOD and the shadow box: 1.76 M far from the train, 1.48 M on open line beside it, 2.9 M on the platform with a parked rake alongside.
 
-## LHB coach, red-grey and Humsafar (`public/assets/models/stock/lhb.glb`, added 2026-11-21)
+## LHB coach: red-grey, Humsafar and blue-grey (`public/assets/models/stock/lhb.glb`, added 2026-11-21)
 
 - Source: "IR Hamsafar LHB 3AC", https://sketchfab.com/3d-models/ir-hamsafar-lhb-3ac-05c5266e1a854c3ca0fe9fefdf331a9d, by kaushal_krishna (https://sketchfab.com/kaushal_krishna). **CC BY 4.0**; licence and credit copied to `stock/lhb-LICENSE.txt`, and credited in the About screen. The owner downloaded it. Original kept (git-ignored) at `incoming-models/ir_hamsafar_lhb_3ac.glb`.
 - Original: glTF (Sketchfab export), 10.7 MB, 293k triangles, 8 materials, **no colours or textures** (every material light grey). It includes a display track (24k triangles).
@@ -345,6 +345,7 @@ Found through the Freesound API (search plus geotag filter for India), shortlist
 - Liveries (`world/models/coachLiveries.js`) are painted in the shader from the position on the body, measured on this model (`LHB_BODY`).
   - **Red-grey** (`lhb-red`, replaces the procedural red LHB within the LOD distance): red from the cant rail to below the windows, light grey below, red doors, and past each door the red ends on a diagonal.
   - **Humsafar** (`lhb-humsafar`, new consist `humsafar`): white roof, turquoise body with a faint lace motif, and an orange foot with yellow and green hills.
+  - **Blue-grey** (`lhb-blue`, new consist `shatabdi`; also the AI Shatabdi/Deccan and parked blue rakes): the red-grey layout in sky blue (`LIVERIES.lhbBlue` changed from `#1f4f9a` to `#3a8ee2` to match).
   - Colours and shapes follow the owner's reference photos (2026-11-21). **They are a game approximation, not an RDSO/IR colour specification.** Lettering, badges and the Humsafar artwork are not reproduced.
 - Cost: 4 parts + the shadow box per coach group, drawn only within `COACH_MODEL_LOD_M` (150 m). Beyond that the procedural LHB is drawn (for Humsafar, a turquoise-and-orange stand-in). Measured 2026-11-21 (M4, High, open line beside the train): 1.47 M triangles (red) and 1.46 M (Humsafar) a frame.
 
