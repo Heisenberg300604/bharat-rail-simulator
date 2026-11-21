@@ -314,6 +314,25 @@ Found through the Freesound API (search plus geotag filter for India), shortlist
 - The model has its own bogies. It is dark green (the artist's choice; many real BTPN rakes are black or grey).
 - Cost: 5 draw calls for the whole rake (instanced). No shadows, as with the BCNA. 61–62 FPS on an M4 with a 20-wagon rake.
 
+## Blue ICF coach (`public/assets/models/stock/icf-blue.glb`, added 2026-11-21)
+
+- Source: **the owner's own model**, designed in Blender (Khronos glTF Blender I/O v5.3.43). No third-party licence. Original export kept (git-ignored) at `incoming-models/new-blue-icf.glb`: 5.6 MB, 101k triangles, 40 materials, no textures.
+- Dimensions as modelled (real ICF): 22.297 m over buffers, body 21.34 m, bogie centres 14.78 m, 3.37 m wide, 4.09 m high.
+- Processing (`incoming-models/process-icf.mjs`, gltf-transform 4.5 + meshoptimizer; needs `npm i @gltf-transform/core @gltf-transform/extensions @gltf-transform/functions meshoptimizer` wherever it runs):
+  - Removed: the `UCX_*` collision hulls, and the 16 `Decal_*` planes (exported without their images: alpha 0, invisible).
+  - Colours: six materials exported without a colour (white in glTF) were given the blue-ICF livery colours from `LIVERIES.icfBlue`: `M_Body_Blue`, `M_Body_Band`, `M_Roof_Grey`, `M_Underframe_Black`, `M_Bogie_Black`, `M_Wheel_Steel`.
+  - Glass: `KHR_materials_transmission` dropped (it makes three.js render the scene twice). It is now plain alpha glass.
+  - Length: scaled ×0.9883 to 22.037 m, the game's ICF pitch (21.337 m + 0.7 m gap), so the buffers meet instead of overlapping.
+  - Materials: palette-merged into 3 (opaque, glass, saloon lights). Welded, then simplified with a 1 cm error limit to **76.5k triangles**, then meshopt-compressed. The result is 0.84 MB.
+- In game: replaces the procedural `icf-blue` body via `COACH_MODELS` within `COACH_MODEL_LOD_M` (150 m) of the camera. Further away, and as the fallback, the procedural coach is drawn.
+  - The model's own bogies, wheels, buffers and couplers are used (they don't turn).
+  - An invisible box casts its shadow.
+  - Saloon lights and window glass glow with the lamps after dark.
+  - The derailment-site rake and the saloon (interior) camera's own coach stay procedural.
+- Cost: at most 4 extra draw calls (3 parts + the shadow box) per GLB coach group.
+  - Measured 2026-11-21 (M4, High, NDLS start): every ICF as a GLB was 5.2 M triangles a frame, against 1.87 M procedural.
+  - With LOD and the shadow box: 1.76 M far from the train, 1.48 M on open line beside it, 2.9 M on the platform with a parked rake alongside.
+
 ## Wayside station building (`public/assets/models/station/station-building.glb`, added 2026-11-15)
 
 - Source: "Indian Railway Station Building Game-Ready", https://sketchfab.com/3d-models/indian-railway-station-building-game-ready-b511a0c49a8344208f04883f8ffeb379, by nayan pachori (https://sketchfab.com/nayanpachori19). The licence text is copied to `models/station/station-building-LICENSE.txt`.
