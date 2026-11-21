@@ -22,6 +22,7 @@ import { buildCoachInterior, createInteriorMaterials, coachEye, COACH_LAYOUTS, I
 import { buildPersonGeometry, createPeopleMaterial, makeCrowdMesh, randomPerson, ANIM } from '../../world/models/people.js';
 import { seededRandom } from '../../world/geometry.js';
 import { loadMergedModel, measureLampAnchors } from '../../world/models/loadGlbModel.js';
+import { makeLiveryMaterial } from '../../world/models/coachLiveries.js';
 import { createGlowMaterial, createBeamMesh, makeGlowMesh, setGlow, disposeGlowMaterial } from '../../world/glow.js';
 import { envState, onEnvironmentChange } from '../../world/environment.js';
 
@@ -359,47 +360,64 @@ export default function Train() {
     let alive = true;
     const unsubs = [];
     const disposables = [];
-    for (const [variant, file] of Object.entries(COACH_MODELS)) {
-      loadMergedModel(`${import.meta.env.BASE_URL}assets/models/stock/${file}`, { forwardAxis: 'z' })
+    const lit = new Set(); // materials already following the lamps (two liveries share one model)
+    for (const [variant, spec] of Object.entries(COACH_MODELS)) {
+      loadMergedModel(`${import.meta.env.BASE_URL}assets/models/stock/${spec.file}`, { forwardAxis: 'z' })
         .then((m) => {
           if (!alive) return;
           for (const p of m.parts) {
             // the loader sits the lowest point (the wheel flanges) on the rail; the treads belong
-            // there, 28 mm higher (measured on the model). Once only: the loader caches the parts.
+            // there, `treadDrop` higher (measured per model). Once only: the loader caches the parts.
             if (!p.geometry.userData.onTread) {
-              p.geometry.translate(0, -0.028, 0);
+              p.geometry.translate(0, -spec.treadDrop, 0);
+              p.geometry.computeBoundingBox();
               p.geometry.computeBoundingSphere();
               p.geometry.userData.onTread = true;
             }
-            // saloon lights (emissive strength > 1) come on with the lamps at dusk, like the procedural windows
             const mat = p.material;
+            if (lit.has(mat)) continue;
+            lit.add(mat);
+            // saloon lights (emissive strength > 1) come on with the lamps at dusk, like the procedural windows
             if (mat.emissiveIntensity > 1) {
               mat.userData.lampIntensity ??= mat.emissiveIntensity;
               unsubs.push(onEnvironmentChange((env) => (mat.emissiveIntensity = mat.userData.lampIntensity * env.lamps)));
-            } else if (mat.transparent) {
-              // window glass glows warm with the saloon lights after dark (seen from outside)
+            } else if (mat.transparent || /Window/.test(mat.name)) {
+              // window glass glows warm with the saloon lights after dark (seen from outside);
+              // solid tinted panes (LHB) glow softer than see-through glass (ICF)
+              const glow = mat.transparent ? 0.9 : 0.4;
               mat.emissiveMap = null;
               mat.emissive.set('#ffd49a');
               mat.needsUpdate = true;
-              unsubs.push(onEnvironmentChange((env) => (mat.emissiveIntensity = 0.9 * env.lamps)));
+              unsubs.push(onEnvironmentChange((env) => (mat.emissiveIntensity = glow * env.lamps)));
             }
           }
+          // an uncoloured body (material *_Body) is painted in this variant's livery
+          const parts = m.parts.map((p) => {
+            if (!spec.livery || !/_Body$/.test(p.material.name)) return p;
+            const material = makeLiveryMaterial(p.material, spec.livery);
+            disposables.push(material);
+            return { ...p, material };
+          });
           // the detailed body casts no shadow; an invisible coach-sized box casts it (last part)
-          const shadowBox = new THREE.BoxGeometry(21.0, 3.05, 3.24).translate(0, 2.5, 0);
+          const box = new THREE.Box3();
+          m.parts.forEach((p) => box.union(p.geometry.boundingBox));
+          const shadowBox = new THREE.BoxGeometry(box.max.x - box.min.x - 1.2, box.max.y - 1.0, Math.min(box.max.z - box.min.z, 3.3) * 0.97);
+          shadowBox.translate((box.max.x + box.min.x) / 2, (box.max.y + 0.95) / 2, 0);
           disposables.push(shadowBox);
           const shadowOnly = { geometry: shadowBox, material: SHADOW_ONLY_MAT, shadowOnly: true };
-          setCoachModels((prev) => ({ ...prev, [variant]: { ...m, parts: [...m.parts, shadowOnly] } }));
+          setCoachModels((prev) => ({ ...prev, [variant]: { ...m, parts: [...parts, shadowOnly] } }));
         })
         .catch((err) => console.warn(`${variant} coach model failed to load, using the procedural coach:`, err));
     }
     return () => {
       alive = false;
       unsubs.forEach((u) => u());
-      disposables.forEach((g) => g.dispose());
+      disposables.forEach((d) => d.dispose());
     };
   }, []);
   const camera = useThree((s) => s.camera);
-  const LOD_FAR = COACH_MODEL_LOD_M + 10; // hysteresis: no flicker at the boundary
+  /** GLB detail distance for a coach (per model, else COACH_MODEL_LOD_M); +10 m to switch back (no flicker). */
+  const lodLimit = (v) => (COACH_MODELS[v.variantKey]?.lodM ?? COACH_MODEL_LOD_M) + (v.lodNear ? 10 : 0);
 
   // Inside the first coach: the interior for the chosen coach type, with
   // passengers sitting on the berths around you.
@@ -608,7 +626,7 @@ export default function Train() {
 
       if (!v.dynamic && !includeParked) {
         // parked GLB coaches never move, but switch detail level as the camera comes and goes
-        if (v.lodPos && camera.position.distanceTo(v.lodPos) < (v.lodNear ? LOD_FAR : COACH_MODEL_LOD_M) !== v.lodNear) parkedFlip = true;
+        if (v.lodPos && camera.position.distanceTo(v.lodPos) < lodLimit(v) !== v.lodNear) parkedFlip = true;
         // parked locos never move, but their marker lamps still need a glow slot
         if (isLoco && lit) {
           vehiclePose(v.line, v.centerS, spec.bogieSpacing, pose);
@@ -663,13 +681,13 @@ export default function Train() {
       } else {
         const variantKey = v.variantKey;
         const glbBody = coachModels[variantKey];
-        // GLB body near the camera, procedural body further away (COACH_MODEL_LOD_M)
+        // GLB body near the camera, procedural body further away (lodM / COACH_MODEL_LOD_M)
         let near = false;
         if (glbBody) {
           v.lodPos = (v.lodPos ?? new THREE.Vector3()).copy(_p);
           // in the saloon view the game's own interior (inside the procedural shell, as before) is the first coach
           const saloon = v.isPlayer && v === vehicles[1] && game.cameraMode === 'interior';
-          near = !saloon && camera.position.distanceTo(_p) < (v.lodNear ? LOD_FAR : COACH_MODEL_LOD_M);
+          near = !saloon && camera.position.distanceTo(_p) < lodLimit(v);
           v.lodNear = near;
           if (near) {
             // only near coaches are instances at all: a zero-scaled instance still costs every vertex
