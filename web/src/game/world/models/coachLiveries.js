@@ -5,7 +5,7 @@
 //
 // Measurements are taken from stock/lhb.glb as the game loads it (see
 // ASSET_CREDITS). Colours and band shapes follow the owner's reference photos
-// (2026-11-21) of a red-grey LHB 3AC and a Humsafar coach; they are a game
+// (2026-11-21) of a red-grey LHB 3AC, a Humsafar coach and a blue-grey LHB chair car; they are a game
 // approximation, not an official colour specification.
 import * as THREE from 'three';
 
@@ -41,30 +41,37 @@ const COMMON = /* glsl */ `
   }
 `;
 
-const LIVERIES = {
-  // Red-grey LHB: red from the cant rail to below the windows, light grey under it,
-  // red doors, and past each door the red ends on a diagonal (door's foot → body's top corner).
-  lhbRed: /* glsl */ `
+/** The standard LHB layout: a colour band through the windows over a grey foot (see lhbRed). */
+function bandLivery({ band, bandBottom, grey = '#c8cdd2', roof = '#c3c7cb', endWall = '#9ba3ab' }) {
+  return /* glsl */ `
     vec3 liveryColor(vec3 p, vec3 n) {
-      vec3 red = ${vec3('#d9252a')};
-      vec3 grey = ${vec3('#c8cdd2')};
-      vec3 roof = ${vec3('#c3c7cb')};
-      vec3 endWall = ${vec3('#9ba3ab')};
+      vec3 band = ${vec3(band)};
+      vec3 grey = ${vec3(grey)};
+      vec3 roof = ${vec3(roof)};
+      vec3 endWall = ${vec3(endWall)};
       vec3 under = ${vec3('#3a3d40')};
       if (p.y > ${B.sideTop.toFixed(3)}) return roof;
       if (livIsEnd(n)) return endWall;
       if (p.y < ${B.sideBottom.toFixed(3)}) return under;
-      if (livInDoor(p.x)) return red;
-      float redBottom = 1.58;
-      if (p.y < redBottom) return grey;
+      if (livInDoor(p.x)) return band;
+      float bandBottom = ${bandBottom.toFixed(3)};
+      if (p.y < bandBottom) return grey;
       float u = livEndZone(p.x);
       if (u >= 0.0) {
-        float t = (p.y - redBottom) / (${B.sideTop.toFixed(3)} - redBottom);
-        return u < t ? red : grey;
+        float t = (p.y - bandBottom) / (${B.sideTop.toFixed(3)} - bandBottom);
+        return u < t ? band : grey;
       }
-      return red;
+      return band;
     }
-  `,
+  `;
+}
+
+const LIVERIES = {
+  // Red-grey LHB: red from the cant rail to below the windows, light grey under it,
+  // red doors, and past each door the red ends on a diagonal (door's foot → body's top corner).
+  lhbRed: bandLivery({ band: '#d9252a', bandBottom: 1.58 }),
+  // Blue-grey LHB (Shatabdi / Gatimaan chair cars): the same layout in sky blue.
+  lhbBlue: bandLivery({ band: '#3a8ee2', bandBottom: 1.62, grey: '#bcc1c6' }),
   // Humsafar: white roof, turquoise body with a faint ornamental pattern, and along the
   // bottom an orange strip with yellow and green hills rising towards the windows.
   humsafar: /* glsl */ `

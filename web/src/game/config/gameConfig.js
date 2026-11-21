@@ -127,6 +127,8 @@ export const CONSISTS = {
   red: { label: 'Red-grey LHB (standard)', type: 'lhb', livery: 'lhb', count: 8, massT: 50, passenger: true },
   // new, additive: the all-3AC Humsafar Express rake in its turquoise livery
   humsafar: { label: 'Humsafar Express LHB (3AC)', type: 'lhb', livery: 'humsafar', count: 8, massT: 50, passenger: true },
+  // new, additive: blue-grey LHB chair cars, as on the Shatabdi and Gatimaan Expresses
+  shatabdi: { label: 'Shatabdi Express LHB (blue chair cars)', type: 'lhb', livery: 'lhbBlue', count: 8, massT: 50, passenger: true },
   freight: { label: 'Freight: BOXN coal wagons + BVZI brake van', type: 'boxn', livery: 'boxn', count: 20, massT: 81, passenger: false, brakeVan: 'bvzi' },
   // BCNA loaded: tare 24.55 t + payload 56.73 t = 81.28 t gross (IRIMEE wagon notes)
   freightBcna: { label: 'Freight: BCNA covered wagons + BVZI brake van', type: 'bcna', livery: 'bcna', count: 20, massT: 81.28, passenger: false, brakeVan: 'bvzi' },
@@ -251,12 +253,13 @@ export const COACH_TYPES = {
 // lowest point on the rail). livery: painted in the shader (world/models/coachLiveries.js).
 // lodM: detail distance for a heavy model (default COACH_MODEL_LOD_M).
 //   icf-blue: the owner's own Blender model (stock/icf-blue.glb, see ASSET_CREDITS)
-//   lhb-red, lhb-humsafar: "IR Hamsafar LHB 3AC" by kaushal_krishna, CC BY 4.0 (stock/lhb.glb),
-//     one uncoloured model in two liveries
+//   lhb-red, lhb-humsafar, lhb-blue: "IR Hamsafar LHB 3AC" by kaushal_krishna, CC BY 4.0 (stock/lhb.glb),
+//     one uncoloured model in three liveries
 export const COACH_MODELS = {
   'icf-blue': { file: 'icf-blue.glb', treadDrop: 0.028, lodM: 100 }, // 76.5k triangles: closer than the 30k LHB
   'lhb-red': { file: 'lhb.glb', treadDrop: 0.03, livery: 'lhbRed' },
   'lhb-humsafar': { file: 'lhb.glb', treadDrop: 0.03, livery: 'humsafar' },
+  'lhb-blue': { file: 'lhb.glb', treadDrop: 0.03, livery: 'lhbBlue' }, // Shatabdi/Gatimaan chair cars (player + AI)
 };
 // The GLB body (~76k triangles) is drawn only for coaches this close to the camera;
 // further away the procedural body (a few hundred) stands in. Every ICF in the world
@@ -270,7 +273,7 @@ export const LIVERIES = {
   wap5: { paint: '#ecebe6', paint2: '#e0552d' }, // off-white body, red-orange bands (Ghaziabad shed scheme)
   wap4: { paint: '#7a1f22', paint2: '#e9d27a' }, // deep red/maroon body, yellow-cream waist band
   lhb: { paint: '#d8262b', paint2: '#b9bdc1' }, // standard red-grey LHB scheme
-  lhbBlue: { paint: '#1f4f9a', paint2: '#b9bdc1' }, // blue-grey (Shatabdi-style)
+  lhbBlue: { paint: '#3a8ee2', paint2: '#bcc1c6' }, // sky blue over grey (Shatabdi/Gatimaan LHB chair cars; owner's photo 2026-11-21)
   humsafar: { paint: '#27b2d3', paint2: '#ec9a35' }, // turquoise body, orange/yellow foot (procedural stand-in beyond the LOD distance)
   icfBlue: { paint: '#24448f', paint2: '#a9d3e0' }, // classic ICF: dark blue body, pale-blue window band
   // Historic ICF brick red (1955–1990s) and the 2018 "Utkrisht" beige & maroon

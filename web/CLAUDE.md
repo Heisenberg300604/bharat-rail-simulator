@@ -20,7 +20,7 @@ React Three Fiber 9.** No other dependencies, no backend, no paid services.
 
 ```bash
 npm run dev      # http://localhost:5173
-npm test         # node --test — 116 tests, all passing; run before claiming done
+npm test         # node --test — 117 tests, all passing; run before claiming done
 npm run build    # static dist/  (vite base: './' so it works in a sub-folder)
 ```
 
@@ -122,7 +122,7 @@ can be unit-tested with `node --test`. Keep it that way.
 | `components/Cameras/CameraRig.jsx` | Six camera modes + mouse look/orbit |
 | `src/ui/` | `StartScreen` (route list + detail, difficulty, Driver school/How-to-play/Settings/Records/About modals), `JourneyComplete` (run card + PNG), `PhotoMode`, `LessonPanel`, `RoutePicker` (`RouteList`, `RouteDetail`, `Profile`), `HUD`, `PauseMenu`, `LoadingScreen`, `JourneyComplete`, `RestartConfirm`, `ControlsTable`, `EnvironmentPicker` |
 | `index.html`, `public/` (root files) | SEO: title/description/canonical, Open Graph + Twitter card, VideoGame JSON-LD, `<noscript>` text; `robots.txt`, `sitemap.xml`, `site.webmanifest`, `favicon.svg`, `icon-192/512.png`, `apple-touch-icon.png`, `og-image.jpg` (1200×630, the game's own cab view). Production URL: https://bharat-rail-simulator.vercel.app (update canonical/OG/sitemap if the domain changes) |
-| `public/assets/` | `models/station/station-building.glb` (wayside station building, `Station.jsx`; procedural office until it loads), `models/locomotive/*.glb` (WAP-7, WAG-9, WAP-4, WCAM-1; + per-model LICENSE), `models/stock/` (`bvzi.glb` brake van, `bcna.glb` covered wagon, `btpn.glb` petrol tank wagon, `icf-blue.glb` the owner's blue ICF coach, `lhb.glb` LHB coach for the red-grey and Humsafar liveries (see `COACH_MODELS`) — any `COACH_TYPES` entry with `model` is drawn from its GLB), `audio/rail/`, `audio/ambience/` (each with `CREDITS.md`) |
+| `public/assets/` | `models/station/station-building.glb` (wayside station building, `Station.jsx`; procedural office until it loads), `models/locomotive/*.glb` (WAP-7, WAG-9, WAP-4, WCAM-1; + per-model LICENSE), `models/stock/` (`bvzi.glb` brake van, `bcna.glb` covered wagon, `btpn.glb` petrol tank wagon, `icf-blue.glb` the owner's blue ICF coach, `lhb.glb` LHB coach for the red-grey, Humsafar and blue-grey liveries (see `COACH_MODELS`) — any `COACH_TYPES` entry with `model` is drawn from its GLB), `audio/rail/`, `audio/ambience/` (each with `CREDITS.md`) |
 
 ## 5. Invariants — breaking these breaks the game
 
@@ -200,7 +200,7 @@ can be unit-tested with `node --test`. Keep it that way.
 
 Milestones 0–6 done; milestone 7 (performance & release) partial. Six
 routes (routes plan steps 1–7 implemented). Wave 1 of ENHANCEMENTS_PLAN done,
-plus A1/A2/A3/A5, D1, B5 (partial), D4, the WAP-4/WCAM-1/BVZI/BCNA models, rich scenery (default), the derailment-site scenario and AI halts, the GLB ICF and LHB/Humsafar coaches. 116 tests pass. Rich scenery measured on an M4 (High): draw calls about the same as Classic (merged patches replace instanced boxes), +0.2–0.5 M triangles, built in 55–450 ms at route load. Measured on an M4: 46–88 draw calls, steady 60 FPS; 58–60 FPS on Low
+plus A1/A2/A3/A5, D1, B5 (partial), D4, the WAP-4/WCAM-1/BVZI/BCNA models, rich scenery (default), the derailment-site scenario and AI halts, the GLB ICF and LHB/Humsafar/Shatabdi coaches. 117 tests pass. Rich scenery measured on an M4 (High): draw calls about the same as Classic (merged patches replace instanced boxes), +0.2–0.5 M triangles, built in 55–450 ms at route load. Measured on an M4: 46–88 draw calls, steady 60 FPS; 58–60 FPS on Low
 with the CPU throttled 4×.
 
 **Known limitations and quirks** (don't "fix" these by surprise):
@@ -231,14 +231,15 @@ with the CPU throttled 4×.
   `bakedDoppler`: no extra Doppler) for opposing trains. `horn-india.mp3` is
   only the fallback. The recordists don't name the loco classes. Player horns
   are WAV so their loop points stay sample-accurate.
-- The blue-grey LHB and the brick/Utkrisht ICF coaches are **original procedural** bodies built to real
+- The brick/Utkrisht ICF coaches are **original procedural** bodies built to real
   dimensions. GLB bodies (`COACH_MODELS`) are drawn only within `COACH_MODEL_LOD_M` (150 m) of the
   camera (per-model `lodM`: the 76.5k-triangle ICF uses 100 m), with the procedural coach beyond that
   and as the fallback:
   - **Blue ICF:** the owner's own Blender model (`stock/icf-blue.glb`). Its decals were exported without
     images, so they were removed (ASSET_CREDITS).
-  - **Red-grey LHB and Humsafar:** one uncoloured CC BY model (`stock/lhb.glb`), painted per livery in the
-    shader (`coachLiveries.js`) after the owner's photos. These are approximations; no lettering.
+  - **Red-grey LHB, Humsafar and blue-grey (Shatabdi) LHB:** one uncoloured CC BY model (`stock/lhb.glb`),
+    painted per livery in the shader (`coachLiveries.js`) after the owner's photos. The Shatabdi rake
+    still uses the 3AC sleeper interior. These are approximations; no lettering.
 - The WAP-7 traction-motor sound is synthesized; no licence-clean recording of
   an Indian three-phase loco exists.
 - The WAP-7 body texture carries real fleet numbers — see the open question in
@@ -263,6 +264,7 @@ Don't read these speculatively — each costs real context. Read on demand:
 | `docs/SIMULATION.md` | Touching physics, braking or the force model |
 | `docs/ROUTES_PLAN.md` | Anything about new routes, the route data model, gradients, multi-stop |
 | `docs/ENHANCEMENTS_PLAN.md` | Anything about new features, new locos/stock, priorities, roadmap |
+| `docs/NETWORK_PLAN.md` | "Bharat Network": India map, trip planner across metros, generated legs, station variety (plan only, phases N0–N7) |
 | `docs/DRIVING_RULES.md` | Signals, SPAD, Kavach, VCD, adhesion, speed boards: the sourced rules and how the game implements them |
 | `docs/ASSET_CREDITS.md` | Sourcing, adding or crediting any asset; the loco candidate list |
 | `public/assets/audio/*/CREDITS.md` | Adding or checking a sound file |

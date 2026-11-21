@@ -298,7 +298,16 @@ test('the Humsafar rake is an LHB passenger consist with its own coach variant',
   assert.equal(coachVariantKey(c.type, c.livery), 'lhb-humsafar');
   assert.ok(LIVERIES.humsafar, 'procedural stand-in livery');
   // every GLB coach body replaces an existing procedural variant
-  for (const key of Object.keys(COACH_MODELS)) assert.ok(['icf-blue', 'lhb-red', 'lhb-humsafar'].includes(key), key);
+  for (const key of Object.keys(COACH_MODELS)) assert.ok(['icf-blue', 'lhb-red', 'lhb-humsafar', 'lhb-blue'].includes(key), key);
+});
+
+test('the Shatabdi rake uses the blue-grey LHB chair cars', () => {
+  const c = CONSISTS.shatabdi;
+  assert.ok(c, 'CONSISTS.shatabdi exists');
+  assert.equal(c.type, 'lhb');
+  assert.equal(c.passenger, true);
+  assert.equal(coachVariantKey(c.type, c.livery), 'lhb-blue');
+  assert.equal(COACH_MODELS['lhb-blue'].livery, 'lhbBlue');
 });
 
 test('AI train formation lengths respect coach types (ICF vs LHB)', () => {
