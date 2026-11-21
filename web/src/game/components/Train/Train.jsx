@@ -12,7 +12,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { game, formation, useGameValue, setLocoModelAvailable, kavachActive } from '../../state/gameStore.js';
 import { sceneRefs } from '../../state/sceneRefs.js';
-import { FORMATION, COACH_TYPES, COACH_MODELS, COACH_MODEL_LOD_M, LIVERIES, PARKED_TRAINS, AI_TRAINS, TRACK, LOCOMOTIVES, consistFor, locoLength } from '../../config/gameConfig.js';
+import { FORMATION, COACH_TYPES, COACH_MODELS, COACH_MODEL_LOD_M, LIVERIES, PARKED_TRAINS, AI_TRAINS, TRACK, LOCOMOTIVES, consistFor, locoLength, firstCoachGap } from '../../config/gameConfig.js';
 import { vehiclePose } from '../../simulation/routeMath.js';
 import { lines, mainLine, downLine } from '../../world/trackLayout.js';
 import { buildLocomotive, buildBogieFrame, buildWheelset, buildCoachExtras, buildRearEndIndicators, tailLampPosition } from '../../world/models/trainModels.js';
@@ -99,7 +99,7 @@ function buildVehicleList(coachSetting, playerLoco = 'wap7') {
   const playerGap = playerSpec.gap ?? FORMATION.couplingGap;
   let playerBack = L;
   for (let i = 0; i < consist.count; i++) {
-    playerBack += playerGap;
+    playerBack += i === 0 ? firstCoachGap(playerLoco, playerType) : playerGap; // couplers meet the loco's
     list.push({
       kind: playerSpec.model ? 'glb' : 'coach', // wagons with a licensed model (e.g. BCNA) are drawn from it
       type: playerType,
@@ -131,7 +131,7 @@ function buildVehicleList(coachSetting, playerLoco = 'wap7') {
     const ct = COACH_TYPES[ptType] || COACH_TYPES.lhb;
     const gap = ct.gap ?? FORMATION.couplingGap;
     for (let i = 0; i < pt.coaches; i++) {
-      back += gap;
+      back += i === 0 ? firstCoachGap(pt.loco ?? 'wap7', ptType) : gap;
       let livery = pt.livery;
       if (livery === 'contrast') livery = playerLivery === 'lhb' ? 'lhbBlue' : 'lhb';
       list.push({
@@ -170,7 +170,7 @@ function buildVehicleList(coachSetting, playerLoco = 'wap7') {
 
     let back = L;
     for (let i = 0; i < def.coaches; i++) {
-      back += gap;
+      back += i === 0 ? firstCoachGap(def.loco ?? 'wap7', def.type) : gap;
       list.push({
         kind: 'coach',
         type: def.type,
@@ -391,10 +391,11 @@ export default function Train() {
               unsubs.push(onEnvironmentChange((env) => (mat.emissiveIntensity = glow * env.lamps)));
             }
           }
-          // an uncoloured body (material *_Body) is painted in this variant's livery
+          // repaint chosen source colours (livery by position, or plain swaps) on every
+          // opaque palette part; everything else keeps the model's own colours
           const parts = m.parts.map((p) => {
-            if (!spec.livery || !/_Body$/.test(p.material.name)) return p;
-            const material = makeLiveryMaterial(p.material, spec.livery);
+            if (!(spec.recolour || spec.swap) || !p.material.map || p.material.transparent) return p;
+            const material = makeLiveryMaterial(p.material, spec);
             disposables.push(material);
             return { ...p, material };
           });

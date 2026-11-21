@@ -333,7 +333,24 @@ Found through the Freesound API (search plus geotag filter for India), shortlist
   - Measured 2026-11-21 (M4, High, NDLS start): every ICF as a GLB was 5.2 M triangles a frame, against 1.87 M procedural.
   - With LOD and the shadow box: 1.76 M far from the train, 1.48 M on open line beside it, 2.9 M on the platform with a parked rake alongside.
 
-## LHB coach: red-grey, Humsafar and blue-grey (`public/assets/models/stock/lhb.glb`, added 2026-11-21)
+## LHB coach, owner's model: red-grey, blue-grey and Humsafar (`public/assets/models/stock/lhb-red.glb`, added 2026-11-21)
+
+- Source: **the owner's own model** (LHB AC 3-tier, "LWACCN"), designed in Blender (Khronos glTF Blender I/O v5.3.43). No third-party licence. Original kept (git-ignored) at `incoming-models/LHB_LWACCN_sketchfab.glb`: 4.7 MB, 86.4k triangles, 76 materials, no textures, real size (24.00 m over couplers, 23.54 m body, bogie centres 14.9 m).
+- Processing (`incoming-models/process-lhb-red.mjs`, gltf-transform 4.5 + meshoptimizer):
+  - Removed: the 34 decals exported without their images (alpha 0, invisible) and the unused second UV set.
+  - Clearcoat and transmission dropped (both costly in three.js).
+  - Materials palette-merged into 3. Simplified with a ~1.2 cm error limit to **63.6k triangles**, then meshopt-compressed (0.71 MB). No scaling was needed.
+- In game (`COACH_MODELS`, `lodM` 100 m):
+  - `lhb-red`: drawn in its own colours.
+  - `lhb-blue` (Shatabdi/Gatimaan, player and AI): its red `#c4222b` is swapped for sky blue.
+  - `lhb-humsafar`: its red and grey bands are repainted with the Humsafar artwork, and the roof and end walls go white (`coachLiveries.js`, after the owner's photo).
+- Blue ICF model, Utkrisht: `icf-utkrisht` uses `icf-blue.glb` with its blue body and band repainted cream with a maroon stripe (after the owner's photo). Its teal window frames and shutters become grey and its gold lettering blue.
+
+## Retired: "IR Hamsafar LHB 3AC" (was `stock/lhb.glb`, 2026-11-21, same day)
+
+Superseded by the owner's own LHB model above. It is no longer in the game or the About screen, and the file was removed from `public/`. The original stays in `incoming-models/`. Former entry, kept for the record:
+
+### LHB coach: red-grey, Humsafar and blue-grey (`public/assets/models/stock/lhb.glb`, added 2026-11-21)
 
 - Source: "IR Hamsafar LHB 3AC", https://sketchfab.com/3d-models/ir-hamsafar-lhb-3ac-05c5266e1a854c3ca0fe9fefdf331a9d, by kaushal_krishna (https://sketchfab.com/kaushal_krishna). **CC BY 4.0**; licence and credit copied to `stock/lhb-LICENSE.txt`, and credited in the About screen. The owner downloaded it. Original kept (git-ignored) at `incoming-models/ir_hamsafar_lhb_3ac.glb`.
 - Original: glTF (Sketchfab export), 10.7 MB, 293k triangles, 8 materials, **no colours or textures** (every material light grey). It includes a display track (24k triangles).

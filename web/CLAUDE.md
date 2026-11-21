@@ -20,7 +20,7 @@ React Three Fiber 9.** No other dependencies, no backend, no paid services.
 
 ```bash
 npm run dev      # http://localhost:5173
-npm test         # node --test — 117 tests, all passing; run before claiming done
+npm test         # node --test — 118 tests, all passing; run before claiming done
 npm run build    # static dist/  (vite base: './' so it works in a sub-folder)
 ```
 
@@ -112,7 +112,7 @@ can be unit-tested with `node --test`. Keep it that way.
 | `audio/audioManifest.js` | File URLs + mix levels; rail recordings are **discovered at runtime** from `rail/sounds.json` |
 | `world/` (rich scenery) | `richScenery.js` (placement: houses, towns, slums, walls, poles, towers, kilns, trees, animals, villagers → per-600 m `Kit`s), `kit.js` (merged flat-shaded mesh builder, 1 draw call per patch), `sceneryAtlas.js` (canvas atlas + the kit material, night windows), `ChunkedMeshes.jsx`, `occupancy.js` (+test), `placement.js` (yard/town/bridge/footprint helpers shared with `Scenery.jsx`), `models/houses.js`, `models/props.js`, `models/plants.js`, `models/animals.js` |
 | `world/` | `modelBuilder`, `geometry`, `textures` (canvas-drawn), `trackLayout` (rebuilt per route), `roadLayout`, `terrain` (height in route coords: zones, cuttings, tunnels hills, rivers, sea), `biomes` (per-route scenery kits), `environment`, `glow`, `ChunkedInstances.jsx` |
-| `world/models/` | `trainModels` (bogies, wheelsets, fallback loco), `coaches` (original ICF/LHB bodies; destination boards follow the route), `coachLiveries` (shader-painted liveries for uncoloured GLB coach bodies), `loadGlbModel` (+ `measureLampAnchors`: lamps sit on the model's real nose), `roadVehicles`, `people` |
+| `world/models/` | `trainModels` (bogies, wheelsets, fallback loco), `coaches` (original ICF/LHB bodies; destination boards follow the route), `coachLiveries` (repaints chosen colours of a GLB coach in the shader: liveries by position, colour swaps), `loadGlbModel` (+ `measureLampAnchors`: lamps sit on the model's real nose), `roadVehicles`, `people` |
 | `components/Train/` | `Train.jsx` (the rake), `CabInterior` (WAP-7/WAG-9 cab after IRFCA/RDSO, sources in ASSET_CREDITS; `buildCabMoving().update(dt, ctx)` moves the TE/BE stick, reverser, A9, horn stick, wipers), `cabDisplays.js` (ONE live canvas for every gauge, lamp, DDU, speedometer and the Kavach DMI, redrawn ~8×/s in cab view), `CoachInterior` |
 | `components/Track/TrackRoute.jsx` | Rails, sleepers, ballast, OHE |
 | `components/Stations/Station.jsx` | Platforms, buildings, boards, lighting |
@@ -122,7 +122,7 @@ can be unit-tested with `node --test`. Keep it that way.
 | `components/Cameras/CameraRig.jsx` | Six camera modes + mouse look/orbit |
 | `src/ui/` | `StartScreen` (route list + detail, difficulty, Driver school/How-to-play/Settings/Records/About modals), `JourneyComplete` (run card + PNG), `PhotoMode`, `LessonPanel`, `RoutePicker` (`RouteList`, `RouteDetail`, `Profile`), `HUD`, `PauseMenu`, `LoadingScreen`, `JourneyComplete`, `RestartConfirm`, `ControlsTable`, `EnvironmentPicker` |
 | `index.html`, `public/` (root files) | SEO: title/description/canonical, Open Graph + Twitter card, VideoGame JSON-LD, `<noscript>` text; `robots.txt`, `sitemap.xml`, `site.webmanifest`, `favicon.svg`, `icon-192/512.png`, `apple-touch-icon.png`, `og-image.jpg` (1200×630, the game's own cab view). Production URL: https://bharat-rail-simulator.vercel.app (update canonical/OG/sitemap if the domain changes) |
-| `public/assets/` | `models/station/station-building.glb` (wayside station building, `Station.jsx`; procedural office until it loads), `models/locomotive/*.glb` (WAP-7, WAG-9, WAP-4, WCAM-1; + per-model LICENSE), `models/stock/` (`bvzi.glb` brake van, `bcna.glb` covered wagon, `btpn.glb` petrol tank wagon, `icf-blue.glb` the owner's blue ICF coach, `lhb.glb` LHB coach for the red-grey, Humsafar and blue-grey liveries (see `COACH_MODELS`) — any `COACH_TYPES` entry with `model` is drawn from its GLB), `audio/rail/`, `audio/ambience/` (each with `CREDITS.md`) |
+| `public/assets/` | `models/station/station-building.glb` (wayside station building, `Station.jsx`; procedural office until it loads), `models/locomotive/*.glb` (WAP-7, WAG-9, WAP-4, WCAM-1; + per-model LICENSE), `models/stock/` (`bvzi.glb` brake van, `bcna.glb` covered wagon, `btpn.glb` petrol tank wagon, `icf-blue.glb` the owner's blue ICF coach, `lhb-red.glb` the owner's LHB coach (red-grey, blue-grey and Humsafar) (see `COACH_MODELS`) — any `COACH_TYPES` entry with `model` is drawn from its GLB), `audio/rail/`, `audio/ambience/` (each with `CREDITS.md`) |
 
 ## 5. Invariants — breaking these breaks the game
 
@@ -174,6 +174,10 @@ can be unit-tested with `node --test`. Keep it that way.
   far-away/culled objects don't hitch when first seen; `ChunkedInstances`
   re-culls immediately after a camera jump > 150 m.
 - Tested modules must stay import-clean of Three.js/React.
+- **Couplings:** coaches sit `gap` apart; the first one behind a loco uses `firstCoachGap(loco, type)`,
+  which closes the slack when the loco's model ends at its length (WAP-4, WCAM-1), so couplers/buffers
+  meet. `couplerReach` (LOCOMOTIVES, COACH_TYPES) is measured from the models; update it with a new model.
+  Drawing only: physics keeps the formation length.
 - **A zero-scaled instance still costs every vertex.** Detailed GLB coaches are packed into the first
   slots of their `InstancedMesh` and `mesh.count` is set (Train.jsx `glbSlots`); never "hide" a heavy
   instance by scaling it to zero.
@@ -200,7 +204,7 @@ can be unit-tested with `node --test`. Keep it that way.
 
 Milestones 0–6 done; milestone 7 (performance & release) partial. Six
 routes (routes plan steps 1–7 implemented). Wave 1 of ENHANCEMENTS_PLAN done,
-plus A1/A2/A3/A5, D1, B5 (partial), D4, the WAP-4/WCAM-1/BVZI/BCNA models, rich scenery (default), the derailment-site scenario and AI halts, the GLB ICF and LHB/Humsafar/Shatabdi coaches. 117 tests pass. Rich scenery measured on an M4 (High): draw calls about the same as Classic (merged patches replace instanced boxes), +0.2–0.5 M triangles, built in 55–450 ms at route load. Measured on an M4: 46–88 draw calls, steady 60 FPS; 58–60 FPS on Low
+plus A1/A2/A3/A5, D1, B5 (partial), D4, the WAP-4/WCAM-1/BVZI/BCNA models, rich scenery (default), the derailment-site scenario and AI halts, the GLB ICF and LHB/Humsafar/Shatabdi coaches. 118 tests pass. Rich scenery measured on an M4 (High): draw calls about the same as Classic (merged patches replace instanced boxes), +0.2–0.5 M triangles, built in 55–450 ms at route load. Measured on an M4: 46–88 draw calls, steady 60 FPS; 58–60 FPS on Low
 with the CPU throttled 4×.
 
 **Known limitations and quirks** (don't "fix" these by surprise):
@@ -231,15 +235,17 @@ with the CPU throttled 4×.
   `bakedDoppler`: no extra Doppler) for opposing trains. `horn-india.mp3` is
   only the fallback. The recordists don't name the loco classes. Player horns
   are WAV so their loop points stay sample-accurate.
-- The brick/Utkrisht ICF coaches are **original procedural** bodies built to real
+- The brick ICF and SLR coaches are **original procedural** bodies built to real
   dimensions. GLB bodies (`COACH_MODELS`) are drawn only within `COACH_MODEL_LOD_M` (150 m) of the
   camera (per-model `lodM`: the 76.5k-triangle ICF uses 100 m), with the procedural coach beyond that
   and as the fallback:
-  - **Blue ICF:** the owner's own Blender model (`stock/icf-blue.glb`). Its decals were exported without
-    images, so they were removed (ASSET_CREDITS).
-  - **Red-grey LHB, Humsafar and blue-grey (Shatabdi) LHB:** one uncoloured CC BY model (`stock/lhb.glb`),
-    painted per livery in the shader (`coachLiveries.js`) after the owner's photos. The Shatabdi rake
-    still uses the 3AC sleeper interior. These are approximations; no lettering.
+  - **ICF:** the owner's own Blender model (`stock/icf-blue.glb`), for the blue ICF and for the Utkrisht
+    (its blue body and band repainted cream with a maroon stripe). Decals were exported without images,
+    so they were removed (ASSET_CREDITS).
+  - **LHB:** the owner's own Blender model (`stock/lhb-red.glb`). It is drawn in its own red-grey colours;
+    the blue-grey (Shatabdi) swaps its red for sky blue, and Humsafar repaints its sides
+    (`coachLiveries.js`, after the owner's photos). The Shatabdi rake still uses the 3AC sleeper interior.
+  - Brick ICF and the SLR vans stay procedural. These are approximations; no lettering.
 - The WAP-7 traction-motor sound is synthesized; no licence-clean recording of
   an Indian three-phase loco exists.
 - The WAP-7 body texture carries real fleet numbers — see the open question in

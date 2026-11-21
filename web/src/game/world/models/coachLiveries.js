@@ -1,98 +1,82 @@
-// Liveries painted onto an uncoloured GLB coach body in the shader, from the
-// position on the coach (vehicle frame: x along the coach, y up from the rail
-// top, z across). Crisp bands on any triangulation, no texture to load, and one
-// geometry serves every livery.
+// Liveries for GLB coaches that already have colours (palette textures). The
+// game repaints chosen source colours in the shader:
+//   - `recolour` colours are replaced by a livery painted from the position on the
+//     coach (vehicle frame: x along the coach, y up from the rail top, z across),
+//     so crisp bands and patterns need no texture and no second model;
+//   - `swap` colours are replaced by a plain colour.
+// Every other colour of the model is kept.
 //
-// Measurements are taken from stock/lhb.glb as the game loads it (see
-// ASSET_CREDITS). Colours and band shapes follow the owner's reference photos
-// (2026-11-21) of a red-grey LHB 3AC, a Humsafar coach and a blue-grey LHB chair car; they are a game
-// approximation, not an official colour specification.
+// The models' source colours are matched exactly: a palette texel is an 8-bit sRGB
+// value, decoded to the same linear value every time, so a tight tolerance keeps
+// near-identical greys (e.g. interior metal next to the body band) apart.
+//
+// Colours and shapes follow the owner's reference photos (2026-11-21) of a Humsafar
+// coach and a Utkrisht coach; they are a game approximation, not an official
+// colour specification.
 import * as THREE from 'three';
 
-/** stock/lhb.glb in the vehicle frame (metres). */
+/** stock/icf-blue.glb (owner's model) in the vehicle frame (metres). */
+export const ICF_BODY = {
+  sideBottom: 1.0,
+  bandBottom: 1.98, // the pale-blue window band of the blue livery
+  sideTop: 3.42,
+};
+
+/** stock/lhb-red.glb (owner's model) in the vehicle frame (metres). */
 export const LHB_BODY = {
-  sideBottom: 1.1, // bottom edge of the body side
-  sideTop: 3.25, // cant rail: the roof starts above
-  windowBottom: 1.9,
-  doors: [
-    [-10.11, -9.02],
-    [8.8, 9.89],
-  ],
-  ends: [-11.66, 11.44], // body end walls
+  sideBottom: 1.06,
+  redBottom: 1.8, // bottom of the red band (grey below)
+  windowBottom: 2.06,
+  sideTop: 3.38, // top of the red band; the grey upper band curves into the roof above
 };
 
 const vec3 = (hex) => {
   const c = new THREE.Color(hex); // linear, as the shader works
-  return `vec3(${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)})`;
+  return `vec3(${c.r.toFixed(5)}, ${c.g.toFixed(5)}, ${c.b.toFixed(5)})`;
 };
 
-const B = LHB_BODY;
-// Shared helpers: p = position, n = normal (both object space)
 const COMMON = /* glsl */ `
   bool livIsEnd(vec3 n) { return abs(n.x) > 0.65; }
-  bool livInDoor(float x) {
-    return (x > ${B.doors[0][0].toFixed(3)} && x < ${B.doors[0][1].toFixed(3)}) || (x > ${B.doors[1][0].toFixed(3)} && x < ${B.doors[1][1].toFixed(3)});
-  }
-  // 0 at the outer edge of the door, 1 at the end of the body; < 0 elsewhere
-  float livEndZone(float x) {
-    if (x < ${B.doors[0][0].toFixed(3)}) return (${B.doors[0][0].toFixed(3)} - x) / ${(B.doors[0][0] - B.ends[0]).toFixed(3)};
-    if (x > ${B.doors[1][1].toFixed(3)}) return (x - ${B.doors[1][1].toFixed(3)}) / ${(B.ends[1] - B.doors[1][1]).toFixed(3)};
-    return -1.0;
-  }
+  bool livNear(vec3 a, vec3 b) { return all(lessThan(abs(a - b), vec3(0.0018))); }
 `;
 
-/** The standard LHB layout: a colour band through the windows over a grey foot (see lhbRed). */
-function bandLivery({ band, bandBottom, grey = '#c8cdd2', roof = '#c3c7cb', endWall = '#9ba3ab' }) {
-  return /* glsl */ `
-    vec3 liveryColor(vec3 p, vec3 n) {
-      vec3 band = ${vec3(band)};
-      vec3 grey = ${vec3(grey)};
-      vec3 roof = ${vec3(roof)};
-      vec3 endWall = ${vec3(endWall)};
-      vec3 under = ${vec3('#3a3d40')};
-      if (p.y > ${B.sideTop.toFixed(3)}) return roof;
-      if (livIsEnd(n)) return endWall;
-      if (p.y < ${B.sideBottom.toFixed(3)}) return under;
-      if (livInDoor(p.x)) return band;
-      float bandBottom = ${bandBottom.toFixed(3)};
-      if (p.y < bandBottom) return grey;
-      float u = livEndZone(p.x);
-      if (u >= 0.0) {
-        float t = (p.y - bandBottom) / (${B.sideTop.toFixed(3)} - bandBottom);
-        return u < t ? band : grey;
-      }
-      return band;
-    }
-  `;
-}
+const I = ICF_BODY;
+const L = LHB_BODY;
 
 const LIVERIES = {
-  // Red-grey LHB: red from the cant rail to below the windows, light grey under it,
-  // red doors, and past each door the red ends on a diagonal (door's foot → body's top corner).
-  lhbRed: bandLivery({ band: '#d9252a', bandBottom: 1.58 }),
-  // Blue-grey LHB (Shatabdi / Gatimaan chair cars): the same layout in sky blue.
-  lhbBlue: bandLivery({ band: '#3a8ee2', bandBottom: 1.62, grey: '#bcc1c6' }),
-  // Humsafar: white roof, turquoise body with a faint ornamental pattern, and along the
-  // bottom an orange strip with yellow and green hills rising towards the windows.
+  // Utkrisht ICF (2018): cream body with a maroon stripe below the windows, over the blue
+  // ICF's body and band. Stripe placed at the same proportion of the side as in the photo.
+  icfUtkrisht: /* glsl */ `
+    vec3 liveryColor(vec3 p, vec3 n) {
+      vec3 cream = ${vec3('#e6d4a6')};
+      vec3 creamEnd = ${vec3('#d6c497')};
+      vec3 maroon = ${vec3('#9a1c22')};
+      if (livIsEnd(n)) return creamEnd;
+      float h = ${(I.bandBottom - I.sideBottom).toFixed(3)};
+      if (p.y < ${I.bandBottom.toFixed(3)} - 0.33 * h && p.y > ${I.bandBottom.toFixed(3)} - 0.45 * h) return maroon;
+      return cream;
+    }
+  `,
+  // Humsafar on the LHB: white above the side, turquoise body with a faint lace motif, and
+  // along the bottom an orange strip with yellow and green hills rising towards the windows.
   humsafar: /* glsl */ `
     vec3 liveryColor(vec3 p, vec3 n) {
       vec3 teal = ${vec3('#27b2d3')};
       vec3 tealDark = ${vec3('#1b93bd')};
-      vec3 roof = ${vec3('#eef0ef')};
+      vec3 white = ${vec3('#eef0ef')};
       vec3 endWall = ${vec3('#d9dcdc')};
-      vec3 under = ${vec3('#3a3d40')};
       vec3 orange = ${vec3('#ea6a25')};
       vec3 yellow = ${vec3('#f3b232')};
       vec3 green = ${vec3('#7dbb3c')};
-      if (p.y > ${B.sideTop.toFixed(3)}) return roof;
+      if (p.y > ${L.sideTop.toFixed(3)}) return white;
       if (livIsEnd(n)) return endWall;
-      if (p.y < ${B.sideBottom.toFixed(3)}) return under;
-      if (p.y < 1.33) return orange;
-      float yellowTop = 1.33 + 0.36 * pow(0.5 + 0.5 * sin(p.x * 0.52 + 1.3), 1.6);
-      float greenTop = 1.33 + 0.27 * pow(0.5 + 0.5 * sin(p.x * 0.83 - 0.6), 2.4);
+      float foot = ${(L.sideBottom + 0.25).toFixed(3)};
+      if (p.y < foot) return orange;
+      float rise = ${(L.windowBottom - L.sideBottom - 0.25 - 0.18).toFixed(3)};
+      float yellowTop = foot + rise * pow(0.5 + 0.5 * sin(p.x * 0.52 + 1.3), 1.6);
+      float greenTop = foot + 0.75 * rise * pow(0.5 + 0.5 * sin(p.x * 0.83 - 0.6), 2.4);
       if (p.y < greenTop) return green;
       if (p.y < yellowTop) return yellow;
-      // damask-like motif, low contrast
       vec2 q = vec2(p.x, p.y) * 9.0;
       float lace = abs(sin(q.x + sin(q.y * 0.5) * 1.6) * sin(q.y + sin(q.x * 0.5) * 1.6));
       return mix(teal, tealDark, smoothstep(0.82, 0.98, lace) * 0.35);
@@ -100,21 +84,29 @@ const LIVERIES = {
   `,
 };
 
-/** A copy of `base` whose colour is the given livery (keeps its roughness/metalness). */
-export function makeLiveryMaterial(base, livery) {
-  const glsl = LIVERIES[livery];
-  if (!glsl) throw new Error(`unknown coach livery ${livery}`);
+/**
+ * A copy of `base` with some of its colours repainted (keeps roughness/metalness).
+ * @param {{ livery?: string, recolour?: string[], swap?: [string, string][] }} spec
+ *   livery + recolour: these source colours take the livery painted by position;
+ *   swap: [[from, to], …] plain colour replacements.
+ */
+export function makeLiveryMaterial(base, { livery = null, recolour = [], swap = [] } = {}) {
+  const glsl = livery ? LIVERIES[livery] : '';
+  if (livery && !glsl) throw new Error(`unknown coach livery ${livery}`);
   const m = base.clone();
-  m.color.set('#ffffff');
-  m.name = `${base.name}:${livery}`;
+  m.name = `${base.name}:${livery ?? 'swap'}`;
+  const lines = [];
+  if (livery && recolour.length) lines.push(`if (${recolour.map((hex) => `livNear(diffuseColor.rgb, ${vec3(hex)})`).join(' || ')}) diffuseColor.rgb = liveryColor(vLivPos, normalize(vLivNormal));`);
+  for (const [from, to] of swap) lines.push(`${lines.length ? 'else ' : ''}if (livNear(diffuseColor.rgb, ${vec3(from)})) diffuseColor.rgb = ${vec3(to)};`);
   m.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vLivPos;\nvarying vec3 vLivNormal;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLivPos = position;\nvLivNormal = normal;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>\nvarying vec3 vLivPos;\nvarying vec3 vLivNormal;\n${COMMON}\n${glsl}`)
-      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= liveryColor(vLivPos, normalize(vLivNormal));');
+      .replace('#include <color_fragment>', `#include <color_fragment>\n${lines.join('\n')}`);
   };
-  m.customProgramCacheKey = () => `coach-livery-${livery}`;
+  const key = `coach-livery-${livery}-${recolour.join('')}-${swap.flat().join('')}`;
+  m.customProgramCacheKey = () => key;
   return m;
 }
