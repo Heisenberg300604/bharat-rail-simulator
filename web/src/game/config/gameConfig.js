@@ -131,6 +131,9 @@ export const CONSISTS = {
   humsafar: { label: 'Humsafar Express LHB (3AC)', type: 'lhb', livery: 'humsafar', count: 8, massT: 50, passenger: true },
   // new, additive: blue-grey LHB chair cars, as on the Shatabdi and Gatimaan Expresses
   shatabdi: { label: 'Shatabdi Express LHB (blue chair cars)', type: 'lhb', livery: 'lhbBlue', count: 8, massT: 50, passenger: true },
+  // new, additive: vinyl-wrapped LHB rakes (artwork painted by the game, liveryArt.js)
+  tejas: { label: 'Tejas Express LHB (golden-orange)', type: 'lhb', livery: 'tejas', count: 8, massT: 50, passenger: true },
+  duronto: { label: 'Duronto Express LHB (meadow livery)', type: 'lhb', livery: 'duronto', count: 8, massT: 50, passenger: true },
   freight: { label: 'Freight: BOXN coal wagons + BVZI brake van', type: 'boxn', livery: 'boxn', count: 20, massT: 81, passenger: false, brakeVan: 'bvzi' },
   // BCNA loaded: tare 24.55 t + payload 56.73 t = 81.28 t gross (IRIMEE wagon notes)
   freightBcna: { label: 'Freight: BCNA covered wagons + BVZI brake van', type: 'bcna', livery: 'bcna', count: 20, massT: 81.28, passenger: false, brakeVan: 'bvzi' },
@@ -272,7 +275,7 @@ export const COACH_TYPES = {
 // recolour + livery / swap: repaint some of the model's own colours (coachLiveries.js).
 // Both models are the owner's own Blender work (see ASSET_CREDITS):
 //   icf-blue.glb: blue ICF; icf-utkrisht repaints its blue body and band cream + maroon
-//   lhb-red.glb: red-grey LHB 3AC (LWACCN); lhb-blue and lhb-humsafar repaint its red
+//   lhb-red.glb: red-grey LHB 3AC (LWACCN); lhb-blue, -humsafar, -tejas and -duronto repaint it
 const LHB_RED = '#c4222b'; // lhb-red.glb: red band and doors
 const LHB_GREY_BAND = '#b4b7bb'; // lhb-red.glb: grey lower and upper bands
 export const COACH_MODELS = {
@@ -303,6 +306,9 @@ export const COACH_MODELS = {
       ['#8f9296', '#d9dcdc'], // end walls → light grey
     ],
   },
+  // Tejas and Duronto: the whole side takes painted artwork (world/models/liveryArt.js)
+  'lhb-tejas': { file: 'lhb-red.glb', treadDrop: 0.028, lodM: 100, livery: 'tejas', recolour: [LHB_RED, LHB_GREY_BAND] },
+  'lhb-duronto': { file: 'lhb-red.glb', treadDrop: 0.028, lodM: 100, livery: 'duronto', recolour: [LHB_RED, LHB_GREY_BAND] },
 };
 // The GLB body (tens of thousands of triangles) is drawn only for coaches this close to the
 // camera; further away the procedural body (a few hundred) stands in. Every ICF in the world
@@ -317,6 +323,8 @@ export const LIVERIES = {
   wap4: { paint: '#7a1f22', paint2: '#e9d27a' }, // deep red/maroon body, yellow-cream waist band
   lhb: { paint: '#d8262b', paint2: '#b9bdc1' }, // standard red-grey LHB scheme
   lhbBlue: { paint: '#3a8ee2', paint2: '#bcc1c6' }, // sky blue over grey (Shatabdi/Gatimaan LHB chair cars; owner's photo 2026-11-21)
+  tejas: { paint: '#f6a326', paint2: '#ec7a1b' }, // golden orange (procedural stand-in beyond the LOD distance)
+  duronto: { paint: '#9cbd3a', paint2: '#b9bcbe' }, // meadow green-yellow over a grey foot (stand-in)
   humsafar: { paint: '#27b2d3', paint2: '#ec9a35' }, // turquoise body, orange/yellow foot (procedural stand-in beyond the LOD distance)
   icfBlue: { paint: '#24448f', paint2: '#a9d3e0' }, // classic ICF: dark blue body, pale-blue window band
   // Historic ICF brick red (1955–1990s) and the 2018 "Utkrisht" beige & maroon
