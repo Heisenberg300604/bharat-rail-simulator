@@ -344,6 +344,10 @@ Found through the Freesound API (search plus geotag filter for India), shortlist
   - `lhb-red`: drawn in its own colours.
   - `lhb-blue` (Shatabdi/Gatimaan, player and AI): its red `#c4222b` is swapped for sky blue.
   - `lhb-humsafar`: its red and grey bands are repainted with the Humsafar artwork, and the roof and end walls go white (`coachLiveries.js`, after the owner's photo).
+- `lhb-tejas`, `lhb-duronto` (new consists `tejas`, `duronto`): the red and grey bands sample side artwork painted by the game (`world/models/liveryArt.js`), after the owner's photos (2026-11-21). These are original approximations, not the IR vinyl artwork.
+  - Tejas: a golden-orange gradient, guilloche waves, rosettes and the name.
+  - Duronto: a meadow of brush strokes over value noise, with a grey foot.
+  - Cost: 1 texture fetch per pixel, a 2048×256 texture (~2.8 MB on the GPU), painted in 3–55 ms on first use. Same draw calls and triangles as the red rake.
 - Blue ICF model, Utkrisht: `icf-utkrisht` uses `icf-blue.glb` with its blue body and band repainted cream with a maroon stripe (after the owner's photo). Its teal window frames and shutters become grey and its gold lettering blue.
 
 ## Retired: "IR Hamsafar LHB 3AC" (was `stock/lhb.glb`, 2026-11-21, same day)

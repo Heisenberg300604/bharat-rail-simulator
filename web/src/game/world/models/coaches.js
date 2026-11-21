@@ -155,6 +155,8 @@ function sideTextures() {
     'lhb-red': makeLhbSideTexture({ primary: LIVERIES.lhb.paint, secondary: LIVERIES.lhb.paint2, label: 'AC 3 TIER', ...boards }),
     'lhb-blue': makeLhbSideTexture({ primary: LIVERIES.lhbBlue.paint, secondary: LIVERIES.lhbBlue.paint2, label: 'AC CHAIR CAR', ...boards }),
     'lhb-humsafar': makeLhbSideTexture({ primary: LIVERIES.humsafar.paint, secondary: LIVERIES.humsafar.paint2, label: 'AC 3 TIER', ...boards }),
+    'lhb-tejas': makeLhbSideTexture({ primary: LIVERIES.tejas.paint, secondary: LIVERIES.tejas.paint2, label: 'AC CHAIR CAR', ...boards }),
+    'lhb-duronto': makeLhbSideTexture({ primary: LIVERIES.duronto.paint, secondary: LIVERIES.duronto.paint2, label: 'AC 3 TIER', ...boards }),
   };
   for (const [key, liv] of Object.entries(ICF_VARIANTS)) {
     const l = LIVERIES[liv];
@@ -214,6 +216,8 @@ export function getCoachVariants() {
     'lhb-red': make('lhb', 'lhb', tex['lhb-red']),
     'lhb-blue': make('lhb', 'lhbBlue', tex['lhb-blue']),
     'lhb-humsafar': make('lhb', 'humsafar', tex['lhb-humsafar']),
+    'lhb-tejas': make('lhb', 'tejas', tex['lhb-tejas']),
+    'lhb-duronto': make('lhb', 'duronto', tex['lhb-duronto']),
   };
   for (const [key, liv] of Object.entries(ICF_VARIANTS)) {
     shared[key] = make('icf', liv, tex[key]);
@@ -234,7 +238,7 @@ export function coachVariantKey(type, livery, slr = false) {
     const key = livery === 'icfBrick' ? 'icf-brick' : livery === 'icfUtkrisht' ? 'icf-utkrisht' : 'icf-blue';
     return slr ? `${key}-slr` : key;
   }
-  if (livery === 'humsafar') return 'lhb-humsafar';
+  if (livery === 'humsafar' || livery === 'tejas' || livery === 'duronto') return `lhb-${livery}`;
   return livery === 'lhbBlue' || livery === 'blue' ? 'lhb-blue' : 'lhb-red';
 }
 

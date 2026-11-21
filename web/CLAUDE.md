@@ -20,7 +20,7 @@ React Three Fiber 9.** No other dependencies, no backend, no paid services.
 
 ```bash
 npm run dev      # http://localhost:5173
-npm test         # node --test — 118 tests, all passing; run before claiming done
+npm test         # node --test — 119 tests, all passing; run before claiming done
 npm run build    # static dist/  (vite base: './' so it works in a sub-folder)
 ```
 
@@ -112,7 +112,7 @@ can be unit-tested with `node --test`. Keep it that way.
 | `audio/audioManifest.js` | File URLs + mix levels; rail recordings are **discovered at runtime** from `rail/sounds.json` |
 | `world/` (rich scenery) | `richScenery.js` (placement: houses, towns, slums, walls, poles, towers, kilns, trees, animals, villagers → per-600 m `Kit`s), `kit.js` (merged flat-shaded mesh builder, 1 draw call per patch), `sceneryAtlas.js` (canvas atlas + the kit material, night windows), `ChunkedMeshes.jsx`, `occupancy.js` (+test), `placement.js` (yard/town/bridge/footprint helpers shared with `Scenery.jsx`), `models/houses.js`, `models/props.js`, `models/plants.js`, `models/animals.js` |
 | `world/` | `modelBuilder`, `geometry`, `textures` (canvas-drawn), `trackLayout` (rebuilt per route), `roadLayout`, `terrain` (height in route coords: zones, cuttings, tunnels hills, rivers, sea), `biomes` (per-route scenery kits), `environment`, `glow`, `ChunkedInstances.jsx` |
-| `world/models/` | `trainModels` (bogies, wheelsets, fallback loco), `coaches` (original ICF/LHB bodies; destination boards follow the route), `coachLiveries` (repaints chosen colours of a GLB coach in the shader: liveries by position, colour swaps), `loadGlbModel` (+ `measureLampAnchors`: lamps sit on the model's real nose), `roadVehicles`, `people` |
+| `world/models/` | `trainModels` (bogies, wheelsets, fallback loco), `coaches` (original ICF/LHB bodies; destination boards follow the route), `coachLiveries` (repaints chosen colours of a GLB coach in the shader: liveries by position, colour swaps), `liveryArt` (Tejas/Duronto side artwork painted once on a canvas, built on first use), `loadGlbModel` (+ `measureLampAnchors`: lamps sit on the model's real nose), `roadVehicles`, `people` |
 | `components/Train/` | `Train.jsx` (the rake), `CabInterior` (WAP-7/WAG-9 cab after IRFCA/RDSO, sources in ASSET_CREDITS; `buildCabMoving().update(dt, ctx)` moves the TE/BE stick, reverser, A9, horn stick, wipers), `cabDisplays.js` (ONE live canvas for every gauge, lamp, DDU, speedometer and the Kavach DMI, redrawn ~8×/s in cab view), `CoachInterior` |
 | `components/Track/TrackRoute.jsx` | Rails, sleepers, ballast, OHE |
 | `components/Stations/Station.jsx` | Platforms, buildings, boards, lighting |
@@ -204,7 +204,7 @@ can be unit-tested with `node --test`. Keep it that way.
 
 Milestones 0–6 done; milestone 7 (performance & release) partial. Six
 routes (routes plan steps 1–7 implemented). Wave 1 of ENHANCEMENTS_PLAN done,
-plus A1/A2/A3/A5, D1, B5 (partial), D4, the WAP-4/WCAM-1/BVZI/BCNA models, rich scenery (default), the derailment-site scenario and AI halts, the GLB ICF and LHB/Humsafar/Shatabdi coaches. 118 tests pass. Rich scenery measured on an M4 (High): draw calls about the same as Classic (merged patches replace instanced boxes), +0.2–0.5 M triangles, built in 55–450 ms at route load. Measured on an M4: 46–88 draw calls, steady 60 FPS; 58–60 FPS on Low
+plus A1/A2/A3/A5, D1, B5 (partial), D4, the WAP-4/WCAM-1/BVZI/BCNA models, rich scenery (default), the derailment-site scenario and AI halts, the GLB ICF and LHB/Humsafar/Shatabdi/Tejas/Duronto coaches. 119 tests pass. Rich scenery measured on an M4 (High): draw calls about the same as Classic (merged patches replace instanced boxes), +0.2–0.5 M triangles, built in 55–450 ms at route load. Measured on an M4: 46–88 draw calls, steady 60 FPS; 58–60 FPS on Low
 with the CPU throttled 4×.
 
 **Known limitations and quirks** (don't "fix" these by surprise):
@@ -244,7 +244,9 @@ with the CPU throttled 4×.
     so they were removed (ASSET_CREDITS).
   - **LHB:** the owner's own Blender model (`stock/lhb-red.glb`). It is drawn in its own red-grey colours;
     the blue-grey (Shatabdi) swaps its red for sky blue, and Humsafar repaints its sides
-    (`coachLiveries.js`, after the owner's photos). The Shatabdi rake still uses the 3AC sleeper interior.
+    (`coachLiveries.js`, after the owner's photos); Tejas and Duronto sample painted artwork (`liveryArt.js`,
+    one 2048×256 texture each, ~2.8 MB GPU, made only when that rake appears). The Shatabdi rake still uses
+    the 3AC sleeper interior.
   - Brick ICF and the SLR vans stay procedural. These are approximations; no lettering.
 - The WAP-7 traction-motor sound is synthesized; no licence-clean recording of
   an Indian three-phase loco exists.

@@ -298,7 +298,7 @@ test('the Humsafar rake is an LHB passenger consist with its own coach variant',
   assert.equal(coachVariantKey(c.type, c.livery), 'lhb-humsafar');
   assert.ok(LIVERIES.humsafar, 'procedural stand-in livery');
   // every GLB coach body replaces an existing procedural variant
-  for (const key of Object.keys(COACH_MODELS)) assert.ok(['icf-blue', 'icf-utkrisht', 'lhb-red', 'lhb-humsafar', 'lhb-blue'].includes(key), key);
+  for (const key of Object.keys(COACH_MODELS)) assert.ok(['icf-blue', 'icf-utkrisht', 'lhb-red', 'lhb-humsafar', 'lhb-blue', 'lhb-tejas', 'lhb-duronto'].includes(key), key);
 });
 
 test('the Shatabdi rake uses the blue-grey LHB chair cars', () => {
@@ -448,5 +448,18 @@ test('first coach couples to the loco: couplers meet, and a gap is never widened
       const g = firstCoachGap(loco, type);
       assert.ok(g >= 0 && g <= (COACH_TYPES[type].gap ?? FORMATION.couplingGap), `${loco}+${type}: ${g}`);
     }
+  }
+});
+
+test('Tejas and Duronto rakes are LHB consists painted on the owner\'s LHB model', () => {
+  for (const id of ['tejas', 'duronto']) {
+    const c = CONSISTS[id];
+    assert.ok(c, `CONSISTS.${id}`);
+    assert.equal(c.type, 'lhb');
+    const key = coachVariantKey(c.type, c.livery);
+    assert.equal(key, `lhb-${id}`);
+    assert.equal(COACH_MODELS[key].file, COACH_MODELS['lhb-red'].file);
+    assert.equal(COACH_MODELS[key].livery, id);
+    assert.ok(LIVERIES[id], 'procedural stand-in livery');
   }
 });
