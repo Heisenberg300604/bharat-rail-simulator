@@ -324,7 +324,7 @@ Found through the Freesound API (search plus geotag filter for India), shortlist
   - Glass: `KHR_materials_transmission` dropped (it makes three.js render the scene twice). It is now plain alpha glass.
   - Length: scaled ×0.9883 to 22.037 m, the game's ICF pitch (21.337 m + 0.7 m gap), so the buffers meet instead of overlapping.
   - Materials: palette-merged into 3 (opaque, glass, saloon lights). Welded, then simplified with a 1 cm error limit to **76.5k triangles**, then meshopt-compressed. The result is 0.84 MB.
-- In game: replaces the procedural `icf-blue` body via `COACH_MODELS` within `COACH_MODEL_LOD_M` (150 m) of the camera. Further away, and as the fallback, the procedural coach is drawn.
+- In game: replaces the procedural `icf-blue` body via `COACH_MODELS` within 100 m of the camera (`lodM`; it was 150 m until 2026-11-21, when a station view measured 2.9 M triangles / 51 fps, now 2.67 M / 60 fps). Further away, and as the fallback, the procedural coach is drawn.
   - The model's own bogies, wheels, buffers and couplers are used (they don't turn).
   - An invisible box casts its shadow.
   - Saloon lights and window glass glow with the lamps after dark.
@@ -332,6 +332,21 @@ Found through the Freesound API (search plus geotag filter for India), shortlist
 - Cost: at most 4 extra draw calls (3 parts + the shadow box) per GLB coach group.
   - Measured 2026-11-21 (M4, High, NDLS start): every ICF as a GLB was 5.2 M triangles a frame, against 1.87 M procedural.
   - With LOD and the shadow box: 1.76 M far from the train, 1.48 M on open line beside it, 2.9 M on the platform with a parked rake alongside.
+
+## LHB coach, red-grey and Humsafar (`public/assets/models/stock/lhb.glb`, added 2026-11-21)
+
+- Source: "IR Hamsafar LHB 3AC", https://sketchfab.com/3d-models/ir-hamsafar-lhb-3ac-05c5266e1a854c3ca0fe9fefdf331a9d, by kaushal_krishna (https://sketchfab.com/kaushal_krishna). **CC BY 4.0**; licence and credit copied to `stock/lhb-LICENSE.txt`, and credited in the About screen. The owner downloaded it. Original kept (git-ignored) at `incoming-models/ir_hamsafar_lhb_3ac.glb`.
+- Original: glTF (Sketchfab export), 10.7 MB, 293k triangles, 8 materials, **no colours or textures** (every material light grey). It includes a display track (24k triangles).
+- Processing (`incoming-models/process-lhb.mjs`, gltf-transform 4.5 + meshoptimizer):
+  - Display track removed.
+  - Parts regrouped into four materials the game recognises: `LHB_Body`, `LHB_Window`, `LHB_Details` (roof AC units, door frames, handrails, end fittings) and `LHB_Running` (bogies, wheelsets, couplers, tanks).
+  - Scaled ×0.8205 to 24.04 m over couplers, the game's LHB pitch (23.54 m + 0.5 m gap). That gives a 23.1 m body, 4.10 m above rail (real 4.04 m) and 3.14 m wide (real ≈3.24 m). The wheels are drawn oversized by the artist (≈1.15 m against the real 0.915 m).
+  - Welded and simplified with a ~1.2 cm error limit to **30.2k triangles** (the source was heavily over-tessellated; no visible loss). Meshopt-compressed to 0.33 MB.
+- Liveries (`world/models/coachLiveries.js`) are painted in the shader from the position on the body, measured on this model (`LHB_BODY`).
+  - **Red-grey** (`lhb-red`, replaces the procedural red LHB within the LOD distance): red from the cant rail to below the windows, light grey below, red doors, and past each door the red ends on a diagonal.
+  - **Humsafar** (`lhb-humsafar`, new consist `humsafar`): white roof, turquoise body with a faint lace motif, and an orange foot with yellow and green hills.
+  - Colours and shapes follow the owner's reference photos (2026-11-21). **They are a game approximation, not an RDSO/IR colour specification.** Lettering, badges and the Humsafar artwork are not reproduced.
+- Cost: 4 parts + the shadow box per coach group, drawn only within `COACH_MODEL_LOD_M` (150 m). Beyond that the procedural LHB is drawn (for Humsafar, a turquoise-and-orange stand-in). Measured 2026-11-21 (M4, High, open line beside the train): 1.47 M triangles (red) and 1.46 M (Humsafar) a frame.
 
 ## Wayside station building (`public/assets/models/station/station-building.glb`, added 2026-11-15)
 

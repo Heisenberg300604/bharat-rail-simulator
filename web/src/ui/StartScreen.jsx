@@ -270,7 +270,11 @@ function About() {
         <a href="https://sketchfab.com/3d-models/bvzi--brake--van-indian-train-c077c09c16de4be28c7cfc7cb09c83ed" target="_blank" rel="noreferrer">
           “BVZI_ Brake_ Van_indian_train”
         </a>{' '}
-        by GameChangz (krupesh2736), CC BY 4.0 (optimised). Horn:{' '}
+        by GameChangz (krupesh2736), CC BY 4.0 (optimised). LHB coach (red-grey and Humsafar):{' '}
+        <a href="https://sketchfab.com/3d-models/ir-hamsafar-lhb-3ac-05c5266e1a854c3ca0fe9fefdf331a9d" target="_blank" rel="noreferrer">
+          “IR Hamsafar LHB 3AC”
+        </a>{' '}
+        by kaushal_krishna, CC BY 4.0 (scaled, simplified; liveries painted by the game). Horn:{' '}
         <a href="https://freesound.org/s/248229/" target="_blank" rel="noreferrer">
           “Train Horn”
         </a>{' '}

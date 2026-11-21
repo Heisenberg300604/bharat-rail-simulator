@@ -154,6 +154,7 @@ function sideTextures() {
   const out = {
     'lhb-red': makeLhbSideTexture({ primary: LIVERIES.lhb.paint, secondary: LIVERIES.lhb.paint2, label: 'AC 3 TIER', ...boards }),
     'lhb-blue': makeLhbSideTexture({ primary: LIVERIES.lhbBlue.paint, secondary: LIVERIES.lhbBlue.paint2, label: 'AC CHAIR CAR', ...boards }),
+    'lhb-humsafar': makeLhbSideTexture({ primary: LIVERIES.humsafar.paint, secondary: LIVERIES.humsafar.paint2, label: 'AC 3 TIER', ...boards }),
   };
   for (const [key, liv] of Object.entries(ICF_VARIANTS)) {
     const l = LIVERIES[liv];
@@ -212,6 +213,7 @@ export function getCoachVariants() {
   shared = {
     'lhb-red': make('lhb', 'lhb', tex['lhb-red']),
     'lhb-blue': make('lhb', 'lhbBlue', tex['lhb-blue']),
+    'lhb-humsafar': make('lhb', 'humsafar', tex['lhb-humsafar']),
   };
   for (const [key, liv] of Object.entries(ICF_VARIANTS)) {
     shared[key] = make('icf', liv, tex[key]);
@@ -232,6 +234,7 @@ export function coachVariantKey(type, livery, slr = false) {
     const key = livery === 'icfBrick' ? 'icf-brick' : livery === 'icfUtkrisht' ? 'icf-utkrisht' : 'icf-blue';
     return slr ? `${key}-slr` : key;
   }
+  if (livery === 'humsafar') return 'lhb-humsafar';
   return livery === 'lhbBlue' || livery === 'blue' ? 'lhb-blue' : 'lhb-red';
 }
 

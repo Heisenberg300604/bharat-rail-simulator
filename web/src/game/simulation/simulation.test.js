@@ -6,7 +6,7 @@ import { createRoute, vehiclePose, computeFormation } from './routeMath.js';
 import { createTrainState, stepTrain, cycleDirection, createFixedStepper, applyEmergency, speedLimitFor, DIRECTION } from './trainSimulation.js';
 import { createJourney, updateJourney, JOURNEY_STATE } from './journeyManager.js';
 import { createAiTrains, stepAiTrains } from './aiTraffic.js';
-import { TRAIN, ROUTE_SEGMENTS, JOURNEY, FORMATION, COACH_TYPES, AI_TRAINS, LEVEL_CROSSING, FIXED_TIMESTEP, SPEED_LIMITS, trainConfigFor } from '../config/gameConfig.js';
+import { TRAIN, ROUTE_SEGMENTS, JOURNEY, FORMATION, COACH_TYPES, AI_TRAINS, LEVEL_CROSSING, FIXED_TIMESTEP, SPEED_LIMITS, trainConfigFor, CONSISTS, LIVERIES, COACH_MODELS } from '../config/gameConfig.js';
 import { coachVariantKey } from '../world/models/coaches.js';
 
 const DT = FIXED_TIMESTEP;
@@ -287,6 +287,18 @@ test('coachVariantKey correctly maps coach types and liveries', () => {
   assert.equal(coachVariantKey('lhb', 'red'), 'lhb-red');
   assert.equal(coachVariantKey('lhb', 'lhbBlue'), 'lhb-blue');
   assert.equal(coachVariantKey('lhb', 'blue'), 'lhb-blue');
+  assert.equal(coachVariantKey('lhb', 'humsafar'), 'lhb-humsafar');
+});
+
+test('the Humsafar rake is an LHB passenger consist with its own coach variant', () => {
+  const c = CONSISTS.humsafar;
+  assert.ok(c, 'CONSISTS.humsafar exists');
+  assert.equal(c.type, 'lhb');
+  assert.equal(c.passenger, true);
+  assert.equal(coachVariantKey(c.type, c.livery), 'lhb-humsafar');
+  assert.ok(LIVERIES.humsafar, 'procedural stand-in livery');
+  // every GLB coach body replaces an existing procedural variant
+  for (const key of Object.keys(COACH_MODELS)) assert.ok(['icf-blue', 'lhb-red', 'lhb-humsafar'].includes(key), key);
 });
 
 test('AI train formation lengths respect coach types (ICF vs LHB)', () => {
